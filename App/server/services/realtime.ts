@@ -72,6 +72,17 @@ export type WsEvent =
       discussion: unknown;
     }
   | {
+      /**
+       * An AI Employee's turn in this channel started, began or stopped
+       * waiting, or ended (`services/channelTurns.ts`). Who, what and how it
+       * stands — never its steps, which each reader follows over the turn's
+       * own authorized stream.
+       */
+      type: "turn.update";
+      channelId: string;
+      turn: unknown;
+    }
+  | {
       type: "typing";
       channelId: string;
       by: { kind: "user" | "ai"; id: string; name: string };

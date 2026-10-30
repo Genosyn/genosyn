@@ -16,6 +16,7 @@ import { emitMembershipAuthorizationChange } from "./resourceEvents.js";
 import { deleteBrowserRecordingsForCompany } from "./browserRecordings.js";
 import { deleteKeyHealth } from "./modelKeyHealth.js";
 import { AIModel } from "../db/entities/AIModel.js";
+import { AIModelOutage } from "../db/entities/AIModelOutage.js";
 import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -49,6 +50,7 @@ import { BillPayment } from "../db/entities/BillPayment.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { ChannelMessage } from "../db/entities/ChannelMessage.js";
+import { ChannelTurn } from "../db/entities/ChannelTurn.js";
 import { Chart } from "../db/entities/Chart.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
@@ -468,6 +470,8 @@ export async function deleteCompanyCascade(args: {
     );
     await deleteKeyHealth(modelIds, m);
     await m.delete(EmployeeModel, { companyId });
+    // Each spell one of them was unavailable goes with the model.
+    await m.delete(AIModelOutage, { companyId });
     await m.delete(AIModel, { companyId });
     await m.delete(ParallelWorkerResult, { companyId });
     await m.delete(TldrQuestionAction, { companyId });
@@ -693,6 +697,8 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Tag, { companyId });
     await m.delete(Team, { companyId });
     await m.delete(GroupDiscussion, { companyId });
+    // AI Employees' turns in its channels; their activity went above.
+    await m.delete(ChannelTurn, { companyId });
     await m.delete(Channel, { companyId });
     await m.delete(Base, { companyId });
     await m.delete(AIEmployee, { companyId });

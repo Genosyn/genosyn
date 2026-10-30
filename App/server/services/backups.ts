@@ -36,6 +36,7 @@ import {
 import { BackupError } from "./backupErrors.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { bootDurableChatTurnRecovery, stopDurableChatTurnRecovery } from "./durableChatTurns.js";
+import { bootChannelTurnRecovery, stopChannelTurnRecovery } from "./channelTurns.js";
 import {
   forgetModelAvailability,
   startModelAvailabilityWatcher,
@@ -1557,6 +1558,7 @@ export async function restoreFromBackup(id: string): Promise<{
     // otherwise keep firing — and starting runs — across the wipe window.
     stopCron();
     stopDurableChatTurnRecovery();
+    stopChannelTurnRecovery();
     // AI Model outages are rows in the database being replaced; the restored
     // ones are loaded again below.
     forgetModelAvailability();
@@ -1627,6 +1629,7 @@ export async function restoreFromBackup(id: string): Promise<{
     await startModelAvailabilityWatcher();
     await bootCron();
     await bootDurableChatTurnRecovery();
+    await bootChannelTurnRecovery();
     // Ask AI answers captured mid-turn by the archive have no process behind
     // them any more; close them out rather than restoring a spinner.
     await finalizeInterruptedAskAiTurns();

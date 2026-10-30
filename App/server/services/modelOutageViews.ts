@@ -2,6 +2,7 @@ import { In, MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { AIModel } from "../db/entities/AIModel.js";
+import { ChannelTurn } from "../db/entities/ChannelTurn.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -16,7 +17,8 @@ import { attachedModelsByEmployee } from "./models.js";
 /**
  * What an owner reads about an AI Model that is unavailable: since when, why,
  * when it is checked next, and what is waiting for it — the Runs queued or
- * paused on it and the chat messages it has yet to answer.
+ * paused on it and the chat messages it has yet to answer, in direct chat and
+ * in Workspace channels alike.
  */
 
 export type WaitingWork = { runs: number; chats: number };
@@ -114,6 +116,23 @@ export async function waitingWorkByModel(
     if (modelId && wanted.has(modelId)) result.get(modelId)!.runs += 1;
   }
 
+  // A Workspace reply waits on its employee's active model, as it runs on it.
+  const ours = new Set(employeeIds);
+  const waitingReplies = await AppDataSource.getRepository(ChannelTurn).find({
+    where: {
+      companyId,
+      kind: "reply",
+      status: "working",
+      waitingFor: In(["model_unavailable", "model_resuming"]),
+    },
+    select: { id: true, employeeId: true },
+  });
+  for (const reply of waitingReplies) {
+    if (!ours.has(reply.employeeId)) continue;
+    const modelId = modelFor(reply.employeeId, null);
+    if (modelId && wanted.has(modelId)) result.get(modelId)!.chats += 1;
+  }
+
   const waiting = await modelWaitingChatTurns();
   if (waiting.length > 0) {
     const conversations = new Map<string, string>();
@@ -124,7 +143,6 @@ export async function waitingWorkByModel(
       }))
         conversations.set(conversation.id, conversation.employeeId);
     }
-    const ours = new Set(employeeIds);
     for (const message of waiting) {
       const employeeId = conversations.get(message.conversationId);
       if (!employeeId || !ours.has(employeeId)) continue;

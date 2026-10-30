@@ -1,5 +1,4 @@
 import slugify from "slugify";
-import { MODEL_UNAVAILABLE_REPLY } from "../../shared/modelAvailability.js";
 import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Channel, ChannelKind } from "../db/entities/Channel.js";
@@ -27,7 +26,9 @@ import {
 } from "./listPaging.js";
 import { broadcastToCompany } from "./realtime.js";
 import { attachmentsForMessages, bindAttachmentsToMessage } from "./uploads.js";
-import { streamChatWithEmployee, ChatTurn } from "./chat.js";
+import { INTERRUPTED_BEFORE_REPLY, type ChatTurn } from "./chat.js";
+import { ChannelTurn } from "../db/entities/ChannelTurn.js";
+import { messageTurnInfo, turnsForMessages, type MessageTurnInfo } from "./channelTurnViews.js";
 import { Company } from "../db/entities/Company.js";
 import { createNotifications } from "./notifications.js";
 import { ensureUserHandles } from "./userHandle.js";
@@ -48,11 +49,12 @@ import {
  *    return it instead of spawning a second one. See `findOrCreateDM`.
  *
  * 2. **@mention → AI reply.** After a message is persisted the service
- *    scans for `@<employee-slug>` tokens, spawns each matching employee
- *    via the shared chat seam, and persists the reply as a follow-up
- *    `authorKind: 'ai'` message in the same channel. Runs asynchronously
- *    so the POST returns fast and the client sees the AI reply arrive
- *    over the WebSocket when the CLI finishes.
+ *    scans for `@<employee-slug>` tokens and starts one reply turn per
+ *    matching employee (`channelTurns.ts`): durable, followed live by
+ *    everyone in the room, waiting rather than failing while its AI Model
+ *    is unavailable, and persisted as a follow-up `authorKind: 'ai'`
+ *    message in the same channel once it ends. The POST returns at once;
+ *    the room sees the turn start, work and land over the WebSocket.
  */
 
 export type AuthorSnapshot =
@@ -105,6 +107,12 @@ export type MessageSummary = {
   /** The group discussion this message belongs to, and what it is to it. */
   discussionId: string | null;
   discussionRole: ChannelMessageDiscussionRole | null;
+  /**
+   * The AI turn that wrote this message, for one an AI Employee's turn
+   * wrote: how it ended and "Worked for 2m 14s · 9 steps". Its steps are read
+   * from the turn's own route, which decides what each reader may see.
+   */
+  aiTurn: MessageTurnInfo | null;
 };
 
 export type ReactionSummary = {
@@ -684,6 +692,11 @@ export async function insertChannelMessage(params: {
   tainted?: boolean;
   /** Whose `byMe` the broadcast reactions are computed for. */
   viewerUserId?: string | null;
+  /**
+   * The AI turn writing this message (`ChannelTurn`). Linked before the
+   * message is announced, so every open page shows how the turn went with it.
+   */
+  turnId?: string | null;
 }): Promise<{ row: ChannelMessage; summary: MessageSummary }> {
   const { channels, messages } = repos();
   const row = await messages.save(
@@ -705,6 +718,12 @@ export async function insertChannelMessage(params: {
   );
   if (params.attachmentIds && params.attachmentIds.length > 0) {
     await bindAttachmentsToMessage(params.attachmentIds, row.id, params.channel.companyId);
+  }
+  if (params.turnId) {
+    await AppDataSource.getRepository(ChannelTurn).update(
+      { id: params.turnId },
+      { replyMessageId: row.id },
+    );
   }
   await channels.update({ id: params.channel.id }, { lastMessageAt: row.createdAt });
   const summary = await hydrateMessage(row, params.viewerUserId ?? null);
@@ -1254,6 +1273,15 @@ async function hydrateMessage(
   return list;
 }
 
+/** One message as a reader sees it, or null when it is gone. */
+export async function getMessageSummary(
+  messageId: string,
+  viewerUserId: string | null,
+): Promise<MessageSummary | null> {
+  const row = await repos().messages.findOneBy({ id: messageId });
+  return row ? hydrateMessage(row, viewerUserId) : null;
+}
+
 async function hydrateMessages(
   msgs: ChannelMessage[],
   viewerUserId: string | null,
@@ -1268,7 +1296,7 @@ async function hydrateMessages(
     if (m.authorEmployeeId) empIds.add(m.authorEmployeeId);
   }
 
-  const [userRows, empRows, attachmentsByMsg, reactionRows] = await Promise.all([
+  const [userRows, empRows, attachmentsByMsg, reactionRows, turnByMsg] = await Promise.all([
     userIds.size ? users.findBy({ id: In(Array.from(userIds)) }) : Promise.resolve([]),
     empIds.size ? employees.findBy({ id: In(Array.from(empIds)) }) : Promise.resolve([]),
     attachmentsForMessages(msgs.map((m) => m.id)),
@@ -1276,6 +1304,8 @@ async function hydrateMessages(
       .createQueryBuilder("r")
       .where("r.messageId IN (:...ids)", { ids: msgs.map((m) => m.id) })
       .getMany(),
+    // Only an AI Employee's messages can come from a turn.
+    messageTurnInfo(msgs.filter((m) => m.authorKind === "ai").map((m) => m.id)),
   ]);
   const userMap = new Map(userRows.map((u) => [u.id, u]));
   const empMap = new Map(empRows.map((e) => [e.id, e]));
@@ -1377,6 +1407,7 @@ async function hydrateMessages(
       reactions: reactionSummaries,
       discussionId: m.discussionId ?? null,
       discussionRole: m.discussionRole ?? null,
+      aiTurn: turnByMsg.get(m.id) ?? null,
     };
   });
 }
@@ -1399,7 +1430,7 @@ async function handleMentions(args: {
   trigger: DmActor | { kind: "system"; name: string };
   requester: { userId: string; sessionVersion: number } | null;
 }): Promise<void> {
-  const { employees, members, messages: msgRepo } = repos();
+  const { employees, members } = repos();
 
   // Collect candidate AI employees from the @mention tokens AND — for DMs
   // with an AI counterparty — always reply even without an explicit tag, so
@@ -1484,95 +1515,93 @@ async function handleMentions(args: {
 
   // Filter to actual members only.
   respondingEmployees = respondingEmployees.filter((e) => memberEmpIds.has(e.id));
+  if (respondingEmployees.length === 0) return;
 
-  for (const emp of respondingEmployees) {
-    const recentRows = await msgRepo
-      .createQueryBuilder("m")
-      .where("m.channelId = :channelId", { channelId: args.channel.id })
-      .orderBy("m.createdAt", "DESC")
-      .take(20)
-      .getMany();
-    recentRows.reverse();
-    const replayRows = workspaceReplayThroughMessage(recentRows, args.message);
+  // One reply turn per AI Employee, all started at once. Each replays the
+  // room through this message (`workspaceReplayThroughMessage`), so none
+  // waits on — or reads — another's answer, and the room watches every one
+  // of them work (`channelTurns.ts`). Whose authority each runs under is the
+  // message's: the Member who wrote it, the AI colleague's own when an AI
+  // Employee @mentioned it, and nobody's for an incoming webhook.
+  const { enqueueChannelReplies } = await import("./channelTurns.js");
+  await enqueueChannelReplies({
+    channel: args.channel,
+    trigger: args.message,
+    employees: respondingEmployees,
+    authority: args.requester ? "member" : args.trigger.kind === "ai" ? "employee" : "untrusted",
+    requester: args.requester,
+  });
+}
 
-    const imageContext = await attachmentImageContextForMessages(
-      [
-        ...replayRows
-          .filter(
-            (row) => !row.deletedAt && row.authorKind === "user" && row.id !== args.message.id,
-          )
-          .map((row) => row.id),
-        ...(args.message.authorKind === "user" ? [args.message.id] : []),
-      ],
-      args.channel.companyId,
-    );
-    const history: ChatTurn[] = await historyForEmployee(
-      replayRows,
-      emp.id,
-      args.channel.id,
-      args.message.id,
-      args.channel.companyId,
-      imageContext,
-    );
-    const triggerLabel =
-      args.trigger.kind === "user"
-        ? await userLabelFor(args.trigger.userId)
-        : args.trigger.kind === "ai"
-          ? await employeeLabelFor(args.trigger.employeeId)
-          : args.trigger.name;
-    const triggerAttachments = await inlineAttachmentsForMessage(
-      args.message.id,
-      args.channel.companyId,
-    );
-    const framed = framedMention(args.message.content, triggerLabel, triggerAttachments);
+/**
+ * What an AI Employee is given to answer one message in a channel: the room
+ * as it stood through that message (after any `/new` marker), with the
+ * images attached to it, and the message itself framed with who wrote it and
+ * the text of any files on it. Built when the turn runs, not when it was
+ * asked for, so a reply that waited for its AI Model reads the room as it
+ * was asked — the replay never runs past the message it answers.
+ *
+ * `tainted` is whether any message replayed was written by a turn that had
+ * read outside content: replaying it taints this turn as well.
+ */
+export async function composeChannelReplyPrompt(args: {
+  channel: Channel;
+  trigger: ChannelMessage;
+  employeeId: string;
+}): Promise<{
+  prompt: string;
+  history: ChatTurn[];
+  images?: NonNullable<ChatTurn["images"]>;
+  tainted: boolean;
+}> {
+  const { messages: msgRepo } = repos();
+  const recentRows = await msgRepo
+    .createQueryBuilder("m")
+    .where("m.channelId = :channelId", { channelId: args.channel.id })
+    .andWhere("m.createdAt <= :through", {
+      through: args.trigger.createdAt,
+    })
+    .orderBy("m.createdAt", "DESC")
+    .take(20)
+    .getMany();
+  // The trigger itself, even if a sibling shared its second and fell past the cut.
+  if (!recentRows.some((row) => row.id === args.trigger.id)) recentRows.unshift(args.trigger);
+  recentRows.reverse();
+  const replayRows = workspaceReplayThroughMessage(recentRows, args.trigger);
 
-    // Broadcast typing every 3 s while the CLI is thinking so teammates
-    // see a "{name} is typing..." pill instead of silence. The interval
-    // clears in the finally so a CLI crash still stops the indicator.
-    const stopTyping = startTypingBroadcast(args.channel, emp);
-    let result;
-    try {
-      result = await streamChatWithEmployee(
-        args.channel.companyId,
-        emp.id,
-        framed,
-        history,
-        () => {},
-        {
-          // One channel is one transcript, so that is what the reply
-          // serializes on. Mentioning the same employee in two channels asks
-          // for two answers, not a queue.
-          images: imageContext.get(args.message.id),
-          workloadScope: `workspace-channel:${args.channel.id}`,
-          // A message a tainted turn wrote is outside content to whoever
-          // reads it next. Replaying it taints this turn as well.
-          startTainted: replayRows.some((row) => row.tainted),
-          ...(args.requester
-            ? {
-                requesterUserId: args.requester.userId,
-                requesterSessionVersion: args.requester.sessionVersion,
-              }
-            : args.trigger.kind === "ai"
-              ? { toolAuthority: "employee" as const }
-              : { toolAuthority: "untrusted" as const }),
-        },
-      );
-    } finally {
-      stopTyping();
-    }
-
-    await insertChannelMessage({
-      channel: args.channel,
-      author: { kind: "ai", employeeId: emp.id },
-      // An unavailable AI Model is said plainly, not as the error's
-      // technical detail — which the next turn would replay as its own words.
-      content:
-        result.status === "error" && result.unavailable ? MODEL_UNAVAILABLE_REPLY : result.reply,
-      attachmentIds: result.attachmentIds,
-      tainted: result.tainted === true,
-      viewerUserId: args.trigger.kind === "user" ? args.trigger.userId : null,
-    });
-  }
+  const imageContext = await attachmentImageContextForMessages(
+    [
+      ...replayRows
+        .filter((row) => !row.deletedAt && row.authorKind === "user" && row.id !== args.trigger.id)
+        .map((row) => row.id),
+      ...(args.trigger.authorKind === "user" ? [args.trigger.id] : []),
+    ],
+    args.channel.companyId,
+  );
+  const history: ChatTurn[] = await historyForEmployee(
+    replayRows,
+    args.employeeId,
+    args.channel.id,
+    args.trigger.id,
+    args.channel.companyId,
+    imageContext,
+  );
+  const triggerLabel =
+    args.trigger.authorKind === "user" && args.trigger.authorUserId
+      ? await userLabelFor(args.trigger.authorUserId)
+      : args.trigger.authorKind === "ai" && args.trigger.authorEmployeeId
+        ? await employeeLabelFor(args.trigger.authorEmployeeId)
+        : args.trigger.authorName || "system";
+  const triggerAttachments = await inlineAttachmentsForMessage(
+    args.trigger.id,
+    args.channel.companyId,
+  );
+  return {
+    prompt: framedMention(args.trigger.content, triggerLabel, triggerAttachments),
+    history,
+    images: imageContext.get(args.trigger.id),
+    tainted: replayRows.some((row) => row.tainted),
+  };
 }
 
 /**
@@ -1687,13 +1716,14 @@ async function historyForEmployee(
   const empIds = Array.from(
     new Set(rows.filter((r) => r.authorEmployeeId).map((r) => r.authorEmployeeId!)),
   );
-  const [u, e, attachmentSummaries] = await Promise.all([
+  const [u, e, attachmentSummaries, turnByMessage] = await Promise.all([
     userIds.length ? users.findBy({ id: In(userIds) }) : Promise.resolve([]),
     empIds.length ? employees.findBy({ id: In(empIds) }) : Promise.resolve([]),
     historicalAttachmentSummaries(
       rows.filter((r) => r.id !== triggerMessageId).map((r) => r.id),
       companyId,
     ),
+    turnsForMessages(rows.filter((r) => r.authorKind === "ai").map((r) => r.id)),
   ]);
   const uMap = new Map(u.map((x) => [x.id, x.name || x.email]));
   const eMap = new Map(e.map((x) => [x.id, x.name]));
@@ -1703,8 +1733,19 @@ async function historyForEmployee(
   };
   for (const r of rows) {
     if (r.deletedAt || r.id === triggerMessageId) continue;
+    const turn = turnByMessage.get(r.id);
+    // A turn that failed said why — no AI Model, a Standdown, an error — and
+    // that notice is not something anyone in the room said. A stop before a
+    // word was written says nothing at all.
+    if (turn && (turn.status === "error" || turn.status === "skipped")) continue;
+    if (turn?.status === "interrupted" && r.content === INTERRUPTED_BEFORE_REPLY) continue;
+    // A reply someone stopped is what it said, but it stops mid-thought.
+    const cutShort =
+      turn?.status === "interrupted"
+        ? "\n[This reply was cut short — a Member stopped it here.]"
+        : "";
     if (r.authorKind === "ai" && r.authorEmployeeId === employeeId) {
-      turns.push({ role: "assistant", content: annotate(r.id, r.content) });
+      turns.push({ role: "assistant", content: annotate(r.id, `${r.content}${cutShort}`) });
     } else {
       const name =
         r.authorKind === "user" && r.authorUserId
@@ -1714,7 +1755,7 @@ async function historyForEmployee(
             : r.authorName || "system";
       turns.push({
         role: "user",
-        content: annotate(r.id, `${name}: ${r.content}`),
+        content: annotate(r.id, `${name}: ${r.content}${cutShort}`),
         images: imageContext.get(r.id),
       });
     }

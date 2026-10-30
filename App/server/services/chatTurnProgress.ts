@@ -117,14 +117,24 @@ export function createChatTurnProgressRecorder(options: {
  * interval of the screen without a write per token. Every write is
  * conditional on the row still being this worker's `working` turn, so a late
  * one can never overwrite the final reply.
+ *
+ * A direct chat's turn saves onto its assistant message; a Workspace channel
+ * turn passes `save` to write its own row under the same conditions.
  */
-export function createReplyTextSnapshotter(options: {
-  repository: ProgressMessageRepository;
-  messageId: string;
-  workerId: string;
-  intervalMs: number;
-  onPersistenceError?: (error: unknown) => void;
-}) {
+export function createReplyTextSnapshotter(
+  options: {
+    intervalMs: number;
+    onPersistenceError?: (error: unknown) => void;
+  } & (
+    | {
+        repository: ProgressMessageRepository;
+        messageId: string;
+        workerId: string;
+        save?: never;
+      }
+    | { save: (text: string) => Promise<unknown>; repository?: never }
+  ),
+) {
   let latest: string | null = null;
   let written = "";
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -140,6 +150,10 @@ export function createReplyTextSnapshotter(options: {
     lastWriteAt = Date.now();
     pending = pending
       .then(async () => {
+        if (options.save) {
+          await options.save(text);
+          return;
+        }
         await options.repository.update(
           { id: options.messageId, status: "working", turnWorkerId: options.workerId },
           { content: text },
