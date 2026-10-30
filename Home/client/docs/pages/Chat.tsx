@@ -26,13 +26,49 @@ export function Chat() {
         employee creates a file for you, it appears beneath their reply.
       </P>
       <P>
-        To change how hard the employee thinks, pick a level in <Strong>Effort</Strong> under the
-        composer, beside the AI Model picker. It appears when the selected model supports effort and
-        the conversation remembers it — see <DocLink to="/docs/models#effort">Effort</DocLink>. Next
-        to it, Genosyn shows how full the model&apos;s context window is, from the provider&apos;s
-        own token count for the last turn; past 80% it turns amber. If the AI Model has no known
-        window the badge shows the token count alone and links to where the window is set — see{" "}
-        <DocLink to="/docs/models#context-window">AI Models</DocLink>.
+        Under the composer, Genosyn shows how full the model&apos;s context window is, from the
+        provider&apos;s own token count for the last turn; past 80% it turns amber. If the AI Model
+        has no known window the badge shows the token count alone and links to where the window is
+        set — see <DocLink to="/docs/models#context-window">AI Models</DocLink>.
+      </P>
+
+      <H2 id="thinking-level">Thinking level</H2>
+      <P>
+        Beside the AI Model picker, <Strong>Thinking</Strong> always shows the level the next
+        reply runs at — for example <Strong>Thinking · Medium</Strong>. Select it to choose another:
+        Off, Low, Medium, High and Max, plus Minimal, Extra high or Ultra on models that offer them.
+        Higher levels help with hard questions but take longer and cost more. The level belongs to
+        the conversation: it sticks across reloads, other tabs and every message you send there,
+        and changes nothing for your other conversations or the employee&apos;s Routines.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Default</Strong>, at the top of the menu, says what it means on this AI Model —
+          the level your company set for chat on it, or the model&apos;s own (for example Medium on
+          Claude Opus 5.5, Off on Claude Opus 4.7, which only thinks when asked).
+        </LI>
+        <LI>
+          Levels the AI Model cannot run, or your company does not allow on it, stay in the menu
+          but greyed out, each with the reason — <em>This AI Model always thinks; Low is its
+          lightest level</em>, <em>This AI Model tops out at Extra high</em>,{" "}
+          <em>Your company allows up to High on this AI Model</em>.
+        </LI>
+        <LI>
+          Switch the conversation to another AI Model and its level comes along. If the new model
+          cannot run it, the button shows the level it will use instead, with a mark, and the menu
+          says why before you send anything.
+        </LI>
+      </UL>
+      <P>
+        Each reply says the level it actually ran at, quietly under it —{" "}
+        <Strong>Thinking: High</Strong> — with the reason when it differs from the
+        conversation&apos;s. If the AI Model refuses the level partway (a self-hosted server that
+        does not read it, for instance), the employee carries on at the model&apos;s own default,
+        the steps say so, and the reply reads <em>This AI Model didn&apos;t accept High, so it
+        answered at its own default</em>. A level only changes how hard the model thinks: the
+        employee&apos;s tools, Grants and approvals are the same at every level. See{" "}
+        <DocLink to="/docs/models#thinking-level">Thinking levels</DocLink> for what each AI Model
+        does and how owners set the default and the highest level.
       </P>
 
       <H2 id="live-activity">Watching the employee work</H2>
@@ -63,8 +99,10 @@ export function Chat() {
             def: (
               <>
                 Between steps the employee is waiting on its AI Model. When the model shares a
-                summary of its reasoning (OpenAI reasoning summaries, Anthropic thinking), the card
-                shows what it is thinking about and the step holds the summary.
+                summary of its reasoning (OpenAI reasoning summaries, Claude&apos;s thinking, a
+                self-hosted model&apos;s reasoning), the card shows what it is thinking about and
+                the step holds the summary. Genosyn asks for that summary on every chat turn, so a
+                higher <a href="#thinking-level">thinking level</a> shows more of it.
               </>
             ),
           },

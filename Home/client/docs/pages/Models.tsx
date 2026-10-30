@@ -606,27 +606,62 @@ export function Models() {
         since been detached, removed or disconnected.
       </P>
 
-      <H3 id="effort">Effort: how hard the model thinks</H3>
+      <H3 id="thinking-level">Thinking levels: how hard the model thinks</H3>
       <P>
-        Many Anthropic and OpenAI models can think longer before they answer. In the dedicated
-        employee Chat composer, <Strong>Effort</Strong> sits next to the AI Model picker whenever
-        the selected model supports it, including when it is the employee&apos;s only model. It
-        lists only that model&apos;s levels — for example Low, Medium, High, Extra high and Maximum.
-        Higher effort helps with hard problems but takes longer and uses more tokens.{" "}
-        <Strong>Model default</Strong> uses the model&apos;s normal setting. The choice applies to
-        the messages you send in that conversation and changes nothing for the employee&apos;s
-        Routines or other conversations.
+        Many AI Models can think before they answer, and think harder when asked. A Member picks a{" "}
+        <Strong>thinking level</Strong> for each conversation from <Strong>Thinking</Strong> in the
+        Chat composer — Off, Low, Medium, High, Max, and Minimal, Extra high or Ultra where a model
+        offers them — and the level sticks to that conversation (see{" "}
+        <DocLink to="/docs/chat#thinking-level">Chat</DocLink>). Higher levels help with hard
+        problems but take longer and cost more. Genosyn sends each AI Model the level its own way:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Claude 4.6 and later</Strong> — adaptive thinking at that effort. Claude Opus 4.6,
+          4.7 and 4.8 and Sonnet 4.6 think only when asked, so their own default is Off; Claude
+          5-family models always think, so Low is their lightest level and their own default is the
+          API&apos;s (Medium on Claude Opus 5.5 and Haiku 5.5, High on the rest).
+        </LI>
+        <LI>
+          <Strong>Older Claude models</Strong> (Opus 4.5, Sonnet 4.5, Haiku 4.5, Opus 4 and 4.1,
+          Sonnet 4) — a thinking budget sized by the level; Off, their own default, means no
+          thinking.
+        </LI>
+        <LI>
+          <Strong>OpenAI models</Strong> (GPT-5 family, o-series) — their reasoning effort; Off is
+          available where the model has <Code>none</Code>.
+        </LI>
+        <LI>
+          <Strong>ChatGPT sign-ins</Strong> — the Codex runtime&apos;s per-turn effort, from the
+          levels the pinned Codex release lists for the model, Ultra included.
+        </LI>
+        <LI>
+          <Strong>Custom endpoints</Strong> — none until an owner turns{" "}
+          <Strong>Offer thinking levels</Strong> on (below); then Off, Low, Medium and High as{" "}
+          <Code>reasoning_effort</Code>.
+        </LI>
+      </UL>
+      <P>
+        Every level that thinks also asks the model to show a summary of its thinking, which the
+        chat&apos;s live activity displays. If an AI Model refuses the level it is sent, the reply
+        carries on at the model&apos;s own default and says so under it — Genosyn never fails the
+        reply over a level, and never drops one silently. A model Genosyn knows nothing about runs at
+        its own default, and the menu says why its levels are greyed out. Routines and other work
+        no Member chose a level for — replies on Slack, Teams, Telegram or WhatsApp, screening,
+        briefings — run at the AI Model&apos;s own default.
       </P>
       <P>
-        Effort is kept with each message the way the model is: a follow-up queued while the employee
-        is still replying keeps the effort it was sent with, including while a durable turn recovers
-        after a disconnect or server restart. Reopening a conversation puts Effort back on the level
-        its last message used, while the picker is on that message&apos;s model and the model still
-        supports the level. Switch to another AI Model and Effort starts from Model default for it.
-        Custom endpoints and models without known effort support always use their normal setting, so
-        no picker appears for them.{" "}
-        <DocLink to="/docs/repositories">Repository work sessions</DocLink> have an Effort choice of
-        their own.
+        <Strong>Defaults and limits for owners.</Strong> In the model&apos;s Advanced section,{" "}
+        <Strong>Thinking level</Strong> sets <Strong>Default for chat</Strong> — the level a
+        conversation left on Default starts at — and <Strong>Highest Members may choose</Strong>, a
+        ceiling for cost. Both apply to chat, Help and{" "}
+        <DocLink to="/docs/repositories">Repository work sessions</DocLink> on that model, for every
+        AI Employee using it; the default can&apos;t sit above the ceiling, and lowering the ceiling
+        brings the default down with it. A conversation set higher than the ceiling runs at the
+        ceiling and its replies say so; a work session can&apos;t start above it. For a custom
+        endpoint, <Strong>Offer thinking levels</Strong> turns the levels on — only do it for a
+        server that reads <Code>reasoning_effort</Code>, as vLLM and Ollama do for some models.
+        Owners and admins change these from a signed-in browser; Members read them.
       </P>
 
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
