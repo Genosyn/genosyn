@@ -6,7 +6,13 @@ import { config } from "../../config.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, resetTestDb } from "../test/dbHarness.js";
-import { checkModel, setHostedModelApiBasesForTests } from "./modelAvailabilityProbe.js";
+import { CodexAppServerError } from "./agent/codexAppServer.js";
+import { ModelSetupError } from "./modelCatalog.js";
+import {
+  checkModel,
+  setHostedModelApiBasesForTests,
+  subscriptionCheckFailure,
+} from "./modelAvailabilityProbe.js";
 import { newStoredApiKey, writeApiKeys } from "./modelApiKeys.js";
 import { resetKeyPoolMemory } from "./modelKeyPool.js";
 
@@ -248,6 +254,47 @@ describe("a custom endpoint", () => {
       assert.equal(seen.length, 0);
     } finally {
       config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "127.0.0.1");
+    }
+  });
+});
+
+describe("a ChatGPT sign-in's check", () => {
+  test("an overloaded service, as Codex names it, is still unavailable", () => {
+    const outcome = subscriptionCheckFailure(
+      new CodexAppServerError("Model overloaded", "serverOverloaded", {}),
+    );
+    assert.equal(outcome.kind, "unavailable");
+    assert.equal(outcome.kind === "unavailable" && outcome.unavailability.cause, "overloaded");
+  });
+
+  test("a turn the service turned away, or answered without a reply, is the service answering", () => {
+    const refused = Object.assign(
+      new ModelSetupError("ChatGPT sign-in worked, but the AI Model could not answer."),
+      { cause: new CodexAppServerError("unauthorized", "unauthorized") },
+    );
+    assert.deepEqual(subscriptionCheckFailure(refused), { kind: "available" });
+    assert.deepEqual(
+      subscriptionCheckFailure(
+        new ModelSetupError("ChatGPT completed the connection test without a reply."),
+      ),
+      { kind: "available" },
+    );
+  });
+
+  test("no answer in time is the model not answering", () => {
+    const outcome = subscriptionCheckFailure(
+      new ModelSetupError("The ChatGPT connection test timed out. Please try again.", 504),
+    );
+    assert.equal(outcome.kind === "unavailable" && outcome.unavailability.cause, "timeout");
+  });
+
+  test("a runtime that stopped or never started the turn says nothing either way", () => {
+    for (const error of [
+      new ModelSetupError("ChatGPT disconnected during its connection test. Please try again.", 502),
+      new ModelSetupError("ChatGPT did not start the connection test. Please try again.", 502),
+      new Error("spawn codex ENOENT"),
+    ]) {
+      assert.equal(subscriptionCheckFailure(error).kind, "unknown", error.message);
     }
   });
 });
