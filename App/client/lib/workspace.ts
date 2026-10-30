@@ -1,4 +1,5 @@
 import { api, Notification } from "./api";
+import type { TurnActivitySummary } from "../../shared/chatActivity";
 
 /**
  * Client-side types + API helpers + WebSocket client for the workspace-chat
@@ -54,7 +55,57 @@ export type WorkspaceMessage = {
   /** The group discussion this message belongs to; absent on older payloads. */
   discussionId?: string | null;
   discussionRole?: WorkspaceDiscussionRole | null;
+  /** The AI turn that wrote it, for a message an AI Employee's turn wrote. */
+  aiTurn?: WorkspaceMessageTurn | null;
 };
+
+/** What kind of turn an AI Employee is taking in a room. Mirrors `ChannelTurnKind`. */
+export type WorkspaceTurnKind = "reply" | "discussion" | "follow_through";
+
+/** Whose access the turn's tools ran with. Mirrors `ChannelTurnAuthority`. */
+export type WorkspaceTurnAuthority = "member" | "employee" | "untrusted";
+
+export type WorkspaceTurnStatus = "working" | "ok" | "error" | "skipped" | "interrupted";
+
+/**
+ * An AI Employee's turn in a room, as the room is told about it — who, for
+ * what, under whose authority, how it stands. Mirrors `ChannelTurnSummary` in
+ * `services/channelTurnViews.ts`; its steps are read from the turn's own
+ * routes, which decide what each reader may see.
+ */
+export type WorkspaceTurn = {
+  id: string;
+  channelId: string;
+  kind: WorkspaceTurnKind;
+  status: WorkspaceTurnStatus;
+  employee: { id: string; name: string; slug: string; role: string } | null;
+  triggerMessageId: string | null;
+  discussionId: string | null;
+  round: number | null;
+  authority: WorkspaceTurnAuthority;
+  requester: { id: string; name: string } | null;
+  /** Why a running reply is not working right now. */
+  waitingFor: "model_unavailable" | "thread_busy" | "model_resuming" | null;
+  attempt: number;
+  startedAt: string;
+  endedAt: string | null;
+  replyMessageId: string | null;
+  activity: TurnActivitySummary | null;
+};
+
+/** What a message carries about the turn that wrote it. */
+export type WorkspaceMessageTurn = Pick<
+  WorkspaceTurn,
+  | "id"
+  | "kind"
+  | "status"
+  | "triggerMessageId"
+  | "discussionId"
+  | "round"
+  | "authority"
+  | "requester"
+  | "activity"
+>;
 
 export type GroupDiscussionStatus = "running" | "concluded" | "stopped" | "failed" | "interrupted";
 
@@ -354,6 +405,29 @@ export const workspaceApi = {
 
   startDiscussionWork: (companyId: string, discussionId: string) =>
     api.post<GroupDiscussion>(`${base(companyId)}/discussions/${discussionId}/start-work`, {}),
+
+  // ── AI Employees' turns in a room ──
+
+  /** The turns running in a room right now, oldest first. */
+  listTurns: (companyId: string, channelId: string) =>
+    api.get<WorkspaceTurn[]>(`${base(companyId)}/channels/${channelId}/turns`),
+
+  /** A turn's recorded steps, as this Member may see them (paged by `after`). */
+  turnActivityUrl: (companyId: string, channelId: string, turnId: string) =>
+    `${base(companyId)}/channels/${channelId}/turns/${turnId}/activity`,
+
+  /** Follow a turn live from `after` to its end (Server-Sent Events). */
+  turnStreamUrl: (companyId: string, channelId: string, turnId: string, after: number) =>
+    `${base(companyId)}/channels/${channelId}/turns/${turnId}/activity/stream?after=${after}`,
+
+  stopTurn: (companyId: string, channelId: string, turnId: string) =>
+    api.post<{ interrupted: boolean }>(
+      `${base(companyId)}/channels/${channelId}/turns/${turnId}/stop`,
+      {},
+    ),
+
+  retryTurn: (companyId: string, channelId: string, turnId: string) =>
+    api.post<WorkspaceTurn>(`${base(companyId)}/channels/${channelId}/turns/${turnId}/retry`, {}),
 };
 
 // ──────────────────────── WebSocket client ───────────────────────────────
@@ -387,6 +461,12 @@ export type WsInboundEvent =
   | { type: "channel.update"; channelId: string; channel: WorkspaceChannel }
   | { type: "channel.archive"; channelId: string }
   | { type: "discussion.update"; channelId: string; discussion: GroupDiscussion }
+  | {
+      /** An AI Employee's turn here started, began or stopped waiting, or ended. */
+      type: "turn.update";
+      channelId: string;
+      turn: WorkspaceTurn;
+    }
   | {
       type: "typing";
       channelId: string;

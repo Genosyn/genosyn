@@ -25,7 +25,8 @@ export function upsertMessage(
 /**
  * Take the server's transcript without letting a response that left before a
  * reply finished turn that reply back into a spinner. Two reads can cross,
- * and a finished message never becomes unfinished again.
+ * and a finished message never becomes unfinished again — except by a Retry,
+ * which runs a failed reply again in place and is newer than what it replaced.
  */
 export function mergeTranscript(
   current: ConversationMessage[],
@@ -34,9 +35,35 @@ export function mergeTranscript(
   const settled = new Map(
     current.filter((message) => !isWorkingMessage(message)).map((message) => [message.id, message]),
   );
-  return incoming.map((message) =>
-    isWorkingMessage(message) ? (settled.get(message.id) ?? message) : message,
-  );
+  return incoming.map((message) => {
+    if (!isWorkingMessage(message)) return message;
+    const done = settled.get(message.id);
+    if (!done) return message;
+    return isNewer(message, done) ? message : done;
+  });
+}
+
+function isNewer(a: ConversationMessage, b: ConversationMessage): boolean {
+  const at = Date.parse(a.updatedAt ?? "");
+  const bt = Date.parse(b.updatedAt ?? "");
+  return Number.isFinite(at) && Number.isFinite(bt) && at > bt;
+}
+
+/** Reply states the Member can ask to run again, as the server allows. */
+const RETRYABLE = new Set(["error", "skipped", "busy"]);
+
+/**
+ * The reply a Retry would run again: the newest one, when it failed and
+ * nothing in the discussion is still running. Null otherwise.
+ */
+export function retryableReplyId(messages: ConversationMessage[]): string | null {
+  if (messages.some(isWorkingMessage)) return null;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== "assistant") continue;
+    return message.status && RETRYABLE.has(message.status) ? message.id : null;
+  }
+  return null;
 }
 
 /** A live progress event, or null when it is not one the reply can show. */

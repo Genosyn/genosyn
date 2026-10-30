@@ -16,6 +16,7 @@ import {
   Info,
   KeyRound,
   ListChecks,
+  Lock,
   Mail,
   MessageSquare,
   MousePointerClick,
@@ -55,6 +56,7 @@ import {
   headlineOf,
   type LivePhase,
 } from "../../lib/chatLiveness";
+import type { ActivityWithheld } from "../../../shared/turnActivityAccess";
 import { ChatMarkdown } from "../ChatMarkdown";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
@@ -103,6 +105,9 @@ export function LiveTurnCard({
   stopping,
   onStop,
   companySlug,
+  context,
+  note,
+  stopError,
 }: {
   authorName: string;
   avatar: React.ReactNode;
@@ -115,6 +120,15 @@ export function LiveTurnCard({
   stopping: boolean;
   onStop?: () => void;
   companySlug: string;
+  /**
+   * What the turn is for, beside the name — in a room with several people
+   * and several AI Employees: "Replying to Sam", "Round 2 of 3".
+   */
+  context?: string | null;
+  /** What this reader is not shown of the steps, when it is not everything. */
+  note?: string | null;
+  /** Why a Stop this browser asked for did not land. */
+  stopError?: string | null;
 }) {
   const clientNow = useNow(true);
   const now = clientNow + live.clockOffsetMs;
@@ -140,8 +154,15 @@ export function LiveTurnCard({
     <div className="flex justify-start gap-2.5">
       <div className="w-9 shrink-0">{avatar}</div>
       <div className="min-w-0 max-w-[85%] flex-1 sm:max-w-[75%]">
-        <div className="mb-1 flex items-center gap-2 text-[11px]">
-          <span className="font-medium text-slate-700 dark:text-slate-200">{authorName}</span>
+        <div className="mb-1 flex min-w-0 items-center gap-2 text-[11px]">
+          <span className="shrink-0 font-medium text-slate-700 dark:text-slate-200">
+            {authorName}
+          </span>
+          {context && (
+            <span className="min-w-0 truncate text-slate-500 dark:text-slate-400" title={context}>
+              {context}
+            </span>
+          )}
           <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {announcement}
           </span>
@@ -226,7 +247,9 @@ export function LiveTurnCard({
               companySlug={companySlug}
             />
           )}
+          {note && <VisibilityNote note={note} />}
         </section>
+        {stopError && <FormError message={stopError} className="mt-1.5" />}
         {hasReply && (
           <div className="mt-2 rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2 text-sm leading-relaxed text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
             <ChatMarkdown content={streamingReply ?? ""} />
@@ -285,6 +308,16 @@ function PhaseIcon({ phase }: { phase: LivePhase }) {
     >
       <ButtonSpinner size={13} className="motion-reduce:animate-none" />
     </span>
+  );
+}
+
+/** One quiet line saying what this reader is not shown of the steps, and why. */
+function VisibilityNote({ note }: { note: string }) {
+  return (
+    <p className="flex items-start gap-1.5 border-t border-slate-100 px-3.5 py-2 text-xs leading-5 text-slate-500 dark:border-slate-800 dark:text-slate-400">
+      <Lock size={12} aria-hidden="true" className="mt-1 shrink-0" />
+      <span>{note}</span>
+    </p>
   );
 }
 
@@ -389,12 +422,19 @@ export function TurnWorkSummary({
   activityUrl,
   messageId,
   companySlug,
+  note,
 }: {
   summary: TurnActivitySummary;
-  /** `…/conversations/:convId/messages/:messageId/activity`. */
+  /**
+   * `…/conversations/:convId/messages/:messageId/activity`, or a Workspace
+   * channel turn's `…/channels/:channelId/turns/:turnId/activity`.
+   */
   activityUrl: string;
+  /** The turn's id: a reply's message id, or a channel turn's. */
   messageId: string;
   companySlug: string;
+  /** What this reader is not shown of the steps, when it is not everything. */
+  note?: string | null;
 }) {
   const [open, setOpen] = React.useState(false);
   const panelId = React.useId();
@@ -465,6 +505,7 @@ export function TurnWorkSummary({
               companySlug={companySlug}
             />
           )}
+          {note && events && !error && <VisibilityNote note={note} />}
         </div>
       )}
     </div>
@@ -586,10 +627,13 @@ function StepRow({
         ? formatElapsed(Math.max(0, duration))
         : formatStepDuration(duration);
   const view = rowView(step, running);
+  const withheld = step.kind === "tool" || step.kind === "thinking" ? step.withheld : null;
   const expandable =
     step.kind === "thinking"
       ? Boolean(step.text.trim())
-      : step.kind === "tool" || Boolean(view.reason);
+      : step.kind === "tool"
+        ? !withheld || step.status === "held"
+        : Boolean(view.reason);
 
   const content = (
     <>
@@ -632,6 +676,12 @@ function StepRow({
         <Badge tone="warning" className="shrink-0">
           Waiting for approval
         </Badge>
+      )}
+      {withheld && (
+        <span className="shrink-0 text-slate-400 dark:text-slate-500" title={withheldText(withheld)}>
+          <Lock size={11} aria-hidden="true" />
+          <span className="sr-only">{withheldText(withheld)}</span>
+        </span>
       )}
       {durationText && (
         <span className="shrink-0 tabular-nums text-slate-400 dark:text-slate-500">
@@ -723,6 +773,13 @@ function rowView(
   };
 }
 
+/** Why a step shows no arguments or result. */
+function withheldText(reason: ActivityWithheld): string {
+  return reason === "discussion"
+    ? "Not kept: a discussion of a Decision, TLDR or review records only that it read the record, which is on the card."
+    : "Its details are visible only to the Member whose access this reply used.";
+}
+
 function waitRowLabel(cause: string, label: string, running: boolean): string {
   switch (cause) {
     case "thread_busy":
@@ -737,6 +794,10 @@ function waitRowLabel(cause: string, label: string, running: boolean): string {
       return running
         ? "Waiting for the AI Model to come back"
         : "Waited for the AI Model to come back";
+    case "model_resuming":
+      return running
+        ? "Taking its turn now the AI Model is back"
+        : "Took its turn once the AI Model was back";
     default:
       return label;
   }
@@ -745,7 +806,8 @@ function waitRowLabel(cause: string, label: string, running: boolean): string {
 function noteLabel(step: Extract<ActivityStep, { kind: "note" }>): string {
   switch (step.code) {
     case "stopped":
-      return "Stopped by a Member";
+      // Several people can stop a reply in a room, so the record names who.
+      return step.label.startsWith("Stopped by ") ? step.label : "Stopped by a Member";
     case "resumed":
       return "The server restarted mid-turn — resumed from where it was";
     case "retry":
@@ -906,7 +968,11 @@ function ToolDetail({
           </Link>
         </p>
       )}
-      {step.status === "running" ? (
+      {step.withheld ? (
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          {withheldText(step.withheld)}
+        </p>
+      ) : step.status === "running" ? (
         <p className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
           <ButtonSpinner size={10} /> {live ? "Running…" : "No result was recorded."}
         </p>

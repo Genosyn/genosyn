@@ -1,14 +1,21 @@
 import React from "react";
-import { MessagesSquare, Send } from "lucide-react";
+import { MessagesSquare, RotateCcw, Send } from "lucide-react";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
+import {
+  LiveTurnCard,
+  shouldShowTurnSummary,
+  TurnWorkSummary,
+} from "@/components/chat/TurnActivity";
+import { useFollowedTurn } from "@/components/chat/useFollowedTurn";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
-import type { ChatProgress, Company, ConversationMessage, Decision } from "@/lib/api";
+import type { Company, ConversationMessage, Decision } from "@/lib/api";
+import type { LiveTurnState } from "@/lib/chatActivity";
 import { ReviewTimelineItem } from "@/components/decisions/ReviewTimeline";
-import { isWorkingMessage } from "@/components/decisions/discussionTranscript";
+import { isWorkingMessage, retryableReplyId } from "@/components/decisions/discussionTranscript";
 import { useDecisionDiscussion } from "@/components/decisions/useDecisionDiscussion";
 
 /** The longest message the chat endpoint accepts. */
@@ -21,6 +28,12 @@ const MESSAGE_MAX_CHARS = 8_000;
  * The employee reads the Decision's live context, options and outcome on every
  * turn and can do nothing but discuss them. Nothing said here answers,
  * dismisses or snoozes the Decision — the card's own controls still do that.
+ *
+ * A reply shows what the employee is doing while it writes — the direct
+ * chat's live card, with its waits, retries and Stop — and keeps a "Worked
+ * for" line once written. Its steps say that it read the Decision, never what
+ * the read returned: that is on the card already, and a discussion keeps its
+ * narrow rules in its record too.
  */
 export function DecisionDiscussion({
   id,
@@ -38,8 +51,15 @@ export function DecisionDiscussion({
 }) {
   const discussion = useDecisionDiscussion(company.id, decision.id, employee.id);
   const [retrying, setRetrying] = React.useState(false);
+  const [retryingReply, setRetryingReply] = React.useState<string | null>(null);
+  const [replyError, setReplyError] = React.useState<{ id: string; message: string } | null>(null);
   const avatar = employeeAvatarUrl(company.id, employee.id, employee.avatarKey);
   const pending = decision.status === "pending";
+  const conversationId = discussion.conversation?.id ?? null;
+  const retryableId = retryableReplyId(discussion.messages);
+  const turnBase = conversationId
+    ? `/api/companies/${company.id}/employees/${employee.id}/conversations/${conversationId}/messages`
+    : null;
 
   async function retry() {
     setRetrying(true);
@@ -48,6 +68,14 @@ export function DecisionDiscussion({
     } finally {
       setRetrying(false);
     }
+  }
+
+  async function retryReply(messageId: string) {
+    setRetryingReply(messageId);
+    setReplyError(null);
+    const failure = await discussion.retryReply(messageId);
+    if (failure) setReplyError({ id: messageId, message: failure });
+    setRetryingReply(null);
   }
 
   return (
@@ -65,18 +93,61 @@ export function DecisionDiscussion({
         aria-busy={discussion.replying}
         className="space-y-3"
       >
-        {discussion.messages.map((message) => (
-          <DiscussionMessage
-            key={message.id}
-            message={message}
-            employeeName={employee.name}
-            avatar={avatar}
-            streamingReply={
-              message.id === discussion.streamingId ? discussion.streamingReply : null
-            }
-            progress={message.id === discussion.streamingId ? discussion.progress : null}
-          />
-        ))}
+        {discussion.messages.map((message) => {
+          if (isWorkingMessage(message) && message.id === discussion.streamingId) {
+            // Written into this browser right now, over the stream that sent it.
+            return (
+              <LiveTurnCard
+                key={message.id}
+                authorName={employee.name}
+                avatar={<Avatar name={employee.name} src={avatar} kind="ai" size="sm" />}
+                live={withStart(discussion.live, message)}
+                streamingReply={discussion.streamingReply}
+                progress={discussion.progress}
+                connectionState="streaming"
+                stopping={discussion.stopping}
+                onStop={() => void discussion.stop()}
+                companySlug={company.slug}
+                stopError={discussion.stopError}
+              />
+            );
+          }
+          if (isWorkingMessage(message) && turnBase) {
+            // Running elsewhere — sent before a reload, or from another tab.
+            return (
+              <FollowedReply
+                key={message.id}
+                message={message}
+                turnBase={turnBase}
+                employeeName={employee.name}
+                avatar={avatar}
+                companySlug={company.slug}
+                stopping={discussion.stopping}
+                stopError={discussion.stopError}
+                onStop={() => void discussion.stop()}
+                onFinal={discussion.applyFinal}
+              />
+            );
+          }
+          return (
+            <DiscussionMessage
+              key={message.id}
+              message={message}
+              employeeName={employee.name}
+              avatar={avatar}
+              companySlug={company.slug}
+              activityUrl={
+                turnBase && message.role === "assistant"
+                  ? `${turnBase}/${message.id}/activity`
+                  : null
+              }
+              canRetry={message.id === retryableId}
+              retrying={retryingReply === message.id}
+              retryError={replyError?.id === message.id ? replyError.message : null}
+              onRetry={() => void retryReply(message.id)}
+            />
+          );
+        })}
       </div>
       {discussion.load === "loading" && discussion.messages.length === 0 && (
         <p className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
@@ -120,18 +191,89 @@ export function DecisionDiscussion({
   );
 }
 
+/** A live card's clock starts when the Member asked, even before the first frame says so. */
+function withStart(live: LiveTurnState, message: ConversationMessage): LiveTurnState {
+  if (live.startedAt !== null) return live;
+  const startedAt = Date.parse(message.createdAt);
+  return Number.isFinite(startedAt) ? { ...live, startedAt } : live;
+}
+
+/**
+ * A reply being written somewhere other than this browser's own stream,
+ * followed over the turn's stream until it lands — steps, waits and all.
+ */
+function FollowedReply({
+  message,
+  turnBase,
+  employeeName,
+  avatar,
+  companySlug,
+  stopping,
+  stopError,
+  onStop,
+  onFinal,
+}: {
+  message: ConversationMessage;
+  /** `…/employees/:eid/conversations/:convId/messages`. */
+  turnBase: string;
+  employeeName: string;
+  avatar: string | null;
+  companySlug: string;
+  stopping: boolean;
+  stopError: string | null;
+  onStop: () => void;
+  onFinal: (message: ConversationMessage) => void;
+}) {
+  const streamUrl = React.useCallback(
+    (after: number) => `${turnBase}/${message.id}/activity/stream?after=${after}`,
+    [turnBase, message.id],
+  );
+  const followed = useFollowedTurn({
+    streamUrl,
+    turnId: message.id,
+    startedAt: Date.parse(message.createdAt) || null,
+    onEnd: (event, data) => {
+      if (event === "assistant" && data) onFinal(data as ConversationMessage);
+    },
+  });
+  return (
+    <LiveTurnCard
+      authorName={employeeName}
+      avatar={<Avatar name={employeeName} src={avatar} kind="ai" size="sm" />}
+      live={followed.live}
+      streamingReply={followed.text || null}
+      progress={followed.progress ?? message.progress ?? null}
+      connectionState={followed.connection}
+      stopping={stopping}
+      onStop={onStop}
+      companySlug={companySlug}
+      stopError={stopError}
+    />
+  );
+}
+
 function DiscussionMessage({
   message,
   employeeName,
   avatar,
-  streamingReply,
-  progress,
+  companySlug,
+  activityUrl,
+  canRetry,
+  retrying,
+  retryError,
+  onRetry,
 }: {
   message: ConversationMessage;
   employeeName: string;
   avatar: string | null;
-  streamingReply: string | null;
-  progress: ChatProgress | null;
+  companySlug: string;
+  /** Where this reply's steps are read, once it has some. */
+  activityUrl: string | null;
+  /** The newest reply, and it failed: it can run again. */
+  canRetry: boolean;
+  retrying: boolean;
+  retryError: string | null;
+  onRetry: () => void;
 }) {
   if (message.role === "user") {
     return (
@@ -149,37 +291,52 @@ function DiscussionMessage({
   return (
     <div className="flex items-start gap-2">
       <Avatar name={employeeName} src={avatar} kind="ai" size="sm" className="mt-1" />
-      <div
-        className={clsx(
-          "min-w-0 max-w-[85%] rounded-2xl rounded-tl-md border px-3.5 py-2 text-sm leading-relaxed shadow-sm",
-          message.status === "error"
-            ? "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
-            : message.status === "skipped"
-              ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
-              : message.status === "interrupted"
-                ? "border-dashed border-slate-300 bg-white text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                : "border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+      <div className="min-w-0 max-w-[85%]">
+        {activityUrl && shouldShowTurnSummary(message.activity) && message.activity && (
+          <TurnWorkSummary
+            summary={message.activity}
+            activityUrl={activityUrl}
+            messageId={message.id}
+            companySlug={companySlug}
+          />
         )}
-      >
-        <span className="sr-only">{employeeName}: </span>
-        {working && !streamingReply ? (
-          <span className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-            <Spinner size={13} />
-            {progress?.label ?? message.progress?.label ?? `${employeeName} is thinking…`}
-          </span>
-        ) : working ? (
-          <>
-            <ChatMarkdown content={streamingReply ?? ""} />
-            <span
-              aria-hidden="true"
-              className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-slate-400 align-middle"
-            />
-          </>
-        ) : failed ? (
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
-        ) : (
-          <ChatMarkdown content={message.content} />
+        <div
+          className={clsx(
+            "rounded-2xl rounded-tl-md border px-3.5 py-2 text-sm leading-relaxed shadow-sm",
+            message.status === "error"
+              ? "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
+              : message.status === "skipped"
+                ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+                : message.status === "interrupted"
+                  ? "border-dashed border-slate-300 bg-white text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                  : "border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+          )}
+        >
+          <span className="sr-only">{employeeName}: </span>
+          {working ? (
+            // Only before the discussion has loaded far enough to follow it.
+            <span className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+              <Spinner size={13} />
+              {message.progress?.label ?? `${employeeName} is working on a reply…`}
+            </span>
+          ) : failed ? (
+            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          ) : (
+            <ChatMarkdown content={message.content} />
+          )}
+        </div>
+        {canRetry && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <Button type="button" variant="secondary" size="sm" loading={retrying} onClick={onRetry}>
+              <RotateCcw size={13} aria-hidden="true" />
+              {retrying ? "Retrying" : "Retry"}
+            </Button>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {employeeName} takes your question again.
+            </span>
+          </div>
         )}
+        <FormError message={retryError} className="mt-1.5" />
       </div>
     </div>
   );
