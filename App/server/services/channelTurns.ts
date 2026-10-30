@@ -509,10 +509,6 @@ export async function executeChannelTurn(turnId: string): Promise<ChannelTurnOut
     const base: Omit<ChatOptions, "requesterUserId" | "requesterSessionVersion" | "toolAuthority"> =
       {
         images: built.images,
-        // One channel is one transcript, so that is what the reply serializes
-        // on: a second reply of the same AI Employee here waits its turn,
-        // while a colleague's runs alongside.
-        workloadScope: `workspace-channel:${channel.id}`,
         workloadKey: turn.id,
         throwOnWorkloadUnavailable: true,
         // Replaying words a tainted turn wrote taints this one too.
@@ -564,7 +560,13 @@ export async function executeChannelTurn(turnId: string): Promise<ChannelTurnOut
           live.appendText(chunk);
           snapshot.report(run.streamed);
         },
-        options,
+        {
+          ...options,
+          // One channel is one transcript, so that is what the reply
+          // serializes on: a second reply of the same AI Employee here waits
+          // its turn, while a colleague's runs alongside.
+          workloadScope: `workspace-channel:${channel.id}`,
+        },
       );
     } catch (error) {
       // Checked ahead of claim loss and contention: a stop the room asked
@@ -1478,16 +1480,3 @@ export async function followChannelTurn(args: {
   });
 }
 
-/** The replies waiting for an AI Model, for the AI Models page's count of what waits. */
-export async function modelWaitingChannelReplies(): Promise<
-  Pick<ChannelTurn, "id" | "employeeId" | "companyId">[]
-> {
-  return repo().find({
-    where: {
-      kind: "reply",
-      status: "working",
-      waitingFor: In(["model_unavailable", "model_resuming"]),
-    },
-    select: { id: true, employeeId: true, companyId: true },
-  });
-}

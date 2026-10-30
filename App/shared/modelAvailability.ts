@@ -73,9 +73,10 @@ export function waitingWorkText(waiting: { runs: number; chats: number }): strin
 
 /**
  * What an AI Employee says in a conversation that cannot wait for its turn to
- * be retried — a Slack thread, a Workspace channel — when its AI Model is
+ * be retried — an external chat surface's thread — when its AI Model is
  * unavailable. Plain words in place of the technical error, which named the
- * model and its endpoint to whoever was reading.
+ * model and its endpoint to whoever was reading. (A Workspace reply waits
+ * instead, and is answered when the model is back: `channelTurns.ts`.)
  */
 export const MODEL_UNAVAILABLE_REPLY =
   "Sorry — I can't answer right now because my AI Model is unavailable. Please send your message again in a little while.";
