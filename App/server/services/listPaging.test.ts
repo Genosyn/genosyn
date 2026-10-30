@@ -18,6 +18,7 @@ import {
   pageLimit,
   pageNote,
   rowsWithinBudget,
+  textPreview,
 } from "./listPaging.js";
 
 /**
@@ -288,5 +289,14 @@ describe("dateRange", () => {
     ]) {
       assert.throws(() => dateRange(from, to), DateRangeError, `${from} → ${to}`);
     }
+  });
+});
+
+describe("textPreview", () => {
+  test("keeps a short text whole and says a long one was cut", () => {
+    assert.deepEqual(textPreview("Rent for May", 300), { preview: "Rent for May", truncated: false });
+    assert.deepEqual(textPreview("abcdef", 6), { preview: "abcdef", truncated: false });
+    assert.deepEqual(textPreview("abcdefg", 6), { preview: "abcdef", truncated: true });
+    assert.deepEqual(textPreview("", 6), { preview: "", truncated: false });
   });
 });

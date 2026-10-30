@@ -401,6 +401,57 @@ export function finishPage<T, Out>(args: {
   };
 }
 
+/** One page of a list: what follows it, then its rows. */
+export type Page<Out> = PageInfo & { rows: Out[] };
+
+/**
+ * Read one page of a list the usual way: count every match, fetch the rows
+ * after the cursor in keyset order, present the rows the page keeps in one
+ * batch (so hydrating a page costs a query per page, not per row), and close
+ * it. `query` must return a fresh, unordered query builder with the filters
+ * on each call; the last key must be the row's unique id.
+ */
+export async function keysetPage<T extends ObjectLiteral & { id: string }, Out>(args: {
+  query: () => SelectQueryBuilder<T>;
+  keys: KeysetColumn[];
+  scope: string;
+  fingerprint: string;
+  noun: string;
+  limits: PageLimits;
+  page: PageRequest & { budgetChars?: number };
+  present: (rows: T[]) => Promise<Out[]> | Out[];
+}): Promise<Page<Out>> {
+  const after = args.page.cursor
+    ? decodeCursor(args.scope, args.fingerprint, args.page.cursor)
+    : null;
+  const limit = pageLimit(args.page.limit, args.limits);
+  const [total, fetched] = await Promise.all([
+    args.query().getCount(),
+    keysetRows(args.query(), { keys: args.keys, after, limit, prefix: "page" }),
+  ]);
+  const kept = fetched.slice(0, limit).map((entry) => entry.row);
+  const presented = await args.present(kept);
+  const byId = new Map(kept.map((row, index) => [row.id, presented[index]]));
+  return finishPage({
+    fetched,
+    limit,
+    total,
+    noun: args.noun,
+    scope: args.scope,
+    fingerprint: args.fingerprint,
+    present: (row: T) => byId.get(row.id)!,
+    budgetChars: args.page.budgetChars,
+  });
+}
+
+/**
+ * The start of a long text, for a list row: a listing previews what its
+ * `get_` tool reads in full, so a page of long rows still fits a tool result.
+ */
+export function textPreview(text: string, chars: number): { preview: string; truncated: boolean } {
+  return { preview: text.slice(0, chars), truncated: text.length > chars };
+}
+
 /**
  * A date bound as Finance reads one. A bare `YYYY-MM-DD` is a calendar day in
  * UTC — the way bank dates, card dates and journal dates are stored and shown
