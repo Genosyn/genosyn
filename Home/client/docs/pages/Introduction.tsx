@@ -228,9 +228,10 @@ export function Introduction() {
       <P>
         A product&apos;s name works too. Type <Code>starter plan</Code> and Finance&apos;s{" "}
         <Strong>Products &amp; services</Strong> opens filtered to it, price and description in
-        view. Type <Code>revenue dashboard</Code> and <Strong>Revenue</Strong> is the first row,
-        even when an Explore Dashboard is also called Revenue — the kind word says where to look,
-        and the rest says which one.
+        view. A word that names a kind of thing — <Code>dashboard</Code>, <Code>chart</Code>,{" "}
+        <Code>note</Code>, <Code>repo</Code> — says where to look, and the rest says which one:{" "}
+        <Code>revenue dashboard</Code> leads with the Explore Dashboard called Revenue, with the
+        Revenue section listed below it.
       </P>
       <P>
         <Strong>Each sidebar leads with what you come for.</Strong> Pages you open now and then sit

@@ -158,8 +158,8 @@ async function search(page: Page, query: string) {
 
 /**
  * Press a key and wait for the highlighted row's label *and* context. Two
- * rows can share a label once an Explore dashboard and its section are both
- * called Revenue; the context is what tells them apart.
+ * rows can share a label once an Explore dashboard and a product area are
+ * both called Revenue; the context is what tells them apart.
  */
 async function pressToRow(page: Page, key: string, label: string, context: string) {
   await page.keyboard.press(key);
@@ -359,22 +359,20 @@ try {
     ["Insights · Revenue"],
   );
 
-  // ── "revenue dashboard" finds the dashboard called Revenue ──
+  // ── "revenue dashboard" leads with the Dashboard called Revenue ──
   await search(owner, "revenue dashboard");
   await owner.locator("#command-palette-opt-ent-dashboard-dashboard-revenue").waitFor();
   view = await snapshot(owner);
-  assert.deepEqual(view.groups, ["Sections", "Dashboards", "Product areas"]);
+  // No section or page row: one would be drawn above the Dashboard named.
+  assert.deepEqual(view.groups, ["Dashboards", "Product areas"]);
   assert.deepEqual(
     view.rows.map((r) => `${r.label} · ${r.context}`),
-    [
-      "Revenue · Deals, contacts, outbound, and signals.",
-      `Revenue · ${REVENUE_DASHBOARD.sublabel}`,
-      `Revenue · ${REVENUE_AREA.sublabel}`,
-    ],
+    [`Revenue · ${REVENUE_DASHBOARD.sublabel}`, `Revenue · ${REVENUE_AREA.sublabel}`],
   );
-  assert.equal(view.rows[0].selected, true, "the section's dashboard is ready for ↵");
-  // The first "Revenue" is the section; the next is the Explore dashboard.
-  await pressToRow(owner, "ArrowDown", "Revenue", REVENUE_DASHBOARD.sublabel ?? "");
+  assert.equal(view.rows[0].selected, true, "the Dashboard named is ready for ↵");
+  // Two rows called Revenue: the context tells the product area apart.
+  await pressToRow(owner, "ArrowDown", "Revenue", REVENUE_AREA.sublabel ?? "");
+  await pressToRow(owner, "ArrowUp", "Revenue", REVENUE_DASHBOARD.sublabel ?? "");
   await owner.keyboard.press("Enter");
   await owner.getByRole("dialog", { name: "Search" }).waitFor({ state: "detached" });
   await expectLocation(owner, "/c/acme/explore/dashboards/revenue");
@@ -383,9 +381,12 @@ try {
   for (const query of ["revenue dashboards", "revenue dash"]) {
     await openPalette(owner);
     await search(owner, query);
+    await owner.locator("#command-palette-opt-ent-dashboard-dashboard-revenue").waitFor();
     view = await snapshot(owner);
-    assert.equal(view.rows[1]?.label, "Revenue", query);
-    assert.equal(view.rows[1]?.context, REVENUE_DASHBOARD.sublabel, query);
+    assert.equal(view.groups[0], "Dashboards", query);
+    assert.equal(view.rows[0]?.label, "Revenue", query);
+    assert.equal(view.rows[0]?.context, REVENUE_DASHBOARD.sublabel, query);
+    assert.equal(view.rows[0]?.selected, true, query);
     await owner.keyboard.press("Escape");
     await owner.getByRole("dialog", { name: "Search" }).waitFor({ state: "detached" });
   }
