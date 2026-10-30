@@ -6,6 +6,7 @@ import {
   classifyModelError,
   classifyModelResponse,
   classifyModelTransportError,
+  modelUnavailability,
   type ModelUnavailability,
 } from "./agent/modelOutage.js";
 import { readCustomEndpoint } from "./customEndpoint.js";
@@ -245,11 +246,20 @@ async function checkSubscriptionModel(model: AIModel): Promise<ModelCheckOutcome
   } catch (error) {
     const outage = classifyModelError(error);
     if (outage) return unavailable(outage);
+    const record =
+      error && typeof error === "object" ? (error as { name?: unknown; status?: unknown }) : null;
+    // The test turn got no answer at all: nothing came back in time, or the
+    // runtime stopped or never started the turn — this host's problem, which
+    // says nothing either way.
+    if (record?.name === "ModelSetupError" && typeof record.status === "number" && record.status >= 500) {
+      return record.status === 504
+        ? unavailable(modelUnavailability("timeout", {}))
+        : { kind: "unknown", reason: "the ChatGPT runtime stopped before the check finished" };
+    }
     // A turn that finished badly — a refused sign-in, a workspace without
     // access — is the service answering. A runtime that would not start is
     // this host's problem and says nothing either way.
-    const name = error && typeof error === "object" ? (error as { name?: unknown }).name : null;
-    return name === "ModelSetupError" || name === "CodexAppServerError"
+    return record?.name === "ModelSetupError" || record?.name === "CodexAppServerError"
       ? available
       : { kind: "unknown", reason: "the check could not run" };
   }

@@ -187,13 +187,18 @@ function bodyHints(body: string | null | undefined): BodyHints {
   }
 }
 
-/** Out of quota or credit: the key's problem, which waiting does not fix. */
+/**
+ * Out of quota or credit: the key's problem, which waiting does not fix. A 429
+ * that names a quota in any words ("quota exceeded") is read as one, so work
+ * ends with the service's own words rather than waiting on a limit that may
+ * never reset by itself.
+ */
 function saysOutOfCredit(hints: BodyHints): boolean {
   const type = (hints.type ?? "").toLowerCase();
   return (
     type.includes("insufficient_quota") ||
     type.includes("billing") ||
-    hints.message.includes("exceeded your current quota") ||
+    /\bquota\b/.test(hints.message) ||
     hints.message.includes("credit balance") ||
     hints.message.includes("billing")
   );
@@ -413,9 +418,19 @@ function providerText(record: Record<string, unknown>): string {
 /**
  * Whether the error a model turn ended with means the AI Model is unavailable.
  * Reads, in order: what the turn's model proxy saw (attached with
- * {@link markModelUnavailable}), a Codex app-server variant, an HTTP status,
- * then a network failure in the cause chain. Null for an abort, a refused
- * key, a bad request, and the runtime's own problems.
+ * {@link markModelUnavailable}), a Codex app-server variant, the HTTP status
+ * of a model service's own answer, then a network failure in the cause chain.
+ * Null for an abort, a refused key, a bad request, and the runtime's own
+ * problems.
+ *
+ * Only an error built from the service's answer has a status or words worth
+ * reading: the one `openCodeError` makes, which always carries what the
+ * provider said on `providerDetail`. Genosyn's own errors carry HTTP statuses
+ * and messages too — the status a route answers with, such as the 502 of a
+ * letter that could not be written, the OpenCode server's own, a message that
+ * happens to say "overloaded" — and those say nothing about the AI Model, so
+ * they are never read as one. Work that fails on its own terms and knows the
+ * turn's model was unavailable says so with {@link markModelUnavailable}.
  */
 export function classifyModelError(error: unknown): ModelUnavailability | null {
   if (!error || isAbortError(error)) return null;
@@ -433,7 +448,10 @@ export function classifyModelError(error: unknown): ModelUnavailability | null {
       if (codexErrorKind(info).kind) return null;
     }
   }
-  for (const record of chain) {
+  const fromService = chain.filter((record) =>
+    Object.prototype.hasOwnProperty.call(record, "providerDetail"),
+  );
+  for (const record of fromService) {
     const status = finiteNumber(record.status) ?? finiteNumber(record.statusCode);
     if (status === null) continue;
     const words = providerText(record);
@@ -450,8 +468,8 @@ export function classifyModelError(error: unknown): ModelUnavailability | null {
   const transport = classifyModelTransportError(error);
   if (transport) return transport;
   // A streamed error with no status: Anthropic sends an overloaded error as an
-  // event after a 200, and OpenCode reports it by message alone.
-  const words = chain.map((record) => providerText(record)).join("\n").toLowerCase();
+  // event after a 200, and OpenCode reports it by the provider's words alone.
+  const words = fromService.map((record) => providerText(record)).join("\n").toLowerCase();
   if (/\boverloaded(_error)?\b/.test(words)) return modelUnavailability("overloaded", { code: "overloaded_error" });
   return null;
 }

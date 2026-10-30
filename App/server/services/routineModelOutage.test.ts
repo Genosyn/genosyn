@@ -12,6 +12,7 @@ import { Run } from "../db/entities/Run.js";
 import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
+import { openCodeError } from "./agent/opencodeEvents.js";
 import { agentRuntime } from "./agent/runtime.js";
 import {
   checkModelAvailabilityNow,
@@ -117,10 +118,10 @@ function routineName(params: Parameters<typeof agentRuntime.run>[0]): string {
 
 /** What OpenCode throws once its retries are spent on a server that keeps failing. */
 function gatewayError(): Error {
-  return Object.assign(new Error("The AI Model request failed (HTTP 502)."), {
-    status: 502,
-    statusCode: 502,
-  });
+  return openCodeError({
+    name: "APIError",
+    data: { message: "Bad Gateway", statusCode: 502, isRetryable: true },
+  } as never);
 }
 
 // 2026-10-02: the vLLM server behind Jamie's model restarted for six minutes.

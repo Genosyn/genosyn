@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { classifyKeyRefusal } from "./apiKeyRing.js";
 import { CodexAppServerError } from "./codexAppServer.js";
+import { ModelSetupError } from "../modelCatalog.js";
 import { openCodeError } from "./opencodeEvents.js";
 import {
   classifyCodexError,
@@ -62,6 +63,7 @@ const RESPONSES: Row[] = [
   { label: "402 billing", status: 402, body: anthropic("billing_error", "Your credit balance is too low"), cause: null },
   { label: "Anthropic 400 credit balance", status: 400, body: anthropic("invalid_request_error", "Your credit balance is too low to access the Anthropic API."), cause: null },
   { label: "OpenAI 429 insufficient_quota", status: 429, body: openai("insufficient_quota", "You exceeded your current quota, please check your plan and billing details.", "insufficient_quota"), cause: null },
+  { label: "429 that names a quota in plain words", status: 429, body: "quota exceeded", cause: null },
   // ── bad requests: fail as they always have ──
   { label: "400 invalid request", status: 400, body: anthropic("invalid_request_error", "messages: field required"), cause: null },
   { label: "400 prompt too long", status: 400, body: anthropic("invalid_request_error", "prompt is too long: 220000 tokens > 200000 maximum"), cause: null },
@@ -325,11 +327,39 @@ describe("a turn's final error", () => {
     assert.doesNotMatch(JSON.stringify({ ...error }), /ECONNREFUSED/);
   });
 
-  test("an overload streamed after a 200 is found by its words when there is no status", () => {
+  test("an overload streamed after a 200 is found by the provider's words when there is no status", () => {
+    const streamed = openCodeError({
+      name: "APIError",
+      data: { message: "Overloaded", isRetryable: true },
+    } as never);
+    assert.equal(classifyModelError(streamed)?.cause, "overloaded");
+    // Words alone, from anything but the service, say nothing about the model.
+    assert.equal(classifyModelError(new Error("provider returned 529 overloaded")), null);
+  });
+
+  test("Genosyn's own errors carry HTTP statuses that say nothing about the AI Model", () => {
+    // The status a route answers with: a letter the writer did not submit is a 502.
+    class LetterError extends Error {
+      readonly status = 502;
+    }
+    assert.equal(classifyModelError(new LetterError("Ada did not submit a letter.")), null);
     assert.equal(
-      classifyModelError(new Error("OpenCode could not complete the AI Model turn: Overloaded"))
+      classifyModelError(new ModelSetupError("ChatGPT disconnected during its connection test.", 502)),
+      null,
+    );
+    assert.equal(classifyModelError(Object.assign(new Error("Service Unavailable"), { status: 503 })), null);
+    assert.equal(classifyModelError(Object.assign(new Error("boom"), { statusCode: 500 })), null);
+
+    // The service's own answer, as OpenCode reports it, is read — through a wrapper too.
+    const gateway = openCodeError({
+      name: "APIError",
+      data: { message: "Bad Gateway", statusCode: 502, isRetryable: true },
+    } as never);
+    assert.equal(classifyModelError(gateway)?.cause, "server_error");
+    assert.equal(
+      classifyModelError(new LetterError("The letter could not be written.", { cause: gateway }))
         ?.cause,
-      "overloaded",
+      "server_error",
     );
   });
 

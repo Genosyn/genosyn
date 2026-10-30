@@ -6,6 +6,7 @@ import type { ChatActivityEvent } from "../../shared/chatActivity.js";
 import { MODEL_UNAVAILABLE_WAIT_CAUSE } from "../../shared/chatActivity.js";
 import { MODEL_WAIT_PROGRESS_LABEL } from "../../shared/modelAvailability.js";
 import { AppDataSource } from "../db/datasource.js";
+import { openCodeError } from "./agent/opencodeEvents.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -136,11 +137,20 @@ async function back(model: AIModel): Promise<void> {
   await flushModelAvailabilityWrites();
 }
 
+/** What OpenCode throws once its retries are spent on an overloaded service. */
 function overloadedError(): Error {
-  return Object.assign(new Error("The AI Model request failed (HTTP 529)."), {
-    status: 529,
-    statusCode: 529,
-  });
+  return openCodeError({
+    name: "APIError",
+    data: {
+      message: "Overloaded",
+      statusCode: 529,
+      isRetryable: true,
+      responseBody: JSON.stringify({
+        type: "error",
+        error: { type: "overloaded_error", message: "Overloaded" },
+      }),
+    },
+  } as never);
 }
 
 describe("a message while the AI Model is unavailable", () => {
