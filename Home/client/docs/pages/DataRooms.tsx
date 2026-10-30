@@ -279,7 +279,8 @@ export function DataRooms() {
       <P>
         Reading guests&apos; questions marks an AI Employee&apos;s turn as having read outside
         content, so an invitation or a published answer in the same turn is held as an Approval for
-        a person. A Routine can start when a guest asks: give it a Trigger on{" "}
+        a person — on every page of a long list of questions, which the employee reads a page at a
+        time until it has seen them all. A Routine can start when a guest asks: give it a Trigger on{" "}
         <Code>data_room_question</Code> (or <Code>data_room_activity</Code> for visits) — see{" "}
         <DocLink to="/docs/reactivity">Reactivity</DocLink>.
       </P>
