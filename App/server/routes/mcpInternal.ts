@@ -723,11 +723,13 @@ import {
   updateManualActivity,
 } from "../services/revenue/activities.js";
 import {
+  CONTACT_PAGE,
+  CONTACT_SEARCH_PAGE,
   DuplicateContactError,
   createContact,
   findContactByEmail,
   getContact,
-  listContacts,
+  pageContacts,
   updateContact,
 } from "../services/revenue/contacts.js";
 import {
@@ -5050,29 +5052,36 @@ const listContactsSchema = z
     customFieldKey: z.string().max(80).optional(),
     customFieldValue: z.string().max(500).optional(),
     includeArchived: z.boolean().optional(),
-    limit: z.number().int().min(1).max(200).optional(),
+    ...pageBodyShape,
+    // Older Skills page by offset. Still taken, though no longer advertised:
+    // it skips rows before the first page only, and the answer's cursor goes on.
     offset: z.number().int().min(0).optional(),
   })
   .strict();
 
+// The contact list, one page at a time, most recently touched first. A cursor
+// names the last contact shown, so an Activity logged between pages — which
+// moves a contact to the top — never makes the next page skip anyone.
 mcpInternalRouter.post(
   "/tools/list_contacts",
   validateBody(listContactsSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     if (!(await requireRevenue(req, res, "read"))) return;
-    const body = req.body as z.infer<typeof listContactsSchema>;
-    const { rows, total } = await listContacts(req.mcpCompany!.id, {
-      q: body.q,
-      lifecycleStage: body.lifecycleStage,
-      customerId: body.customerId,
-      ownerEmployeeId: body.ownedByMe ? req.mcpEmployee!.id : undefined,
-      customFieldKey: body.customFieldKey,
-      customFieldValue: body.customFieldValue,
-      includeArchived: body.includeArchived,
-      limit: body.limit,
-      offset: body.offset,
-    });
-    res.json({ contacts: rows.map(serializeContactRow), total });
+    const { limit, cursor, offset, ownedByMe, ...filter } = req.body as z.infer<
+      typeof listContactsSchema
+    >;
+    try {
+      const { rows, ...info } = await pageContacts(
+        req.mcpCompany!.id,
+        { ...filter, ownerEmployeeId: ownedByMe ? req.mcpEmployee!.id : undefined },
+        { limit, cursor, offset, limits: CONTACT_PAGE, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (contacts) => contacts.map(serializeContactRow),
+      );
+      res.json({ ...info, contacts: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -5080,22 +5089,32 @@ const searchContactsSchema = z
   .object({
     query: z.string().min(1).max(200),
     includeArchived: z.boolean().optional(),
-    limit: z.number().int().min(1).max(200).optional(),
+    ...pageBodyShape,
   })
   .strict();
 
+// A lookup by name, email, employer or title — the contact list narrowed by
+// `q`, paged the same way, so every match is reachable rather than the first 25.
 mcpInternalRouter.post(
   "/tools/search_contacts",
   validateBody(searchContactsSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     if (!(await requireRevenue(req, res, "read"))) return;
-    const body = req.body as z.infer<typeof searchContactsSchema>;
-    const { rows, total } = await listContacts(req.mcpCompany!.id, {
-      q: body.query,
-      includeArchived: body.includeArchived,
-      limit: body.limit ?? 25,
-    });
-    res.json({ contacts: rows.map(serializeContactRow), total });
+    const { query, includeArchived, limit, cursor } = req.body as z.infer<
+      typeof searchContactsSchema
+    >;
+    try {
+      const { rows, ...info } = await pageContacts(
+        req.mcpCompany!.id,
+        { q: query, includeArchived },
+        { limit, cursor, limits: CONTACT_SEARCH_PAGE, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        (contacts) => contacts.map(serializeContactRow),
+      );
+      res.json({ ...info, contacts: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );
 
@@ -6328,26 +6347,34 @@ mcpInternalRouter.post(
   },
 );
 
+const exportActivitiesToolSchema = activitySearchToolSchema
+  .omit({ limit: true, offset: true })
+  .extend({ cursor: pageBodyShape.cursor });
+
+// The ledger as CSV, a part at a time: each part ends before it outgrows a
+// tool result (so the whole CSV is readable and can be attached), and its
+// cursor carries on past it — the export used to stop at 10,000 rows.
 mcpInternalRouter.post(
   "/tools/export_activities",
-  validateBody(activitySearchToolSchema.omit({ limit: true, offset: true })),
+  validateBody(exportActivitiesToolSchema),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
     try {
-      const body = req.body as z.infer<typeof activitySearchToolSchema>;
-      const result = await exportActivitiesCsv(req.mcpCompany!.id, activitySearchOptions(body));
-      if (Buffer.byteLength(result.csv, "utf8") > 8 * 1024 * 1024) {
-        return res.status(413).json({
-          error: "The Activity export exceeds 8 MiB; narrow the date or search filters",
-        });
-      }
+      const { cursor, ...body } = req.body as z.infer<typeof exportActivitiesToolSchema>;
+      const { csv, ...result } = await exportActivitiesCsv(
+        req.mcpCompany!.id,
+        activitySearchOptions(body),
+        { cursor, maxChars: TOOL_PAGE_BUDGET_CHARS },
+      );
       res.json({
-        filename: `revenue-activities-${new Date().toISOString().slice(0, 10)}.csv`,
-        contentText: result.csv,
-        exported: result.exported,
-        truncated: result.truncated,
+        ...result,
+        filename: `revenue-activities-${new Date().toISOString().slice(0, 10)}${cursor ? "-continued" : ""}.csv`,
+        contentText: csv,
       });
     } catch (error) {
+      if (error instanceof ListQueryError) {
+        return res.status(error.status).json({ error: error.message });
+      }
       res.status(400).json({ error: (error as Error).message });
     }
   },
@@ -6479,6 +6506,9 @@ mcpInternalRouter.post(
         accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
         closedDeals: z.enum(["include", "only", "exclude"]).optional(),
         archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+        // A task nobody dated is still work: listed after the dated ones
+        // unless excluded, as `GET /revenue/follow-ups` lists it.
+        undated: z.enum(["include", "only", "exclude"]).optional(),
         cursor: z.string().max(1_000).optional(),
         limit: z.number().int().min(1).max(500).optional(),
         offset: z.number().int().min(0).optional(),
@@ -6537,6 +6567,7 @@ const followUpViewToolFiltersSchema = z
     accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
     closedDeals: z.enum(["include", "only", "exclude"]).optional(),
     archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+    undated: z.enum(["include", "only", "exclude"]).optional(),
   })
   .strict();
 
@@ -7347,6 +7378,9 @@ const partnershipToolWriteSchema = z.object({
   reminderAt: z.string().max(40).nullable().optional(),
 });
 
+// The same filters as `GET /revenue/partnerships`. A partnership a Member
+// archived is not a status — `includeArchived` reaches it, as on every other
+// Revenue list; without it an archived partnership could not be found at all.
 mcpInternalRouter.post(
   "/tools/list_partnerships",
   validateBody(
@@ -7355,6 +7389,9 @@ mcpInternalRouter.post(
         q: z.string().max(200).optional(),
         status: z.string().max(80).optional(),
         type: z.string().max(80).optional(),
+        customFieldKey: z.string().max(80).optional(),
+        customFieldValue: z.string().max(500).optional(),
+        includeArchived: z.boolean().optional(),
         limit: z.number().int().min(1).max(200).optional(),
         offset: z.number().int().min(0).optional(),
       })
@@ -8476,6 +8513,7 @@ const revenueBulkTargetToolSchema = z
         createdBefore: z.string().datetime().optional(),
         closedDeals: z.enum(["include", "only", "exclude"]).optional(),
         archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+        undated: z.enum(["include", "only", "exclude"]).optional(),
       })
       .optional(),
   })

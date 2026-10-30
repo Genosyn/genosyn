@@ -437,6 +437,11 @@ const REVENUE_BULK_TARGET_PROPERTY = {
         createdBefore: { type: "string" },
         closedDeals: { type: "string", enum: ["include", "only", "exclude"] },
         archivedResources: { type: "string", enum: ["include", "only", "exclude"] },
+        undated: {
+          type: "string",
+          enum: ["include", "only", "exclude"],
+          description: "Follow-ups: tasks with no due date. Default include, as list_follow_ups lists them.",
+        },
       },
       additionalProperties: false,
     },
@@ -6750,7 +6755,9 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_contacts",
     description:
-      "List Contacts — people in the revenue system, as opposed to the billable accounts `list_customers` returns. Ordered by most recently touched, so the top of the list is who you last spoke to. Filter with `q` (name / email / employer / job title), `lifecycleStage`, `customerId`, or `ownedByMe`. Archived rows are hidden unless `includeArchived`. Call `get_contact` for one person in full, or `get_contact_timeline` for their history. Needs `read` revenue access.",
+      "List Contacts — people in the revenue system, as opposed to the billable accounts `list_customers` returns. Ordered by most recently touched, so the top of the list is who you last spoke to; contacts nobody has spoken to come last, newest first. Filter with `q` (name / email / employer / job title), `lifecycleStage`, `customerId`, `ownedByMe`, or a custom field. Archived rows are hidden unless `includeArchived`. Call `get_contact` for one person in full, or `get_contact_timeline` for their history. " +
+      PAGING_SENTENCE +
+      " Logging an Activity moves a contact to the top, but never makes the next page skip anyone. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6784,8 +6791,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "Exact normalized value for customFieldKey.",
         },
         includeArchived: { type: "boolean" },
-        limit: { type: "integer", minimum: 1, maximum: 200 },
-        offset: { type: "integer", minimum: 0 },
+        ...pageProperties("contacts", 50, 200),
       },
       additionalProperties: false,
     },
@@ -6793,7 +6799,9 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "search_contacts",
     description:
-      "Find a Contact by free text — name, email, employer, or job title, case-insensitive substring. Use this when a teammate names somebody and you need their id before doing anything else; `list_contacts` is the one to reach for when you want to browse or filter. Needs `read` revenue access.",
+      "Find a Contact by free text — name, email, employer, or job title, case-insensitive substring — most recently touched first. Use this when a teammate names somebody and you need their id before doing anything else; `list_contacts` is the one to reach for when you want to browse or filter. " +
+      PAGING_SENTENCE +
+      " Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6802,7 +6810,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "What to look for, e.g. 'ana@' or 'Northwind' or 'VP Eng'.",
         },
         includeArchived: { type: "boolean" },
-        limit: { type: "integer", minimum: 1, maximum: 200 },
+        ...pageProperties("contacts", 25, 200),
       },
       required: ["query"],
       additionalProperties: false,
@@ -6954,7 +6962,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "export_activities",
     description:
-      "Export the company-wide Revenue Activity ledger as CSV using the same search, resource, kind, date, and actor filters as `list_activities`. Returns `contentText` for `send_chat_attachment`; narrow filters if it exceeds 8 MiB. Needs `read` revenue access.",
+      "Export the company-wide Revenue Activity ledger as CSV, newest first, using the same search, resource, kind, date, and actor filters as `list_activities`. Returns `contentText` for `send_chat_attachment`, one part at a time: a part holds at most 10,000 activities and ends early rather than outgrow what you can read, and every part starts with the header row. total counts every match; while hasMore is true pass nextCursor back as cursor, with the same filters, for the next part — no activity is skipped or repeated, even while new ones are logged. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6990,6 +6998,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         to: { type: "string" },
         actorUserId: { type: "string" },
         actorEmployeeId: { type: "string" },
+        cursor: {
+          type: "string",
+          description: "nextCursor from the previous part. Keep every other argument the same.",
+        },
       },
       additionalProperties: false,
     },
@@ -7457,7 +7469,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_follow_ups",
     description:
-      "Query the unified follow-up queue: task Activities plus Deal and Partnership dates. Supports arbitrary/unassigned assignees, priority/status, due and reminder windows, overdue age, resource, Deal Stage/status, Account status, archived/closed resources, text search, and cursor pagination. Needs `read` revenue access.",
+      "Query the unified follow-up queue: task Activities plus Deal and Partnership dates, soonest due first. Tasks nobody gave a due date come after every dated one (dueAt null), oldest first: `undated` lists them alone or leaves them out, and a state other than all or any due window leaves them out on its own. Supports arbitrary/unassigned assignees, priority/status, due and reminder windows, overdue age, resource, Deal Stage/status, Account status, archived/closed resources, text search, and cursor pagination: while nextCursor is not null, pass it back as cursor with the same filters for the next page. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -7488,7 +7500,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         accountStatus: { type: "string", enum: ["prospect", "customer", "former"] },
         closedDeals: { type: "string", enum: ["include", "only", "exclude"] },
         archivedResources: { type: "string", enum: ["include", "only", "exclude"] },
-        cursor: { type: "string" },
+        undated: {
+          type: "string",
+          enum: ["include", "only", "exclude"],
+          description:
+            "Tasks with no due date: after the dated follow-ups (include, the default), alone (only), or left out (exclude).",
+        },
+        cursor: { type: "string", description: "nextCursor from the previous page." },
         limit: { type: "integer", minimum: 1, maximum: 500 },
         offset: { type: "integer", minimum: 0 },
       },
@@ -7541,6 +7559,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
               type: "string",
               enum: ["include", "only", "exclude"],
             },
+            undated: { type: "string", enum: ["include", "only", "exclude"] },
           },
           additionalProperties: false,
         },
@@ -7591,6 +7610,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
               type: "string",
               enum: ["include", "only", "exclude"],
             },
+            undated: { type: "string", enum: ["include", "only", "exclude"] },
           },
           additionalProperties: false,
         },
@@ -7937,13 +7957,25 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_partnerships",
     description:
-      "List native Partnership records with controlled type/status, next follow-up, integration/channel context and owner. Partnerships stay separate from Deals. Needs `read` revenue access.",
+      "List native Partnership records with controlled type/status, next follow-up, integration/channel context and owner, the soonest follow-up first and those with none last. Partnerships stay separate from Deals. Archived partnerships are not a status: they are hidden unless `includeArchived` is true, and carry `archivedAt`. Answers `total`; page with limit and offset. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
-        q: { type: "string" },
-        type: { type: "string" },
-        status: { type: "string" },
+        q: { type: "string", description: "Substring of the name or notes." },
+        type: { type: "string", description: "A partnership type from the classifications." },
+        status: {
+          type: "string",
+          description: "A partnership status from the classifications (not archived — see includeArchived).",
+        },
+        customFieldKey: { type: "string" },
+        customFieldValue: {
+          type: "string",
+          description: "Exact normalized value for customFieldKey.",
+        },
+        includeArchived: {
+          type: "boolean",
+          description: "Also list partnerships a Member archived.",
+        },
         limit: { type: "integer", minimum: 1, maximum: 200 },
         offset: { type: "integer", minimum: 0 },
       },

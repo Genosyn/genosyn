@@ -265,7 +265,13 @@ const FollowUp = z
     id: z.string().uuid(),
     source: z.enum(["task", "deal", "partnership"]),
     title: z.string(),
-    dueAt: z.string().datetime(),
+    dueAt: z
+      .string()
+      .datetime()
+      .nullable()
+      .describe(
+        "Null for a task nobody gave a due date: listed after every dated follow-up, oldest first, unless `undated` says otherwise.",
+      ),
     reminderAt: z.string().datetime().nullable(),
     status: z.enum(["open", "completed", "cancelled"]),
     priority: z.enum(["low", "normal", "high", "urgent"]),
@@ -936,6 +942,10 @@ const BulkFilter = z
     createdBefore: z.string().datetime().optional(),
     closedDeals: z.enum(["include", "only", "exclude"]).optional(),
     archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+    undated: z
+      .enum(["include", "only", "exclude"])
+      .optional()
+      .describe("Follow-ups: tasks with no due date. Default include, as the queue lists them."),
   })
   .strict();
 
@@ -1281,6 +1291,12 @@ registry.registerPath({
       dealStatus: z.enum(["open", "won", "lost"]).optional(),
       closedDeals: z.enum(["include", "only", "exclude"]).optional(),
       archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+      undated: z
+        .enum(["include", "only", "exclude"])
+        .optional()
+        .describe(
+          "Tasks with no due date: listed after every dated follow-up (include, the default), alone (only), or not at all (exclude). A state other than all, and any due-date bound, leave them out.",
+        ),
       accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
       cursor: z.string().max(1_000).optional(),
       limit: z.coerce.number().int().min(1).max(500).optional(),
@@ -1494,6 +1510,10 @@ registry.registerPath({
       type: z.string().optional(),
       customFieldKey: z.string().optional(),
       customFieldValue: z.string().optional(),
+      includeArchived: z.coerce
+        .boolean()
+        .optional()
+        .describe("Also list partnerships a Member archived."),
       limit: z.coerce.number().int().min(1).max(200).optional(),
       offset: z.coerce.number().int().min(0).optional(),
     }),

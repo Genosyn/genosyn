@@ -51,7 +51,8 @@ export type FollowUpItem = {
   id: string;
   source: "task" | "deal" | "partnership";
   title: string;
-  dueAt: string;
+  /** Null for a task nobody gave a due date; those come after every dated follow-up. */
+  dueAt: string | null;
   reminderAt: string | null;
   status: "open" | "completed" | "cancelled";
   priority: "low" | "normal" | "high" | "urgent";
@@ -127,6 +128,8 @@ export type FollowUpViewFilters = {
   dealStatus?: "open" | "won" | "lost";
   closedDeals?: "include" | "only" | "exclude";
   archivedResources?: "include" | "only" | "exclude";
+  /** Tasks with no due date; the server lists them unless this says otherwise. */
+  undated?: "include" | "only" | "exclude";
   accountStatus?: "prospect" | "customer" | "former";
 };
 

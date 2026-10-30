@@ -645,6 +645,8 @@ const followUpAdapter: RevenueExportAdapter<RevenueExportBaseOptions> = {
       state: "all",
       closedDeals: "include",
       archivedResources: "include",
+      // A snapshot holds every follow-up, a task nobody dated included.
+      undated: "include",
       createdBefore: context.asOf,
       limit: context.limit,
       offset: context.cursor ? undefined : context.offset,
@@ -657,7 +659,7 @@ const followUpAdapter: RevenueExportAdapter<RevenueExportBaseOptions> = {
             version: 1,
             resource: context.resource,
             asOf: context.asOf.toISOString(),
-            timestamp: last.dueAt.toISOString(),
+            timestamp: (last.dueAt ?? last.createdAt).toISOString(),
             id: last.id,
             innerCursor: page.nextCursor,
           })

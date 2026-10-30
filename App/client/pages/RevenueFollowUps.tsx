@@ -85,6 +85,7 @@ export default function RevenueFollowUps() {
   const [dealStageId, setDealStageId] = React.useState("");
   const [accountStatus, setAccountStatus] = React.useState("");
   const [archivedResources, setArchivedResources] = React.useState("exclude");
+  const [undated, setUndated] = React.useState("include");
   const [views, setViews] = React.useState<FollowUpView[]>([]);
   const [selectedViewId, setSelectedViewId] = React.useState("");
   const [viewName, setViewName] = React.useState("");
@@ -138,6 +139,8 @@ export default function RevenueFollowUps() {
       closedDeals: closedDeals as FollowUpViewFilters["closedDeals"],
       archivedResources: archivedResources as FollowUpViewFilters["archivedResources"],
     };
+    // Include is the server's default, so a saved view only names a choice.
+    if (undated !== "include") filters.undated = undated as FollowUpViewFilters["undated"];
     if (q) filters.q = q;
     if (source) filters.source = source as FollowUpViewFilters["source"];
     if (assignee === "unassigned") filters.unassigned = true;
@@ -188,6 +191,7 @@ export default function RevenueFollowUps() {
     staleBefore,
     state,
     statusFilter,
+    undated,
   ]);
 
   const loadPage = React.useCallback(
@@ -248,6 +252,7 @@ export default function RevenueFollowUps() {
     setStatusFilter(filters.status ?? "open");
     setClosedDeals(filters.closedDeals ?? "exclude");
     setArchivedResources(filters.archivedResources ?? "exclude");
+    setUndated(filters.undated ?? "include");
     setLinkedType(filters.linkedResourceType ?? "");
     setLinkedId(filters.linkedResourceId ?? "");
     setDueFrom(localInputValue(filters.dueFrom));
@@ -682,6 +687,15 @@ export default function RevenueFollowUps() {
           <option value="include">Include archived resources</option>
           <option value="only">Archived resources only</option>
         </Select>
+        <Select
+          value={undated}
+          onChange={(event) => setUndated(event.target.value)}
+          aria-label="Follow-ups with no due date"
+        >
+          <option value="include">Include no due date</option>
+          <option value="exclude">Exclude no due date</option>
+          <option value="only">No due date only</option>
+        </Select>
         <Button
           variant="ghost"
           onClick={() => {
@@ -705,6 +719,7 @@ export default function RevenueFollowUps() {
             setDealStageId("");
             setAccountStatus("");
             setArchivedResources("exclude");
+            setUndated("include");
             setSelectedViewId("");
           }}
         >
@@ -873,7 +888,7 @@ export default function RevenueFollowUps() {
                     <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                       <span className={item.overdue ? "font-medium text-rose-600" : ""}>
                         {item.overdue ? "Overdue · " : ""}
-                        {localDateTime(item.dueAt)}
+                        {item.dueAt ? localDateTime(item.dueAt) : "No due date"}
                       </span>
                       <span className="capitalize">{item.source}</span>
                       {item.priority !== "normal" && (

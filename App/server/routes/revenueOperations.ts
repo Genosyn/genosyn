@@ -677,6 +677,7 @@ const bulkTargetSchema = z
         createdBefore: z.string().datetime().optional(),
         closedDeals: z.enum(["include", "only", "exclude"]).optional(),
         archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+        undated: z.enum(["include", "only", "exclude"]).optional(),
       })
       .optional(),
   })
@@ -1717,6 +1718,7 @@ const followUpViewFiltersSchema = z
     dealStatus: z.enum(["open", "won", "lost"]).optional(),
     closedDeals: z.enum(["include", "only", "exclude"]).optional(),
     archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+    undated: z.enum(["include", "only", "exclude"]).optional(),
     accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
   })
   .strict();
@@ -1838,6 +1840,9 @@ revenueOperationsRouter.get(
         dealStatus: z.enum(["open", "won", "lost"]).optional(),
         closedDeals: z.enum(["include", "only", "exclude"]).optional(),
         archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+        // Tasks with no due date, listed after the dated follow-ups unless
+        // excluded — the default the `list_follow_ups` AI tool shares.
+        undated: z.enum(["include", "only", "exclude"]).optional(),
         accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
         cursor: z.string().max(1_000).optional(),
         limit: z.coerce.number().int().min(1).max(500).optional(),
