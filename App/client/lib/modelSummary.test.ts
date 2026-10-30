@@ -162,7 +162,7 @@ describe("what a card's closed Advanced line says", () => {
     );
   });
 
-  test("backup keys and a Run limit, the owner's own example", () => {
+  test("a pool of keys and a Run limit, the owner's own example", () => {
     const keys = [0, 1, 2].map((n) => ({
       id: String(n),
       preview: `sk-…${n}`,
@@ -173,6 +173,7 @@ describe("what a card's closed Advanced line says", () => {
       lastErrorKind: null,
       lastError: null,
       restingUntil: null,
+      sessionsLast24h: 4,
     }));
     assert.equal(
       modelAdvancedSummary({
@@ -181,7 +182,7 @@ describe("what a card's closed Advanced line says", () => {
         apiKeys: keys,
         maxConcurrentRuns: 4,
       }),
-      "2 backup API keys · 4 concurrent Runs",
+      "3 API keys · 4 concurrent Runs",
     );
   });
 

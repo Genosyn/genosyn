@@ -393,7 +393,7 @@ try {
   // Each closed line names its own model's settings, and nothing of the others.
   assert.match(
     await advancedToggle(card(page, CLAUDE)).innerText(),
-    /2 backup API keys · 1 API key failing/,
+    /3 API keys · 1 API key failing/,
   );
   assert.match(
     await advancedToggle(card(page, QWEN)).innerText(),
@@ -549,7 +549,7 @@ try {
     .getByText("1,000,000", { exact: true })
     .waitFor();
   assert.equal((await savedModel(claude.id))?.model, "claude-sonnet-5");
-  // Every key came through the change: the backups were not dropped.
+  // Every key came through the change: the pool was kept whole.
   assert.deepEqual(
     decryptApiKeys((await savedModel(claude.id))!.configJson).map((key) => key.apiKey),
     [PRIMARY, BACKUP, DEAD],
@@ -643,7 +643,7 @@ try {
     name: "API keys",
   });
   assert.equal(await memberKeys.getByRole("listitem").count(), 3);
-  assert.equal(await memberKeys.getByLabel("Add a backup key").count(), 0);
+  assert.equal(await memberKeys.getByLabel("Add a key").count(), 0);
   for (const name of ["Set manually", "Ask the provider", "Change", "Remove", "Detach"]) {
     assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0, `${name}`);
   }

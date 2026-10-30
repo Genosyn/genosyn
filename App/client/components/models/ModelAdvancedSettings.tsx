@@ -35,8 +35,8 @@ type Props = {
  * Everything one model card's Advanced section holds — that model's own
  * settings and nothing about any other:
  *
- *   - an API-key model: its API keys (backups included), its model, context
- *     window, concurrent Runs;
+ *   - an API-key model: its API keys (the pool its sessions are spread
+ *     across), its model, context window, concurrent Runs;
  *   - a custom endpoint: the endpoint (server, model it serves, key), context
  *     window, concurrent Runs;
  *   - a ChatGPT sign-in: the sign-in and its model — Codex manages its context

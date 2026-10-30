@@ -63,6 +63,7 @@ function connectedRow(overrides: Partial<AIModel> = {}): AIModel {
         lastErrorKind: null,
         lastError: null,
         restingUntil: null,
+        sessionsLast24h: 0,
       },
     ],
     // The server still sends the conventional env var; no screen may show it.

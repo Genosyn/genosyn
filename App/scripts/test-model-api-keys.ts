@@ -1,10 +1,11 @@
 /**
- * Real Chrome over the real model routers: an owner adds several backup API
- * keys to a Claude AI Model, sees one refused at its test, removes one, moves
- * one up, and reads which key is failing — while a Member only reads. The
- * page is the real model section; every API call goes to the real router on a
- * private in-memory database. Only the model's connection test is stubbed, so
- * no provider is called and no live credential is needed.
+ * Real Chrome over the real model routers: an owner adds several API keys to a
+ * Claude AI Model's pool, sees one refused at its test, removes one, watches
+ * the sessions spread across the keys, and reads which key is failing — while
+ * a Member only reads. No key is a primary or a backup, and there is no order
+ * to change. The page is the real model section; every API call goes to the
+ * real router on a private in-memory database. Only the model's connection
+ * test is stubbed, so no provider is called and no live credential is needed.
  */
 import "reflect-metadata";
 import assert from "node:assert/strict";
@@ -27,6 +28,7 @@ import { maskSecret } from "../server/lib/secret";
 import { errorHandler } from "../server/middleware/error";
 import { companyModelsRouter } from "../server/routes/companyModels";
 import { modelsRouter } from "../server/routes/models";
+import { apiKeyRingFor } from "../server/services/agent/apiKeyRing";
 import { agentRuntime } from "../server/services/agent/runtime";
 import {
   decryptApiKeys,
@@ -34,6 +36,8 @@ import {
   readApiKeys,
   writeApiKeys,
 } from "../server/services/modelApiKeys";
+import { settleKeySessionWrites } from "../server/services/modelKeyHealth";
+import { resetKeyPoolMemory } from "../server/services/modelKeyPool";
 import { closeTestDb, initTestDb, insert } from "../server/test/dbHarness";
 import { insertEmployeeModel } from "../server/test/modelFixtures.js";
 import { persistTestSession } from "../server/test/userSession";
@@ -42,14 +46,16 @@ import { startBrowserFixture } from "./browserFixture";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifacts = path.join(root, "../output/playwright");
 
-const PRIMARY = "sk-ant-api03-browser-primary-key-aaaa1001";
-const BACKUPS = [
-  "sk-ant-api03-browser-backup-key-bbbb2002",
-  "sk-ant-api03-browser-backup-key-cccc3003",
-  "sk-ant-api03-browser-backup-key-dddd4004",
+const FIRST = "sk-ant-api03-browser-pool-key-aaaa1001";
+const MORE = [
+  "sk-ant-api03-browser-pool-key-bbbb2002",
+  "sk-ant-api03-browser-pool-key-cccc3003",
+  "sk-ant-api03-browser-pool-key-dddd4004",
 ];
 const DEAD = "sk-ant-api03-browser-dead-key-eeee5005";
-const EVERY_KEY = [PRIMARY, ...BACKUPS, DEAD];
+const EVERY_KEY = [FIRST, ...MORE, DEAD];
+// The pool's random starting place, fixed so the spread is predictable.
+resetKeyPoolMemory({ random: () => 0 });
 
 // ---------- The real router on a private database ----------
 
@@ -91,7 +97,7 @@ const model = await insertEmployeeModel({
   model: "claude-opus-5-5",
   authMode: "apikey",
   isActive: true,
-  configJson: writeApiKeys("{}", [newStoredApiKey(PRIMARY, company.id)]),
+  configJson: writeApiKeys("{}", [newStoredApiKey(FIRST, company.id)]),
   connectedAt: new Date(),
   contextWindow: 1_000_000,
   contextWindowSource: "probed",
@@ -199,8 +205,28 @@ async function rowPreviews(page: Page): Promise<string[]> {
 }
 
 async function addKey(page: Page, apiKey: string) {
-  await keysPanel(page).getByLabel("Add a backup key").fill(apiKey);
-  await keysPanel(page).getByRole("button", { name: "Add backup key" }).click();
+  await keysPanel(page).getByLabel("Add a key").fill(apiKey);
+  await keysPanel(page).getByRole("button", { name: "Add key" }).click();
+}
+
+const removeButton = (page: Page, apiKey: string) =>
+  keysPanel(page).getByRole("button", { name: `Remove key ${maskSecret(apiKey)}` });
+
+/**
+ * Open `n` sessions on the model, as turns do, each getting a reply on its key,
+ * and wait for their counts to be saved.
+ */
+async function openSessions(n: number): Promise<string[]> {
+  const opened: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const saved = await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: model.id });
+    const session = (await apiKeyRingFor(saved, { session: true }))!;
+    const [key] = session.attemptOrder();
+    await session.succeeded(key);
+    opened.push(key.apiKey);
+  }
+  await settleKeySessionWrites();
+  return opened;
 }
 
 async function waitForRows(page: Page, count: number) {
@@ -233,33 +259,38 @@ try {
     /API keys, model, context window and Run limit/,
   );
   await openAdvanced(page);
-  assert.deepEqual(await rowPreviews(page), [maskSecret(PRIMARY)]);
-  // Badges are set in capitals by CSS; innerText reports them that way.
-  assert.match(await keyRows(page).first().innerText(), /Primary/i);
-  // The only key can't be removed or moved.
-  assert.equal(
-    await keysPanel(page).getByRole("button", { name: "Remove key 1" }).isDisabled(),
-    true,
+  assert.deepEqual(await rowPreviews(page), [maskSecret(FIRST)]);
+  // With one key the card says every session uses it, and what more keys would do;
+  // no key is ever called a primary or a backup.
+  assert.match(
+    await keysPanel(page).innerText(),
+    /Every session uses this key\. Add more and sessions are spread across them/,
   );
-  assert.equal(
-    await keysPanel(page).getByRole("button", { name: "Move key 1 up" }).isDisabled(),
-    true,
-  );
+  assert.doesNotMatch(await keysPanel(page).innerText(), /primary|backup/i);
+  // The only key can't be removed, and there is no order to change.
+  assert.equal(await removeButton(page, FIRST).isDisabled(), true);
+  assert.equal(await keysPanel(page).getByRole("button", { name: /Move key/ }).count(), 0);
   checks++;
 
-  // Three backup keys, one after another: each tested on its own.
-  for (const [index, key] of BACKUPS.entries()) {
+  // Three more keys, one after another: each tested on its own.
+  for (const [index, key] of MORE.entries()) {
     await addKey(page, key);
     await waitForRows(page, index + 2);
-    assert.equal(await keysPanel(page).getByLabel("Add a backup key").inputValue(), "");
+    assert.equal(await keysPanel(page).getByLabel("Add a key").inputValue(), "");
   }
-  assert.deepEqual(await rowPreviews(page), [PRIMARY, ...BACKUPS].map(maskSecret));
-  assert.deepEqual(await savedKeys(), [PRIMARY, ...BACKUPS]);
+  assert.deepEqual(await rowPreviews(page), [FIRST, ...MORE].map(maskSecret));
+  assert.deepEqual(await savedKeys(), [FIRST, ...MORE]);
   assert.deepEqual(
     tested,
-    BACKUPS.map((key) => [key]),
+    MORE.map((key) => [key]),
   );
   assert.match(await page.getByText(/Connected with 4 API keys/).innerText(), /4 API keys/);
+  // Now a pool: the card says sessions are spread across the keys.
+  assert.match(
+    await keysPanel(page).innerText(),
+    /Sessions are spread across these keys: each new chat reply, Routine Run or work session opens on the next key in turn and stays on it\./,
+  );
+  assert.doesNotMatch(await keysPanel(page).innerText(), /primary|backup/i);
   await assertNoKeyOnPage(page);
   checks++;
 
@@ -272,7 +303,7 @@ try {
   await refused.getByRole("button", { name: "View details" }).click();
   await refused.getByText("HTTP 401 · authentication_error").waitFor();
   assert.equal(await keyRows(page).count(), 4);
-  assert.deepEqual(await savedKeys(), [PRIMARY, ...BACKUPS]);
+  assert.deepEqual(await savedKeys(), [FIRST, ...MORE]);
   await page.screenshot({
     path: path.join(artifacts, "model-api-keys-refused.png"),
     fullPage: true,
@@ -280,81 +311,72 @@ try {
   checks++;
 
   // So is a key the model already holds.
-  await addKey(page, BACKUPS[0]);
+  await addKey(page, MORE[0]);
   await keysPanel(page)
     .getByRole("alert")
     .filter({ hasText: "already on this AI Model" })
     .waitFor();
   assert.equal(await keyRows(page).count(), 4);
-  await keysPanel(page).getByLabel("Add a backup key").fill("");
+  await keysPanel(page).getByLabel("Add a key").fill("");
   checks++;
 
-  // Remove the second backup, after confirming.
-  await keysPanel(page).getByRole("button", { name: "Remove key 3" }).click();
+  // Remove the third key, after confirming.
+  await removeButton(page, MORE[1]).click();
   const confirm = page.getByRole("dialog");
   await confirm.getByText("Remove this API key?").waitFor();
-  assert.match(await confirm.innerText(), new RegExp(maskSecret(BACKUPS[1]).replace("…", ".")));
+  assert.match(await confirm.innerText(), new RegExp(maskSecret(MORE[1]).replace("…", ".")));
+  assert.match(await confirm.innerText(), /Sessions carry on across the other keys/);
   await confirm.getByRole("button", { name: "Remove key" }).click();
   await waitForRows(page, 3);
-  assert.deepEqual(await rowPreviews(page), [PRIMARY, BACKUPS[0], BACKUPS[2]].map(maskSecret));
-  assert.deepEqual(await savedKeys(), [PRIMARY, BACKUPS[0], BACKUPS[2]]);
+  assert.deepEqual(await rowPreviews(page), [FIRST, MORE[0], MORE[2]].map(maskSecret));
+  assert.deepEqual(await savedKeys(), [FIRST, MORE[0], MORE[2]]);
   checks++;
 
   // Cancelling a removal changes nothing.
-  await keysPanel(page).getByRole("button", { name: "Remove key 2" }).click();
+  await removeButton(page, MORE[0]).click();
   await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
   assert.equal(await keyRows(page).count(), 3);
   checks++;
 
-  // Move the last backup up one place.
-  await keysPanel(page).getByRole("button", { name: "Move key 3 up" }).click();
-  await page.waitForFunction(
-    (expected) =>
-      Array.from(document.querySelectorAll('section[aria-labelledby^="api-keys-"] li .font-mono'))
-        .map((cell) => cell.textContent)
-        .join("|") === expected,
-    [PRIMARY, BACKUPS[2], BACKUPS[0]].map(maskSecret).join("|"),
-  );
-  assert.deepEqual(await savedKeys(), [PRIMARY, BACKUPS[2], BACKUPS[0]]);
-  checks++;
-
-  // Move it to the top: it becomes the primary.
-  await keysPanel(page).getByRole("button", { name: "Move key 2 up" }).click();
-  await page.waitForFunction(
-    (expected) =>
-      document.querySelector('section[aria-labelledby^="api-keys-"] li .font-mono')?.textContent ===
-      expected,
-    maskSecret(BACKUPS[2]),
-  );
-  assert.match(await keyRows(page).first().innerText(), /Primary/i);
-  assert.deepEqual(await savedKeys(), [BACKUPS[2], PRIMARY, BACKUPS[0]]);
+  // Sessions are spread across the keys, and each row says how many it carried.
+  assert.deepEqual(await openSessions(6), [FIRST, MORE[0], MORE[2], FIRST, MORE[0], MORE[2]]);
+  await page.close();
+  page = await open();
+  await openAdvanced(page);
+  for (let row = 0; row < 3; row++) {
+    assert.match(await keyRows(page).nth(row).innerText(), /2 sessions in the last 24 h/);
+  }
   checks++;
 
   // A key the provider refused shows as failing, with why and when.
   const [, refusedKey] = readApiKeys(
     (await AppDataSource.getRepository(AIModel).findOneByOrFail({ id: model.id })).configJson,
   );
-  await insert(AIModelKeyHealth, {
-    modelId: model.id,
-    keyId: refusedKey.id,
-    lastUsedAt: new Date(Date.now() - 3 * 3_600_000),
-    lastErrorAt: new Date(Date.now() - 2 * 60_000),
-    lastErrorStatus: 402,
-    lastErrorKind: "billing",
-    lastErrorMessage: "Your credit balance is too low to access the Anthropic API.",
-    coolDownUntil: new Date(Date.now() + 3 * 60_000),
-  });
+  // The key already has a health row from its sessions; the refusal lands on it.
+  await AppDataSource.getRepository(AIModelKeyHealth).upsert(
+    {
+      modelId: model.id,
+      keyId: refusedKey.id,
+      lastUsedAt: new Date(Date.now() - 3 * 3_600_000),
+      lastErrorAt: new Date(Date.now() - 2 * 60_000),
+      lastErrorStatus: 402,
+      lastErrorKind: "billing",
+      lastErrorMessage: "Your credit balance is too low to access the Anthropic API.",
+      coolDownUntil: new Date(Date.now() + 3 * 60_000),
+    },
+    { conflictPaths: ["modelId", "keyId"], skipUpdateIfNoValuesChanged: false },
+  );
   await page.close();
   page = await open();
   assert.match(
     await page.getByRole("button", { name: /Advanced/ }).innerText(),
-    /2 backup API keys · 1 API key failing/,
+    /3 API keys · 1 API key failing/,
   );
   // The card says it outside Advanced too: a dead key is not something to go
-  // looking for, and work carrying on on the other keys is worth knowing.
+  // looking for, and sessions carrying on on the other keys is worth knowing.
   await page
     .getByRole("status")
-    .filter({ hasText: "The provider is refusing 1 of 3 API keys" })
+    .filter({ hasText: "The provider is refusing 1 of 3 API keys. Sessions move to the other keys" })
     .waitFor();
   await openAdvanced(page);
   const failing = keyRows(page).nth(1);
@@ -362,6 +384,7 @@ try {
   assert.match(await failing.innerText(), /Refused 2 min ago \(out of credit, HTTP 402\)/);
   assert.match(await failing.innerText(), /Your credit balance is too low/);
   assert.match(await failing.innerText(), /last used 3 h ago/);
+  assert.match(await failing.innerText(), /2 sessions in the last 24 h/);
   await assertNoKeyOnPage(page);
   await page.screenshot({
     path: path.join(artifacts, "model-api-keys-desktop.png"),
@@ -377,7 +400,7 @@ try {
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   assert.ok(overflow <= 0, `the page scrolls sideways by ${overflow}px`);
-  await keysPanel(page).getByRole("button", { name: "Remove key 3" }).waitFor();
+  await removeButton(page, MORE[2]).waitFor();
   await page.screenshot({
     path: path.join(artifacts, "model-api-keys-mobile.png"),
     fullPage: true,
@@ -389,7 +412,7 @@ try {
   page = await open("member");
   await openAdvanced(page);
   assert.equal(await keyRows(page).count(), 3);
-  assert.equal(await keysPanel(page).getByLabel("Add a backup key").count(), 0);
+  assert.equal(await keysPanel(page).getByLabel("Add a key").count(), 0);
   assert.equal(
     await keysPanel(page)
       .getByRole("button", { name: /Remove key|Move key/ })
