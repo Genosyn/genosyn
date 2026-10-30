@@ -23934,8 +23934,9 @@ mcpInternalRouter.post(
         screenStatus: z.enum(["none", "queued", "running", "scored", "failed"]).optional(),
         ...pageBodyShape,
         // An older Skill's way to page: rows to pass over before the first
-        // page. Not advertised; the cursor carries on from wherever it starts.
-        offset: z.number().int().min(0).optional(),
+        // page, within the bound it always had. Not advertised; the cursor
+        // carries on from wherever it starts, with no bound at all.
+        offset: z.number().int().min(0).max(100_000).optional(),
       })
       .strict(),
   ),
