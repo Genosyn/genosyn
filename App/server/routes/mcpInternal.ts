@@ -192,7 +192,7 @@ import { type DataRoomActor, requireRoom as requireDataRoom } from "../services/
 import {
   aiActivity,
   aiQuestion,
-  aiQuestions,
+  aiQuestionPage,
   aiRoomDetail,
   aiRoomList,
   folderIdForName,
@@ -408,14 +408,14 @@ import {
   findChannelBySlugOrId,
   findOrCreateDM,
   listChannelsForEmployee,
-  listMessages,
+  type MessageSummary,
+  pageChannelMessages,
   postMessage,
   renameChannel,
   userHasChannelAccess,
 } from "../services/workspaceChat.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
-import { ChannelMessage } from "../db/entities/ChannelMessage.js";
 import { DashboardCardError, patchDashboardCard } from "../services/exploreDashboardCards.js";
 import {
   calendarAvailability,
@@ -491,7 +491,7 @@ import {
   createSignatureEnvelopeFromResource,
   updateSignatureEnvelopeDraft,
   getSignatureEnvelopeDetail,
-  listSignatureEnvelopes,
+  pageSignatureEnvelopes,
   remindSignatureRecipient,
   sendSignatureEnvelope,
   voidSignatureEnvelope,
@@ -14798,13 +14798,33 @@ mcpInternalRouter.post(
 
 // ─────────────────── Workspace messages (AI ↔ AI / AI → human) ──────────
 
+/** A Workspace message as list_workspace_messages shows it. */
+function serializeWorkspaceMessageForAgent(message: MessageSummary) {
+  return {
+    id: message.id,
+    author: message.author
+      ? { kind: message.authorKind, name: message.author.name }
+      : { kind: message.authorKind },
+    content: message.content,
+    parentMessageId: message.parentMessageId,
+    createdAt: message.createdAt,
+    editedAt: message.editedAt,
+    attachments: message.attachments.map((attachment) => ({
+      id: attachment.id,
+      name: attachment.filename,
+    })),
+  };
+}
+
+type WorkspaceMessageRow = ReturnType<typeof serializeWorkspaceMessageForAgent>;
+
 const listWorkspaceMessagesSchema = z
   .object({
     channel: z.string().min(1).max(120).optional(),
     dmEmployee: z.string().min(1).max(120).optional(),
     dmUser: z.string().uuid().optional(),
     before: z.string().datetime({ offset: true }).optional(),
-    limit: z.number().int().min(1).max(100).default(30),
+    ...pageBodyShape,
   })
   .strict()
   .refine(
@@ -14814,8 +14834,9 @@ const listWorkspaceMessagesSchema = z
     { message: "Specify exactly one of: channel, dmEmployee, dmUser." },
   );
 
-// Read a channel's, group chat's or DM's recent messages, oldest first, as the
-// Workspace shows them. The same rooms as sending: any public channel, a
+// Read a channel's, group chat's or DM's messages, newest page first, each
+// page oldest first as the Workspace shows it, and a cursor further back
+// (`pageChannelMessages`). The same rooms as sending: any public channel, a
 // private one or group chat the employee is in, and its own DMs — and in a
 // Member's chat, only what that Member can open too. Words a tainted turn
 // wrote taint this turn, as replaying them anywhere else does.
@@ -14872,43 +14893,31 @@ mcpInternalRouter.post(
         target: { kind: "user", userId: body.dmUser! },
       });
     }
-    let messages: Awaited<ReturnType<typeof listMessages>>;
+    let page: Awaited<ReturnType<typeof pageChannelMessages<WorkspaceMessageRow>>>;
     try {
-      messages = await listMessages({
+      page = await pageChannelMessages({
         channelId: channel.id,
         companyId: co.id,
         viewerUserId: req.mcpRequesterUserId ?? "",
         before: body.before,
-        limit: body.limit,
+        page: { limit: body.limit, cursor: body.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+        present: serializeWorkspaceMessageForAgent,
       });
     } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
       return res.status(400).json({ error: (err as Error).message });
     }
-    if (messages.length > 0) {
-      const tainted = await AppDataSource.getRepository(ChannelMessage).count({
-        where: { id: In(messages.map((message) => message.id)), tainted: true },
-      });
-      if (tainted > 0) markTokenTainted(req.mcpToken!);
-    }
+    if (page.tainted) markTokenTainted(req.mcpToken!);
+    const { rows, note, tainted: _tainted, ...info } = page;
     res.json({
+      ...info,
+      note:
+        (note ? `${note} ` : "") +
+        (info.hasMore
+          ? "Each page is oldest first; the next one is older."
+          : "Oldest first."),
       channel: { id: channel.id, slug: channel.slug, name: channel.name, kind: channel.kind },
-      messages: messages
-        .filter((message) => !message.deletedAt)
-        .map((message) => ({
-          id: message.id,
-          author: message.author
-            ? { kind: message.authorKind, name: message.author.name }
-            : { kind: message.authorKind },
-          content: message.content,
-          parentMessageId: message.parentMessageId,
-          createdAt: message.createdAt,
-          editedAt: message.editedAt,
-          attachments: message.attachments.map((attachment) => ({
-            id: attachment.id,
-            name: attachment.filename,
-          })),
-        })),
-      note: "Oldest first. Pass the first message's createdAt as before to read further back.",
+      messages: rows,
     });
   },
 );
@@ -18512,12 +18521,18 @@ function respondToSigningError(res: Response, error: unknown): boolean {
   return false;
 }
 
-function serializeSignatureEnvelopeForAi(
-  envelope: SignatureEnvelopeDetail["envelope"] & {
+/**
+ * An envelope without what stays on the server: where its files are kept and
+ * the PDF's extracted text. A listing row (which never loads the text) is
+ * redacted exactly as `get_signature_envelope` redacts the full read.
+ */
+function serializeSignatureEnvelopeForAi<
+  T extends Omit<SignatureEnvelopeDetail["envelope"], "documentText"> & {
+    documentText?: string;
     recipientCount?: number;
     completedRecipientCount?: number;
   },
-) {
+>(envelope: T) {
   const {
     originalStorageKey: _originalStorageKey,
     completedStorageKey: _completedStorageKey,
@@ -18525,15 +18540,6 @@ function serializeSignatureEnvelopeForAi(
     ...safe
   } = envelope;
   return safe;
-}
-
-function serializeSignatureEnvelopeSummaryForAi(
-  envelope: SignatureEnvelopeDetail["envelope"] & {
-    recipientCount?: number;
-    completedRecipientCount?: number;
-  },
-) {
-  return serializeSignatureEnvelopeForAi(envelope);
 }
 
 function serializeSignatureDetailForAi(detail: SignatureEnvelopeDetail) {
@@ -18561,32 +18567,39 @@ const listSignatureEnvelopesSchema = z
       .optional(),
     customerId: z.string().uuid().optional(),
     query: z.string().trim().min(1).max(200).optional(),
-    limit: z.number().int().min(1).max(100).default(50),
+    ...pageBodyShape,
   })
   .strict();
 
+// One page at a time, newest first by when each was created
+// (`pageSignatureEnvelopes`), every filter in the query.
 mcpInternalRouter.post(
   "/tools/list_signature_envelopes",
   validateBody(listSignatureEnvelopesSchema),
-  async (req: McpRequest, res) => {
+  async (req: McpRequest, res, next) => {
     const accessLevel = await requireSigning(req, res, "read");
     if (!accessLevel) return;
     const body = req.body as z.infer<typeof listSignatureEnvelopesSchema>;
     try {
-      const envelopes = await listSignatureEnvelopes({
-        companyId: req.mcpCompany!.id,
-        status: body.status,
-        customerId: body.customerId,
-        q: body.query,
-      });
+      const { rows, ...info } = await pageSignatureEnvelopes(
+        {
+          companyId: req.mcpCompany!.id,
+          status: body.status,
+          customerId: body.customerId,
+          q: body.query,
+        },
+        { limit: body.limit, cursor: body.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+      );
       res.json({
         accessLevel,
-        envelopes: envelopes
-          .slice(0, body.limit)
-          .map((envelope) => serializeSignatureEnvelopeSummaryForAi(envelope)),
+        ...info,
+        envelopes: rows.map((envelope) => serializeSignatureEnvelopeForAi(envelope)),
       });
     } catch (error) {
-      if (!respondToSigningError(res, error)) throw error;
+      if (error instanceof ListQueryError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      if (!respondToSigningError(res, error)) next(error);
     }
   },
 );
@@ -18946,6 +18959,11 @@ function dataRoomTool(fn: (req: McpRequest, res: Response) => Promise<unknown>):
         res.status(error.status).json({ error: error.message });
         return;
       }
+      // A cursor the caller has to change (another list, other filters).
+      if (error instanceof ListQueryError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
       next(error);
     });
   };
@@ -19014,21 +19032,33 @@ mcpInternalRouter.post(
   }),
 );
 
+const listDataRoomQuestionsSchema = z
+  .object({
+    roomId: z.string().uuid(),
+    status: z.enum(DATA_ROOM_QUESTION_STATUSES).optional(),
+    ...pageBodyShape,
+  })
+  .strict();
+
+// One page at a time (`aiQuestionPage`). Still a taint source: reading a
+// guest's question marks the turn at dispatch, whichever page it reads.
 mcpInternalRouter.post(
   "/tools/list_data_room_questions",
-  validateBody(
-    z
-      .object({
-        roomId: z.string().uuid(),
-        status: z.enum(DATA_ROOM_QUESTION_STATUSES).optional(),
-      })
-      .strict(),
-  ),
+  validateBody(listDataRoomQuestionsSchema),
   dataRoomTool(async (req, res) => {
     if (!(await requireDataRoomAccess(req, res, "read"))) return;
+    const { roomId, status, limit, cursor } = req.body as z.infer<
+      typeof listDataRoomQuestionsSchema
+    >;
+    const { rows, note, ...info } = await aiQuestionPage(req.mcpCompany!.id, roomId, status, {
+      limit,
+      cursor,
+      budgetChars: TOOL_PAGE_BUDGET_CHARS,
+    });
     res.json({
-      questions: await aiQuestions(req.mcpCompany!.id, req.body.roomId, req.body.status),
-      note: DATA_ROOM_UNTRUSTED_NOTE,
+      ...info,
+      note: (note ? `${note} ` : "") + DATA_ROOM_UNTRUSTED_NOTE,
+      questions: rows,
     });
   }),
 );
@@ -23400,6 +23430,11 @@ function phoneToolFailure(res: Response, next: NextFunction, err: unknown): void
     res.status(known.status).json({ error: known.message });
     return;
   }
+  // A cursor or date bound the caller has to change.
+  if (err instanceof ListQueryError) {
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
   next(err);
 }
 
@@ -23413,7 +23448,6 @@ function abortOnDisconnect(res: Response): AbortSignal {
 }
 
 const phoneNumberArg = z.string().min(1).max(64);
-const phoneLimitArg = z.number().min(1).max(50).default(20).transform(Math.round);
 
 mcpInternalRouter.post(
   "/tools/list_phone_numbers",
@@ -23454,14 +23488,15 @@ mcpInternalRouter.post(
   },
 );
 
+// One page at a time, with every filter in the query (`pageTexts`).
 const listTextMessagesSchema = z
   .object({
     direction: z.enum(["inbound", "outbound"]).optional(),
     from: phoneNumberArg.optional(),
     contains: z.string().min(1).max(200).optional(),
     since: z.string().max(64).optional(),
-    limit: phoneLimitArg,
     phoneNumber: phoneNumberArg.optional(),
+    ...pageBodyShape,
   })
   .strict();
 
@@ -23562,10 +23597,16 @@ mcpInternalRouter.post(
   },
 );
 
+// One page at a time, with "only calls of mine or nobody's" in the query
+// (`pageCalls`), so a page is never short of calls the employee may read. The
+// date bounds are `since`/`until`, as on list_text_messages: on a phone tool
+// `from` and `to` are phone numbers.
 const listPhoneCallsSchema = z
   .object({
     direction: z.enum(["inbound", "outbound"]).optional(),
-    limit: phoneLimitArg,
+    since: z.string().min(1).max(40).optional(),
+    until: z.string().min(1).max(40).optional(),
+    ...pageBodyShape,
   })
   .strict();
 

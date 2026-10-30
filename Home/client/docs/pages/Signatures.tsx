@@ -148,8 +148,9 @@ export function Signatures() {
             term: "Read only",
             def: (
               <>
-                List requests and inspect recipients, fields, delivery status, and evidence. It
-                changes nothing.
+                List requests — every one, a page at a time and newest first, narrowed by status,
+                customer, or words in the title or file name — and inspect recipients, fields,
+                delivery status, and evidence. It changes nothing.
               </>
             ),
           },

@@ -167,7 +167,7 @@ export function PhoneNumbers() {
           { term: "send_text_message", def: "Text someone from its number." },
           {
             term: "list_text_messages",
-            def: "Its texts, newest first, with the likely codes in each incoming one.",
+            def: "Its texts, newest first, with the likely codes in each incoming one — narrowed by sender, words in the text, direction, time or number.",
           },
           {
             term: "wait_for_text_message",
@@ -181,13 +181,22 @@ export function PhoneNumbers() {
             term: "get_phone_call",
             def: "A call's status and transcript, optionally waiting for it to end.",
           },
-          { term: "list_phone_calls", def: "Recent calls on its numbers." },
+          {
+            term: "list_phone_calls",
+            def: "Its calls, newest first, without transcripts — narrowed by direction or the day they started.",
+          },
         ]}
       />
       <P>
         An employee only reads the texts and calls from while a number was its own, or while it had
         nobody — a number that moves between employees does not carry one employee&apos;s
         verification codes to the next.
+      </P>
+      <P>
+        Both lists reach every text and call, however old: they come a page at a time with how many
+        match in all and a cursor to the next page, and a search such as a sender&apos;s name or
+        &ldquo;code&rdquo; looks through all of the employee&apos;s texts, not just the latest few
+        hundred.
       </P>
 
       <H2 id="guardrails">Guardrails</H2>

@@ -57,6 +57,14 @@ import { normalizeEmail } from "../lib/emailAddress.js";
 import { recordAudit } from "./audit.js";
 import { recordCoalescedAudit } from "./auditCoalesce.js";
 import { sendEmail } from "./email.js";
+import { andWhereTokens, tokenizeQuery } from "./likeSearch.js";
+import {
+  filterFingerprint,
+  keysetPage,
+  type Page,
+  type PageLimits,
+  type PageRequest,
+} from "./listPaging.js";
 import { companyDir, ensureDir } from "./paths.js";
 import { getPublicUrl } from "./publicUrl.js";
 import { hasResourceAccess, pdfBufferToText, resolveResourceFile } from "./resources.js";
@@ -1186,6 +1194,86 @@ export async function listSignatureEnvelopes(params: {
       completedRecipientCount: signers.filter((recipient) => recipient.status === "completed")
         .length,
     });
+  });
+}
+
+/** 50 envelopes by default, at most 100 a page. */
+export const SIGNATURE_ENVELOPE_PAGE: PageLimits = { defaultLimit: 50, maxLimit: 100 };
+
+/** Every envelope column but the PDF's extracted text, which a list never shows. */
+function envelopeListColumns(): string[] {
+  return AppDataSource.getMetadata(SignatureEnvelope)
+    .columns.filter((column) => column.propertyName !== "documentText" && column.isSelect)
+    .map((column) => `envelope.${column.propertyName}`);
+}
+
+/**
+ * Envelopes newest first by when they were created, one page at a time
+ * (`services/listPaging.ts`) — what an AI Employee reads with
+ * `list_signature_envelopes`. Status, customer and the words searched for (in
+ * the title or the source PDF's filename) are filters in the query, and the
+ * recipient counts are read for the page's envelopes only.
+ *
+ * The order is by creation, not by last change as Signatures lists them: an
+ * envelope changes when a signer acts, which would move it ahead of a cursor
+ * and out of reach while someone pages through.
+ */
+export async function pageSignatureEnvelopes(
+  params: {
+    companyId: string;
+    status?: SignatureEnvelopeStatus;
+    customerId?: string;
+    q?: string;
+  },
+  page: PageRequest & { budgetChars?: number },
+): Promise<
+  Page<Omit<SignatureEnvelope, "documentText"> & { recipientCount: number; completedRecipientCount: number }>
+> {
+  const tokens = tokenizeQuery(params.q ?? "");
+  return keysetPage({
+    query: () => {
+      const qb = AppDataSource.getRepository(SignatureEnvelope)
+        .createQueryBuilder("envelope")
+        .select(envelopeListColumns())
+        .where("envelope.companyId = :companyId", { companyId: params.companyId });
+      if (params.status) qb.andWhere("envelope.status = :status", { status: params.status });
+      if (params.customerId) {
+        qb.andWhere("envelope.customerId = :customerId", { customerId: params.customerId });
+      }
+      return andWhereTokens(qb, ["envelope.title", "envelope.originalFilename"], tokens, "envelopeQ");
+    },
+    keys: [
+      { column: "envelope.createdAt", direction: "DESC", type: "timestamp" },
+      { column: "envelope.id", direction: "DESC", type: "string" },
+    ],
+    scope: "signing.envelopes",
+    fingerprint: filterFingerprint(params.companyId, {
+      status: params.status,
+      customerId: params.customerId,
+      q: tokens.length ? tokens.map((token) => token.raw) : undefined,
+    }),
+    noun: "envelopes",
+    limits: SIGNATURE_ENVELOPE_PAGE,
+    page,
+    present: async (envelopes) => {
+      const ids = envelopes.map((envelope) => envelope.id);
+      const signers = ids.length
+        ? await AppDataSource.getRepository(SignatureRecipient).find({
+            where: { envelopeId: In(ids), role: "signer" },
+            select: { id: true, envelopeId: true, status: true },
+          })
+        : [];
+      return envelopes.map((envelope) => {
+        const own = signers.filter((recipient) => recipient.envelopeId === envelope.id);
+        const { documentText: _documentText, ...listed } = envelope;
+        return {
+          ...listed,
+          recipientCount: own.length,
+          completedRecipientCount: own.filter((recipient) => recipient.status === "completed")
+            .length,
+        };
+      });
+    },
   });
 }
 

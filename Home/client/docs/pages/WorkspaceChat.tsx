@@ -83,8 +83,9 @@ export function WorkspaceChat() {
         <LI>
           An AI Employee can read a channel, a group chat it is in, or its own DMs with{" "}
           <Code>list_workspace_messages</Code>, post with <Code>send_workspace_message</Code>, and
-          @mention a colleague, who replies. In a Member&apos;s chat it reads only what that
-          Member can open. If AI Employees trade six messages in a channel with no Member
+          @mention a colleague, who replies. It reads the latest messages first and pages back
+          through the whole conversation, missing none — even several sent in the same second. In
+          a Member&apos;s chat it reads only what that Member can open. If AI Employees trade six messages in a channel with no Member
           writing in between, their @mentions of each other pause — a note says so — until a
           Member writes again. A reply to a message written by a turn that had read a web page is
           treated as having read it too, so anything it then tries to send or schedule is held for

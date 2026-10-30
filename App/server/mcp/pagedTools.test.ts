@@ -4,9 +4,14 @@ import { describe, test } from "node:test";
 import { BANKING_PAGE, bankingFilterShape } from "../services/bankingQueue.js";
 import { BILL_PAGE, CUSTOMER_PAGE, INVOICE_PAGE, RECURRING_INVOICE_PAGE } from "../services/financeListPages.js";
 import { pageBodyShape } from "../services/listPaging.js";
+import { DATA_ROOM_QUESTION_PAGE } from "../services/dataRooms/aiViews.js";
 import { MEETING_PAGE } from "../services/meetings/store.js";
+import { CALL_PAGE } from "../services/phone/calls.js";
+import { TEXT_PAGE } from "../services/phone/texts.js";
 import { CONTACT_PAGE, CONTACT_SEARCH_PAGE } from "../services/revenue/contacts.js";
+import { SIGNATURE_ENVELOPE_PAGE } from "../services/signing.js";
 import { LEDGER_REVIEW_PAGE, ledgerReviewFilterShape } from "../services/transactionReviews.js";
+import { CHANNEL_MESSAGE_PAGE } from "../services/workspaceChat.js";
 import { STATIC_TOOLS } from "./toolManifest.js";
 
 /**
@@ -35,6 +40,20 @@ const PAGED: Record<string, { max: number; default: number }> = {
   search_contacts: {
     max: CONTACT_SEARCH_PAGE.maxLimit,
     default: CONTACT_SEARCH_PAGE.defaultLimit,
+  },
+  list_text_messages: { max: TEXT_PAGE.maxLimit, default: TEXT_PAGE.defaultLimit },
+  list_phone_calls: { max: CALL_PAGE.maxLimit, default: CALL_PAGE.defaultLimit },
+  list_workspace_messages: {
+    max: CHANNEL_MESSAGE_PAGE.maxLimit,
+    default: CHANNEL_MESSAGE_PAGE.defaultLimit,
+  },
+  list_data_room_questions: {
+    max: DATA_ROOM_QUESTION_PAGE.maxLimit,
+    default: DATA_ROOM_QUESTION_PAGE.defaultLimit,
+  },
+  list_signature_envelopes: {
+    max: SIGNATURE_ENVELOPE_PAGE.maxLimit,
+    default: SIGNATURE_ENVELOPE_PAGE.defaultLimit,
   },
 };
 

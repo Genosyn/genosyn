@@ -8,17 +8,18 @@ import {
   formatPhoneNumber,
   normalizePhoneNumber,
 } from "../../../shared/phone.js";
+import { dateRange, TOOL_PAGE_BUDGET_CHARS } from "../listPaging.js";
 import {
   aiCallsInLastDay,
   isFinished,
-  listCalls,
+  pageCalls,
   placeCall,
   readTranscript,
   waitForCallEnd,
 } from "./calls.js";
 import { PhoneError } from "./errors.js";
 import { phoneNumbersForEmployee } from "./numbers.js";
-import { aiTextsInLastDay, listTexts, sendText, waitForText } from "./texts.js";
+import { aiTextsInLastDay, pageTexts, sendText, waitForText } from "./texts.js";
 import { reachableBaseUrl } from "./webhookUrls.js";
 
 /**
@@ -172,26 +173,52 @@ export async function toolSendText(args: {
   };
 }
 
+/** A note that says how to read on, when there is more, then the standing one. */
+function withPageNote(pageNote: string | undefined, standing: string): string {
+  return pageNote ? `${pageNote} ${standing}` : standing;
+}
+
+/**
+ * The texts on the employee's numbers that it may read, newest first, one page
+ * at a time. Every filter runs in the query, so a filter never searches only
+ * the newest texts and a page never ends short while more match.
+ */
 export async function toolListTexts(args: {
   employee: AIEmployee;
   direction?: "inbound" | "outbound";
   from?: string;
   contains?: string;
   since?: string;
-  limit: number;
   phoneNumber?: string;
+  limit?: number;
+  cursor?: string;
 }) {
   const numbers = numbersMatching(await ownNumbers(args.employee), args.phoneNumber);
-  const texts = await listTexts({
-    phoneNumberIds: numbers.map((n) => n.id),
-    visibleToEmployeeId: args.employee.id,
-    direction: args.direction,
-    counterpart: args.from,
-    contains: args.contains,
-    since: args.since ? parseSince(args.since, 0) : undefined,
-    limit: args.limit,
+  const since = args.since ? parseSince(args.since, 0) : undefined;
+  const { rows, note, ...info } = await pageTexts({
+    companyId: args.employee.companyId,
+    filter: {
+      phoneNumberIds: numbers.map((n) => n.id),
+      visibleToEmployeeId: args.employee.id,
+      direction: args.direction,
+      counterpart: args.from,
+      contains: args.contains,
+      since,
+    },
+    // What the caller asked for, not which numbers it holds right now: a
+    // number assigned between pages does not void the cursor.
+    fingerprint: {
+      employee: args.employee.id,
+      phoneNumber: args.phoneNumber ? normalizePhoneNumber(args.phoneNumber) : undefined,
+      direction: args.direction,
+      from: args.from?.trim() || undefined,
+      contains: args.contains?.trim() || undefined,
+      since,
+    },
+    page: { limit: args.limit, cursor: args.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+    present: (texts) => texts.map(textForTool),
   });
-  return { texts: texts.map(textForTool), note: UNTRUSTED_NOTE };
+  return { ...info, note: withPageNote(note, UNTRUSTED_NOTE), texts: rows };
 }
 
 export async function toolWaitForText(args: {
@@ -328,22 +355,38 @@ export async function toolGetCall(args: {
   };
 }
 
+/**
+ * The calls on the employee's numbers that it may read, newest first, one page
+ * at a time and without transcripts. Which calls it may read is decided in
+ * the query, so a page is never short of calls it could see.
+ */
 export async function toolListCalls(args: {
   employee: AIEmployee;
   direction?: "inbound" | "outbound";
-  limit: number;
+  /** Started on or after this day (`YYYY-MM-DD`, UTC) or instant. */
+  since?: string;
+  /** Started on or before this day (the whole day) or instant. */
+  until?: string;
+  limit?: number;
+  cursor?: string;
 }) {
   const numbers = await ownNumbers(args.employee);
-  const calls = await listCalls({
-    phoneNumberIds: numbers.map((n) => n.id),
-    direction: args.direction,
-    limit: Math.min(100, args.limit * 2),
+  const started = dateRange(args.since, args.until, ["since", "until"]);
+  const { rows, note, ...info } = await pageCalls({
+    companyId: args.employee.companyId,
+    filter: {
+      phoneNumberIds: numbers.map((n) => n.id),
+      visibleToEmployeeId: args.employee.id,
+      direction: args.direction,
+      started,
+    },
+    fingerprint: { employee: args.employee.id, direction: args.direction, started },
+    page: { limit: args.limit, cursor: args.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+    present: (calls) => calls.map((c) => callForTool(c, false)),
   });
   return {
-    calls: calls
-      .filter((c) => c.employeeId === null || c.employeeId === args.employee.id)
-      .slice(0, args.limit)
-      .map((c) => callForTool(c, false)),
-    note: "Read a call's transcript with get_phone_call.",
+    ...info,
+    note: withPageNote(note, "Read a call's transcript with get_phone_call."),
+    calls: rows,
   };
 }
