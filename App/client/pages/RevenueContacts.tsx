@@ -12,6 +12,14 @@ import {
   Users,
 } from "lucide-react";
 import { api, Employee, Member } from "../lib/api";
+import { CONTACT_PAGE_SIZE, type ContactPageResponse, contactPageUrl } from "../lib/contactPages";
+import {
+  cursorPageRange,
+  firstCursorPage,
+  nextCursorPage,
+  openPageCursor,
+  previousCursorPage,
+} from "../lib/cursorPages";
 import { customerOptionLabel } from "../lib/customerLabel";
 import type { RevenueAccount } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
@@ -34,8 +42,10 @@ import { RevenueOutletCtx } from "./RevenueLayout";
  *
  * The list answers one question: who have we not spoken to lately. The server
  * already orders by `lastActivityAt` with never-touched rows last, so nothing
- * here re-sorts — a client-side sort would silently disagree with the page-2
- * window the server returns.
+ * here re-sorts — a client-side sort would silently disagree with the next
+ * page the server returns. Pages follow the server's cursor rather than an
+ * offset, so contacts moving to the top or leaving the list between pages
+ * never make Next skip or repeat anyone (`lib/contactPages.ts`).
  *
  * The other thing this page owes the person scanning it is who they must not
  * mail. A do-not-contact flag or an unsubscribe is enforced at the outbound
@@ -93,10 +103,6 @@ export type RevenueContact = {
   /** Attached by the list endpoint only — null when there is no account yet. */
   customerName?: string | null;
 };
-
-type ContactPage = { rows: RevenueContact[]; total: number };
-
-const PAGE_SIZE = 25;
 
 const STAGE_LABELS: Record<ContactLifecycleStage, string> = {
   subscriber: "Subscriber",
@@ -198,9 +204,9 @@ export default function RevenueContacts() {
   // rides alongside because the pagination footer needs the server's count.
   const [rows, setRows] = React.useState<RevenueContact[] | null>(null);
   const [total, setTotal] = React.useState(0);
+  const [nextCursor, setNextCursor] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState(false);
   const [retrying, setRetrying] = React.useState(false);
-  const [offset, setOffset] = React.useState(0);
   const [stage, setStage] = React.useState<ContactLifecycleStage | "">("");
   const [search, setSearch] = React.useState("");
   const [query, setQuery] = React.useState("");
@@ -217,34 +223,52 @@ export default function RevenueContacts() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // Back to page one whenever the window we are paging through changes.
-  React.useEffect(() => {
-    setOffset(0);
-  }, [query, stage, showArchived]);
+  // The pages visited, kept with the filters they were read under: changing a
+  // filter is back to page one in the same render, so no request ever pairs a
+  // cursor with filters it was not issued for (the server refuses that).
+  const filterKey = JSON.stringify([query, stage, showArchived]);
+  const [visited, setVisited] = React.useState(() => ({ key: filterKey, ...firstCursorPage() }));
+  const pages = visited.key === filterKey ? visited : { key: filterKey, ...firstCursorPage() };
+  const pageIndex = pages.index;
+  const pageCursor = openPageCursor(pages);
+  const latestRead = React.useRef(0);
 
   const reload = React.useCallback(async () => {
-    const params = new URLSearchParams();
-    params.set("limit", String(PAGE_SIZE));
-    params.set("offset", String(offset));
-    if (query) params.set("q", query);
-    if (stage) params.set("lifecycleStage", stage);
-    if (showArchived) params.set("includeArchived", "true");
-    const data = await api.get<ContactPage>(
-      `/api/companies/${company.id}/revenue/contacts?${params.toString()}`,
-    );
-    // The API already orders by most recent activity with never-touched rows
-    // last, and pages against that order — re-sorting here would disagree with
-    // whatever page 2 comes back with.
-    setRows(data.rows);
-    setTotal(data.total);
-    setLoadError(false);
-  }, [company.id, offset, query, stage, showArchived]);
+    const read = ++latestRead.current;
+    try {
+      const data = await api.get<ContactPageResponse<RevenueContact>>(
+        contactPageUrl(company.id, { query, stage, showArchived }, pageCursor),
+      );
+      // A newer read (another page, a filter, a live update) is on its way.
+      if (read !== latestRead.current) return;
+      if (data.rows.length === 0 && pageIndex > 0) {
+        // Everything on this page left the list — archived, say: show the
+        // page before rather than an empty list with pages behind it.
+        setVisited((current) =>
+          current.key === filterKey ? { ...current, ...previousCursorPage(current) } : current,
+        );
+        return;
+      }
+      // The API already orders by most recent activity with never-touched rows
+      // last, and pages against that order — re-sorting here would disagree
+      // with whatever the next page comes back with.
+      setRows(data.rows);
+      setTotal(data.total);
+      setNextCursor(data.hasMore ? data.nextCursor : null);
+      setLoadError(false);
+    } catch (error) {
+      if (read !== latestRead.current) return;
+      setRows([]);
+      setTotal(0);
+      setNextCursor(null);
+      setLoadError(true);
+      throw error;
+    }
+  }, [company.id, filterKey, pageCursor, pageIndex, query, stage, showArchived]);
 
   const load = React.useCallback(() => {
     reload().catch(() => {
-      setRows([]);
-      setTotal(0);
-      setLoadError(true);
+      // The page already shows that it could not load.
     });
   }, [reload]);
 
@@ -280,10 +304,9 @@ export default function RevenueContacts() {
   }, [company.id]);
 
   const list = rows ?? [];
-  const hasPrev = offset > 0;
-  const hasNext = offset + PAGE_SIZE < total;
-  const start = total === 0 ? 0 : offset + 1;
-  const end = Math.min(offset + PAGE_SIZE, total);
+  const hasPrev = pageIndex > 0;
+  const hasNext = nextCursor !== null;
+  const range = cursorPageRange(pages, CONTACT_PAGE_SIZE, list.length, total);
 
   function patchRow(id: string, patch: Partial<RevenueContact>) {
     setRows((current) =>
@@ -360,9 +383,7 @@ export default function RevenueContacts() {
     setRetrying(true);
     reload()
       .catch(() => {
-        setRows([]);
-        setTotal(0);
-        setLoadError(true);
+        // Still failing: the page keeps saying so.
       })
       .finally(() => setRetrying(false));
   }
@@ -569,14 +590,18 @@ export default function RevenueContacts() {
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
             <span className="tabular-nums">
-              {start}–{end} of {total} contact{total === 1 ? "" : "s"}
+              {range.start}–{range.end} of {range.of} contact{range.of === 1 ? "" : "s"}
             </span>
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
                 variant="secondary"
                 disabled={!hasPrev}
-                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                onClick={() => {
+                  // Next waits for the page it would continue from.
+                  setNextCursor(null);
+                  setVisited({ ...pages, ...previousCursorPage(pages) });
+                }}
               >
                 <ChevronLeft size={14} /> Previous
               </Button>
@@ -584,7 +609,10 @@ export default function RevenueContacts() {
                 size="sm"
                 variant="secondary"
                 disabled={!hasNext}
-                onClick={() => setOffset(offset + PAGE_SIZE)}
+                onClick={() => {
+                  setNextCursor(null);
+                  setVisited({ ...pages, ...nextCursorPage(pages, nextCursor) });
+                }}
               >
                 Next <ChevronRight size={14} />
               </Button>

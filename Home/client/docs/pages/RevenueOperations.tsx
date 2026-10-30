@@ -190,12 +190,21 @@ export function RevenueOperations() {
         relationship; Activities is the audit and cleanup surface.
       </P>
       <P>
-        One export file holds at most 10,000 activities, newest first. When more match, the{" "}
+        <Strong>Export CSV</Strong> saves every activity the filters match, newest first, in one
+        file with one header row. A large export is read in parts of 10,000; the line under the
+        button counts how many are in so far (&ldquo;Exported 20,000 of 54,321 activities…&rdquo;)
+        and <Strong>Cancel</Strong> stops it. Nothing is saved until every part has arrived. If a
+        part fails, the export stops with the reason beside the button and keeps what it read, and{" "}
+        <Strong>Try again</Strong> carries on from the part that failed. Each part starts after the
+        last activity of the one before, so activities logged while the export runs never shift or
+        repeat anything; they belong to the next export.
+      </P>
+      <P>
+        Through the API, one export file holds at most 10,000 activities. When more match, the{" "}
         <Code>X-Export-Next-Cursor</Code> response header carries on: send it back as{" "}
-        <Code>cursor</Code> with the same filters for the next file, which starts after the last
-        activity of the one before, so activities logged meanwhile never shift it. An AI Employee
-        exports the same way in smaller parts, each one a CSV with its header row that fits what it
-        can read and attach.
+        <Code>cursor</Code> with the same filters for the next file. An AI Employee exports the
+        same way in smaller parts, each one a CSV with its header row that fits what it can read
+        and attach.
       </P>
       <P>
         Notes, calls, meetings, and task activities can be corrected or deleted. Mail, Deal Stage,

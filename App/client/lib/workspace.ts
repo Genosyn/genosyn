@@ -1,4 +1,5 @@
 import { api, Notification } from "./api";
+import { type ChannelHistoryPage, channelHistoryUrl } from "./workspaceHistory";
 
 /**
  * Client-side types + API helpers + WebSocket client for the workspace-chat
@@ -267,19 +268,15 @@ export const workspaceApi = {
   openDm: (companyId: string, target: { targetUserId: string } | { targetEmployeeId: string }) =>
     api.post<WorkspaceChannel>(`${base(companyId)}/dms`, target),
 
-  listMessages: (
+  /**
+   * One page of a channel's history: the newest messages, or with `cursor`
+   * (a page's `nextCursor`) the ones before them. See `workspaceHistory.ts`.
+   */
+  channelHistory: (
     companyId: string,
     channelId: string,
-    opts: { before?: string; limit?: number } = {},
-  ) => {
-    const p = new URLSearchParams();
-    if (opts.before) p.set("before", opts.before);
-    if (opts.limit) p.set("limit", String(opts.limit));
-    const qs = p.toString();
-    return api.get<WorkspaceMessage[]>(
-      `${base(companyId)}/channels/${channelId}/messages${qs ? `?${qs}` : ""}`,
-    );
-  },
+    page: { cursor?: string | null; limit: number },
+  ) => api.get<ChannelHistoryPage>(channelHistoryUrl(companyId, channelId, page)),
 
   sendMessage: (
     companyId: string,

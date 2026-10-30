@@ -22,6 +22,7 @@ import {
   workspaceApi,
   workspaceChannelHref,
 } from "@/lib/workspace";
+import { foldHistoryPage, olderCursorOf } from "@/lib/workspaceHistory";
 import { applyWorkspaceMessageEvent, mergeWorkspaceMessages } from "@/lib/workspaceMessages";
 
 /**
@@ -75,6 +76,8 @@ export function ChannelPeekModal({
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [reloadToken, setReloadToken] = React.useState(0);
   const [hasOlder, setHasOlder] = React.useState(false);
+  /** Where older messages carry on: the cursor of the oldest page read. */
+  const olderCursor = React.useRef<string | null>(null);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
   const [archived, setArchived] = React.useState(false);
   /** Something arrived below the fold while the reader was up in the history. */
@@ -125,13 +128,14 @@ export function ChannelPeekModal({
     pinned.current = true;
     lastMessageId.current = null;
     pendingEvents.current = [];
+    olderCursor.current = null;
     setMessages(null);
     setLoadError(null);
     setNewBelow(false);
     (async () => {
       try {
-        const [list, mentions, row] = await Promise.all([
-          workspaceApi.listMessages(company.id, channel.id, { limit: firstPageSize }),
+        const [page, mentions, row] = await Promise.all([
+          workspaceApi.channelHistory(company.id, channel.id, { limit: firstPageSize }),
           // Without the directory every @mention in every message renders as
           // an unresolved grey pill, which reads as a typo the author made —
           // and the composer's own @ autocomplete has nothing to offer.
@@ -145,13 +149,14 @@ export function ChannelPeekModal({
         setDetail(row);
         if (row?.archivedAt) setArchived(true);
         loaded.current = true;
-        setHasOlder(list.length >= firstPageSize);
+        olderCursor.current = olderCursorOf(page);
+        setHasOlder(olderCursor.current !== null);
         // Replay whatever the socket delivered while this was in flight, in
         // arrival order, over the page that just landed.
         setMessages(
           pendingEvents.current.reduce(
             (acc, event) => applyWorkspaceMessageEvent(acc, event, { meId: me.id }),
-            list,
+            page.messages,
           ),
         );
         pendingEvents.current = [];
@@ -253,11 +258,13 @@ export function ChannelPeekModal({
     let cancelled = false;
     (async () => {
       try {
-        const list = await workspaceApi.listMessages(company.id, channel.id, {
+        // The newest page only: the older pages already read stay, and so
+        // does the cursor that carries on past them.
+        const page = await workspaceApi.channelHistory(company.id, channel.id, {
           limit: firstPageSize,
         });
         if (cancelled) return;
-        setMessages((prev) => mergeWorkspaceMessages(prev ?? [], list));
+        setMessages((prev) => mergeWorkspaceMessages(prev ?? [], page.messages));
       } catch {
         // Nothing to say here — the transcript on screen is still the one we
         // had, and closing still reports the truth to Home.
@@ -269,13 +276,15 @@ export function ChannelPeekModal({
   }, [wsStatus, company.id, channel.id, firstPageSize]);
 
   async function loadOlder() {
-    const oldest = messages?.[0];
-    if (!oldest || loadingOlder) return;
+    const cursor = olderCursor.current;
+    if (!cursor || loadingOlder) return;
     const viewport = scrollRef.current;
     setLoadingOlder(true);
     try {
-      const older = await workspaceApi.listMessages(company.id, channel.id, {
-        before: oldest.createdAt,
+      // After the oldest message read so far, by (createdAt, id), so the
+      // messages sharing its second are neither skipped nor repeated.
+      const page = await workspaceApi.channelHistory(company.id, channel.id, {
+        cursor,
         limit: PEEK_PAGE_SIZE,
       });
       if (viewport) {
@@ -284,8 +293,9 @@ export function ChannelPeekModal({
           scrollTop: viewport.scrollTop,
         };
       }
-      setHasOlder(older.length >= PEEK_PAGE_SIZE);
-      setMessages((prev) => mergeWorkspaceMessages(older, prev ?? []));
+      olderCursor.current = olderCursorOf(page);
+      setHasOlder(olderCursor.current !== null);
+      setMessages((prev) => foldHistoryPage(prev ?? [], page).messages);
     } catch (err) {
       prependAnchor.current = null;
       setLoadError(errorMessage(err, "Couldn’t load earlier messages"));

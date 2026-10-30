@@ -80,7 +80,12 @@ export const ACTIVITY_PRIORITIES: ActivityPriority[] = ["low", "normal", "high",
  * happened.
  */
 @Entity("activities")
-@Index(["companyId", "occurredAt"])
+// The timeline's whole order — newest first, then by when it was recorded,
+// then by id — so the company-wide list and every part of the activity export
+// walk this index from their cursor instead of sorting every activity (and its
+// body) on each read. It still answers what the old (companyId, occurredAt)
+// index did.
+@Index(["companyId", "occurredAt", "createdAt", "id"])
 @Index(["companyId", "kind"])
 @Index(["contactId", "occurredAt"])
 @Index(["dealId", "occurredAt"])

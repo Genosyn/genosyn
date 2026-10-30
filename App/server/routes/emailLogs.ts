@@ -83,7 +83,14 @@ emailLogsRouter.get("/", async (req, res) => {
     );
   }
   const total = await qb.clone().getCount();
-  const rows = await qb.orderBy("log.createdAt", "DESC").skip(offset).take(limit).getMany();
+  // Logs written in the same instant keep one order, so Previous and Next
+  // never show one twice or pass one over among them.
+  const rows = await qb
+    .orderBy("log.createdAt", "DESC")
+    .addOrderBy("log.id", "DESC")
+    .skip(offset)
+    .take(limit)
+    .getMany();
   res.json({
     total,
     limit,

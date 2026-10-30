@@ -1,7 +1,17 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { Download, Pencil, Search, Trash2 } from "lucide-react";
+import { Download, Pencil, RotateCcw, Search, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
+import {
+  type ActivityDownload,
+  ActivityDownloadError,
+  activityDownloadBlob,
+  activityDownloadProgress,
+  activityExportUrl,
+  continueActivityDownload,
+  exportPartFromResponse,
+  startActivityDownload,
+} from "../lib/activityExport";
 import { errorMessage } from "../lib/errors";
 import {
   activityKindLabel,
@@ -11,7 +21,7 @@ import {
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { useDialog } from "../components/ui/Dialog";
-import { FormError } from "../components/ui/FormError";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
@@ -47,6 +57,29 @@ function localDateTime(value: string): string {
   if (Number.isNaN(date.getTime())) return "";
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
+}
+
+/**
+ * Where Export CSV stands. A failed download keeps what it read and the
+ * filters it was read with, so Try again carries on from the part that failed.
+ */
+type ExportState =
+  | { status: "idle" }
+  | { status: "running"; download: ActivityDownload }
+  | { status: "failed"; download: ActivityDownload; error: string; query: URLSearchParams }
+  | { status: "done"; download: ActivityDownload };
+
+/** Hand the browser a finished file to save. */
+function saveFile(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoked once the browser has started saving it.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 export default function RevenueActivities() {
@@ -126,7 +159,57 @@ export default function RevenueActivities() {
     }
   }
 
-  const exportUrl = `${baseUrl}/activities/export?${params}`;
+  const [exportState, setExportState] = React.useState<ExportState>({ status: "idle" });
+  const exportAbort = React.useRef<AbortController | null>(null);
+
+  // Leaving the page stops a download in flight; nothing is saved half-read.
+  React.useEffect(() => () => exportAbort.current?.abort(), []);
+
+  async function runExport(from: ActivityDownload, query: URLSearchParams) {
+    exportAbort.current?.abort();
+    const controller = new AbortController();
+    exportAbort.current = controller;
+    setExportState({ status: "running", download: from });
+    try {
+      const finished = await continueActivityDownload(
+        from,
+        async (cursor, signal) => {
+          const { text, headers } = await api.getText(activityExportUrl(baseUrl, query, cursor), {
+            signal,
+          });
+          return exportPartFromResponse(text, headers);
+        },
+        {
+          signal: controller.signal,
+          onProgress: (download) => {
+            if (!controller.signal.aborted) setExportState({ status: "running", download });
+          },
+        },
+      );
+      if (controller.signal.aborted) return;
+      saveFile(activityDownloadBlob(finished), finished.filename);
+      setExportState({ status: "done", download: finished });
+    } catch (cause) {
+      // Cancelled: the state was already put back.
+      if (controller.signal.aborted) return;
+      setExportState({
+        status: "failed",
+        download: cause instanceof ActivityDownloadError ? cause.download : from,
+        error: errorMessage(cause, "The export could not be read"),
+        query,
+      });
+    } finally {
+      if (exportAbort.current === controller) exportAbort.current = null;
+    }
+  }
+
+  function cancelExport() {
+    exportAbort.current?.abort();
+    exportAbort.current = null;
+    setExportState({ status: "idle" });
+  }
+
+  const exporting = exportState.status === "running";
 
   return (
     <div className="page-shell p-4 sm:p-8">
@@ -141,13 +224,56 @@ export default function RevenueActivities() {
             filtered result. Machine-recorded evidence stays immutable.
           </p>
         </div>
-        <a
-          href={exportUrl}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+        <Button
+          variant="secondary"
+          loading={exporting}
+          onClick={() => void runExport(startActivityDownload(), new URLSearchParams(params))}
         >
           <Download size={14} /> Export CSV
-        </a>
+        </Button>
       </div>
+
+      {exportState.status === "running" && (
+        <div
+          role="status"
+          className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+        >
+          <span className="tabular-nums">{activityDownloadProgress(exportState.download)}</span>
+          <Button size="sm" variant="ghost" onClick={cancelExport}>
+            Cancel
+          </Button>
+        </div>
+      )}
+      {exportState.status === "failed" && (
+        <div className="mt-4 space-y-2">
+          <FormError
+            message={
+              `The export stopped: ${exportState.error}` +
+              (exportState.download.exported > 0
+                ? ` The ${exportState.download.exported.toLocaleString("en-US")} activities read so far are kept, so Try again carries on from there.`
+                : "")
+            }
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void runExport(exportState.download, exportState.query)}
+            >
+              <RotateCcw size={14} /> Try again
+            </Button>
+            <Button size="sm" variant="ghost" onClick={cancelExport}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+      {exportState.status === "done" && (
+        <div className="mt-4">
+          {/* The file leaves the page silently; this says it holds everything. */}
+          <FormSuccess message={activityDownloadProgress(exportState.download)} />
+        </div>
+      )}
 
       {error && (
         <div className="mt-4">
@@ -160,6 +286,8 @@ export default function RevenueActivities() {
         onSubmit={(event) => {
           event.preventDefault();
           setFilters({ query: query.trim(), kind, from, to });
+          // A finished export's count was for the filters before this search.
+          setExportState((current) => (current.status === "done" ? { status: "idle" } : current));
         }}
       >
         <Input

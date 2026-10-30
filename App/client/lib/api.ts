@@ -42,6 +42,23 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   return (text ? JSON.parse(text) : null) as T;
 }
 
+/**
+ * A GET whose answer is not JSON — a CSV part of an export — with the headers
+ * that say what follows it. A refusal throws the same {@link ApiError} as
+ * every other request, so the page can show the server's sentence.
+ */
+async function requestText(
+  url: string,
+  opts: { signal?: AbortSignal } = {},
+): Promise<{ text: string; headers: Headers }> {
+  const res = await fetch(url, { method: "GET", credentials: "same-origin", signal: opts.signal });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new ApiError(errorMessageFrom(text, res.status, res.statusText), res.status, jsonOrNull(text));
+  }
+  return { text, headers: res.headers };
+}
+
 function jsonOrNull(text: string): unknown {
   try {
     return text ? JSON.parse(text) : null;
@@ -185,6 +202,7 @@ export const api = {
   put: <T>(url: string, body?: unknown) => request<T>("PUT", url, body),
   patch: <T>(url: string, body?: unknown) => request<T>("PATCH", url, body),
   del: <T>(url: string) => request<T>("DELETE", url),
+  getText: requestText,
   stream: streamPost,
   streamGet,
   /** Multipart upload of a single file under field name `file`, with
@@ -4663,6 +4681,12 @@ export type TldrListResponse = {
   items: TldrItem[];
   total: number;
   unreadCount: number;
+  /**
+   * Send back as `cursor` for the next, older page; null on the last. It names
+   * the last briefing shown, so briefings made in the same second are neither
+   * skipped nor repeated.
+   */
+  nextCursor?: string | null;
 };
 
 /**

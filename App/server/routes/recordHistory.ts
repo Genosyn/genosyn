@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateParams, validateQuery } from "../middleware/validate.js";
+import { CURSOR_MAX_LENGTH, ListQueryError } from "../services/listPaging.js";
 import { canReadRecordHistory, listRecordHistory } from "../services/recordHistory.js";
 
 /**
@@ -22,7 +23,14 @@ const paramsSchema = z
 const querySchema = z
   .object({
     take: z.coerce.number().int().min(1).max(200).default(50),
-    cursor: z.string().datetime().optional(),
+    cursor: z
+      .string()
+      .min(1)
+      .max(CURSOR_MAX_LENGTH)
+      .optional()
+      .describe(
+        "nextCursor from the previous page. It names the oldest change shown, so changes made in the same instant are neither skipped nor repeated; a bare timestamp from an older page still reads on from that instant.",
+      ),
   })
   .strict();
 
@@ -35,7 +43,7 @@ recordHistoryRouter.get(
   requireCompanyMember,
   validateParams(paramsSchema),
   validateQuery(querySchema),
-  async (req, res) => {
+  async (req, res, next) => {
     const { cid, targetType, targetId } = req.params as z.infer<typeof paramsSchema>;
     const q = req.query as unknown as z.infer<typeof querySchema>;
     const allowed = await canReadRecordHistory(cid, targetType, targetId, {
@@ -46,6 +54,11 @@ recordHistoryRouter.get(
     // 404 rather than 403: a type without a History and a record the viewer
     // cannot open look the same from outside.
     if (!allowed) return res.status(404).json({ error: "No history for that record" });
-    res.json(await listRecordHistory({ companyId: cid, targetType, targetId, ...q }));
+    try {
+      res.json(await listRecordHistory({ companyId: cid, targetType, targetId, ...q }));
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   },
 );

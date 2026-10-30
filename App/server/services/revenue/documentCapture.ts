@@ -312,8 +312,11 @@ export async function scanMailForRevenueDocuments(
   if (opts.accountId) qb.andWhere("message.accountId = :accountId", { accountId: opts.accountId });
   if (opts.from) qb.andWhere("message.sentAt >= :from", { from: opts.from });
   if (opts.to) qb.andWhere("message.sentAt < :to", { to: opts.to });
+  // Messages sent in the same second keep one order, so consecutive offsets
+  // never scan one twice or pass one over among them.
   const messages = await qb
     .orderBy("message.sentAt", "ASC")
+    .addOrderBy("message.id", "ASC")
     .skip(offset)
     .take(limit + 1)
     .getMany();
