@@ -352,11 +352,18 @@ test("Recruiting adds its six tables with the indexes the feature relies on, tou
 });
 
 test("the migrated tables are exactly what the entities describe", async (t) => {
+  // A fresh install runs the whole stream, and later migrations reshape these
+  // tables too — PagedListIndexes moved Applications onto the indexes their
+  // pages walk — so the entities are held to every migration, in order.
+  const migrationDir = fileURLToPath(new URL("./migrations/", import.meta.url));
+  const stream = (await readdir(migrationDir))
+    .filter((name) => /^\d+-.*\.(?:ts|js)$/.test(name))
+    .map((name) => path.join(migrationDir, name));
   const source = new DataSource({
     type: "better-sqlite3",
     database: ":memory:",
     entities: ENTITIES,
-    migrations: [Recruiting1792568830336],
+    migrations: stream,
     synchronize: false,
     logging: false,
   });
@@ -364,7 +371,9 @@ test("the migrated tables are exactly what the entities describe", async (t) => 
     if (source.isInitialized) await source.destroy();
   });
   await source.initialize();
-  await source.runMigrations();
+  const ran = (await source.runMigrations()).map((migration) => migration.name);
+  assert.equal(ran.length, stream.length);
+  assert.ok(ran.includes("Recruiting1792568830336"));
 
   assert.deepEqual(source.entityMetadatas.map((metadata) => metadata.tableName).sort(), NEW_TABLES);
   const runner = source.createQueryRunner();
