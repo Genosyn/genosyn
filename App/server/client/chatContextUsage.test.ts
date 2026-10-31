@@ -226,16 +226,29 @@ describe("chat session wiring", () => {
   });
 
   test("does not clear the gauge when the reply prose starts", () => {
-    // `progress` is cleared on the first chunk because it describes work in
-    // flight. The context reading describes the turn that just ran and is most
-    // useful once the reply has landed, so it must survive that transition.
+    // The context reading describes the turn that just ran and is most useful
+    // once the reply has landed, so the first chunk of prose must leave it be.
+    // The chunk leaves the employee's milestone be too: the live card keeps it
+    // above the reply streaming beneath, while the turn may still be working.
+    // Both are settled when the finished reply arrives.
     const chunkBranch = chatSessions.slice(
       chatSessions.indexOf('event === "chunk"'),
       chatSessions.indexOf('event === "progress"'),
     );
     assert.ok(chunkBranch.length > 0, "expected a chunk branch to inspect");
-    assert.match(chunkBranch, /progress: null/);
+    assert.match(chunkBranch, /streamingReply: accumulated/);
     assert.doesNotMatch(chunkBranch, /contextUsage/);
+    assert.doesNotMatch(chunkBranch, /progress:/);
+    const assistantBranch = chatSessions.slice(
+      chatSessions.indexOf('event === "assistant"'),
+      chatSessions.indexOf('event === "conversation"'),
+    );
+    assert.ok(assistantBranch.length > 0, "expected an assistant branch to inspect");
+    assert.match(assistantBranch, /progress: null/);
+    assert.match(
+      assistantBranch,
+      /contextUsage: latestContextUsage\(messages\) \?\? s\.contextUsage/,
+    );
   });
 });
 
