@@ -442,6 +442,11 @@ describe("the queue while a model is unavailable", () => {
       assert.equal(queued.status, "queued");
       assert.match(queued.logContent, /it is unavailable/);
     }
+    // Queued in the same second, two Runs tie on `createdAt` (whole seconds on
+    // SQLite) and the queue breaks the tie by Run id. Say which queued first.
+    const runs = AppDataSource.getRepository(Run);
+    await runs.update(second.run.id, { createdAt: new Date(Date.now() - 2_000) });
+    await runs.update(third.run.id, { createdAt: new Date(Date.now() - 1_000) });
 
     await modelIsBack(model);
     // Once back, the queue starts each waiting Run a second after the last, on
