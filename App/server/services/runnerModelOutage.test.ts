@@ -15,6 +15,7 @@ import { Run } from "../db/entities/Run.js";
 import { addMember } from "../test/accessFixtures.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
+import { whileServing } from "../test/serving.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { recordAudit } from "./audit.js";
 import { stopCron } from "./cron.js";
@@ -443,7 +444,12 @@ describe("the queue while a model is unavailable", () => {
     }
 
     await modelIsBack(model);
-    const done = await Promise.all([first.completion, second.completion, third.completion]);
+    // Once back, the queue starts each waiting Run a second after the last, on
+    // a timer it unrefs, as a server would keep it running.
+    const done = await whileServing(
+      Promise.all([first.completion, second.completion, third.completion]),
+      "the Runs that waited to start a second apart",
+    );
     assert.deepEqual(
       done.map((run) => run.status),
       ["completed", "completed", "completed"],

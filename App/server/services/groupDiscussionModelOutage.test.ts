@@ -14,6 +14,7 @@ import { Notification } from "../db/entities/Notification.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
+import { whileServing } from "../test/serving.js";
 import { modelUnavailability } from "./agent/modelOutage.js";
 import type { ChatOptions, ChatResult, ChatTurn } from "./chat.js";
 import {
@@ -140,12 +141,21 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await settleGroupDiscussionsForTests();
+  await settle();
   setGroupDiscussionDepsForTests(null);
   resetModelWaitsForTests();
   resetModelAvailabilityForTests();
   stopStanddowns();
 });
+
+/**
+ * Every discussion this process drives has ended. One that waits for an AI
+ * Model looks again — at its model, a Stop, a Standdown, its wall clock — on a
+ * timer it unrefs, which a server keeps running and a test process must too.
+ */
+function settle(): Promise<void> {
+  return whileServing(settleGroupDiscussionsForTests(), "the discussions to end");
+}
 
 async function hire(name: string, slug: string, role: string): Promise<AIEmployee> {
   const employee = await insert(AIEmployee, { companyId: company.id, name, slug, role });
@@ -268,7 +278,7 @@ describe("a discussion an AI Model outage interrupts", () => {
     );
 
     await back(ada);
-    await settleGroupDiscussionsForTests();
+    await settle();
     const d = await row(started.id);
     assert.equal(d.status, "concluded");
     assert.ok((await notes(started.id)).some((n) => /AI Model is back/.test(n)));
@@ -289,7 +299,7 @@ describe("a discussion an AI Model outage interrupts", () => {
     await waitingForModel(started.id);
     assert.equal(calls.length, 0, "nobody is asked while their model is down");
     await back(ada, ben);
-    await settleGroupDiscussionsForTests();
+    await settle();
     const d = await row(started.id);
     assert.equal(d.status, "concluded");
     assert.ok(calls.length >= 2);
@@ -303,7 +313,7 @@ describe("a discussion an AI Model outage interrupts", () => {
     const started = await start(channel);
     await waitingForModel(started.id);
     clock = () => new Date(Date.now() + GROUP_DISCUSSION_LIMITS.discussionTimeoutMs + 60_000);
-    await settleGroupDiscussionsForTests();
+    await settle();
     const d = await row(started.id);
     assert.equal(d.status, "concluded");
     assert.equal(d.endReason, "time_limit");
@@ -333,7 +343,7 @@ describe("a discussion an AI Model outage interrupts", () => {
     assert.deepEqual((await roles(started.id)).filter((r) => r === "outcome"), []);
 
     await back(ada, ben);
-    await settleGroupDiscussionsForTests();
+    await settle();
     const d = await row(started.id);
     assert.equal(d.status, "concluded");
     assert.deepEqual((await roles(started.id)).filter((r) => r === "outcome"), ["outcome"]);
@@ -352,7 +362,7 @@ describe("a discussion an AI Model outage interrupts", () => {
     const started = await start(channel);
     await waitingForModel(started.id);
     clock = () => new Date(Date.now() + GROUP_DISCUSSION_LIMITS.discussionTimeoutMs + 60_000);
-    await settleGroupDiscussionsForTests();
+    await settle();
     const d = await row(started.id);
     assert.equal(d.status, "failed");
     assert.match(d.endDetail ?? "", /no outcome could be written: the AI Model is unavailable/);
@@ -370,7 +380,7 @@ describe("a discussion an AI Model outage interrupts", () => {
     const started = await start(channel);
     await waitingForModel(started.id);
     await stopGroupDiscussion({ companyId: company.id, discussionId: started.id, userId: owner.id });
-    await settleGroupDiscussionsForTests();
+    await settle();
     assert.equal((await row(started.id)).status, "stopped");
   });
 
@@ -380,7 +390,7 @@ describe("a discussion an AI Model outage interrupts", () => {
     const started = await start(channel);
     await waitingForModel(started.id);
     await placeStanddown({ companyId: company.id, scope: "company", reason: "Board review." });
-    await settleGroupDiscussionsForTests();
+    await settle();
     const d = await row(started.id);
     assert.equal(d.status, "stopped");
     assert.equal(d.endReason, "standdown");
@@ -424,7 +434,7 @@ describe("Start the work while an owner's AI Model is unavailable", () => {
       ]),
     );
     const started = await start(channel);
-    await settleGroupDiscussionsForTests();
+    await settle();
     const d = await row(started.id);
     assert.equal(d.status, "concluded");
     return d;
@@ -441,7 +451,7 @@ describe("Start the work while an owner's AI Model is unavailable", () => {
       discussionId: d.id,
       requester: { userId: owner.id, sessionVersion: 0 },
     });
-    await settleGroupDiscussionsForTests();
+    await settle();
     let outcome = parseOutcome((await row(d.id)).outcomeJson);
     const adaItem = outcome?.actionItems.find((i) => i.owner?.id === ada.id);
     const benItem = outcome?.actionItems.find((i) => i.owner?.id === ben.id);
@@ -457,7 +467,7 @@ describe("Start the work while an owner's AI Model is unavailable", () => {
 
     await back(ada);
     await settleModelWaitsForTests();
-    await settleGroupDiscussionsForTests();
+    await settle();
     outcome = parseOutcome((await row(d.id)).outcomeJson);
     assert.equal(outcome?.actionItems.find((i) => i.owner?.id === ada.id)?.status, "done");
     const adaCall = calls.find((c) => c.employeeId === ada.id);
@@ -476,7 +486,7 @@ describe("Start the work while an owner's AI Model is unavailable", () => {
       discussionId: d.id,
       requester: { userId: owner.id, sessionVersion: 0 },
     });
-    await settleGroupDiscussionsForTests();
+    await settle();
     assert.equal(
       parseOutcome((await row(d.id)).outcomeJson)?.actionItems.find((i) => i.owner?.id === ada.id)?.status,
       "waiting",
@@ -484,7 +494,7 @@ describe("Start the work while an owner's AI Model is unavailable", () => {
     assert.ok(!(await notes(d.id)).some((n) => /couldn't start on the work/.test(n)));
     await back(ada);
     await settleModelWaitsForTests();
-    await settleGroupDiscussionsForTests();
+    await settle();
     assert.equal(
       parseOutcome((await row(d.id)).outcomeJson)?.actionItems.find((i) => i.owner?.id === ada.id)?.status,
       "done",
@@ -499,7 +509,7 @@ describe("Start the work while an owner's AI Model is unavailable", () => {
       discussionId: d.id,
       requester: { userId: owner.id, sessionVersion: 0 },
     });
-    await settleGroupDiscussionsForTests();
+    await settle();
     await placeStanddown({
       companyId: company.id,
       scope: "employee",
