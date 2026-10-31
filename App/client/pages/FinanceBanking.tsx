@@ -162,7 +162,7 @@ export default function FinanceBanking() {
       }),
     [],
   );
-  const listState = React.useSyncExternalStore(list.subscribe, list.getSnapshot);
+  const listState = React.useSyncExternalStore(list.subscribe, list.getSnapshot, list.getSnapshot);
   /** The search box and Filters as typed; the list reads them once typing pauses. */
   const [filters, setFilters] = React.useState<BankingFilters>(NO_FILTERS);
   const applied = useSettled(filters, FILTER_DEBOUNCE_MS);

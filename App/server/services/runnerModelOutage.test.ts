@@ -15,6 +15,7 @@ import { Run } from "../db/entities/Run.js";
 import { addMember } from "../test/accessFixtures.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
+import { whileServing } from "../test/serving.js";
 import { agentRuntime } from "./agent/runtime.js";
 import { recordAudit } from "./audit.js";
 import { stopCron } from "./cron.js";
@@ -441,9 +442,19 @@ describe("the queue while a model is unavailable", () => {
       assert.equal(queued.status, "queued");
       assert.match(queued.logContent, /it is unavailable/);
     }
+    // Queued in the same second, two Runs tie on `createdAt` (whole seconds on
+    // SQLite) and the queue breaks the tie by Run id. Say which queued first.
+    const runs = AppDataSource.getRepository(Run);
+    await runs.update(second.run.id, { createdAt: new Date(Date.now() - 2_000) });
+    await runs.update(third.run.id, { createdAt: new Date(Date.now() - 1_000) });
 
     await modelIsBack(model);
-    const done = await Promise.all([first.completion, second.completion, third.completion]);
+    // Once back, the queue starts each waiting Run a second after the last, on
+    // a timer it unrefs, as a server would keep it running.
+    const done = await whileServing(
+      Promise.all([first.completion, second.completion, third.completion]),
+      "the Runs that waited to start a second apart",
+    );
     assert.deepEqual(
       done.map((run) => run.status),
       ["completed", "completed", "completed"],
