@@ -228,7 +228,7 @@ export function resolveRequester(args: {
     // Headers arrive unchecked, and Postgres refuses a NUL byte in text.
     return value
       .slice(0, open)
-      .replace(/\u0000/g, "")
+      .replaceAll("\u0000", "")
       .replace(/^["'\s]+|["'\s]+$/g, "");
   };
   const replyToRaw = header(args.headers, "Reply-To");

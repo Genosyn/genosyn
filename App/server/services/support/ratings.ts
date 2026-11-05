@@ -115,7 +115,7 @@ export async function submitRating(args: {
   const { ticket } = context;
   // Anyone with the link can post this, and Postgres refuses a NUL byte in text.
   const comment = (args.comment ?? "")
-    .replace(/\u0000/g, "")
+    .replaceAll("\u0000", "")
     .trim()
     .slice(0, SUPPORT_LIMITS.ratingCommentChars);
   const first = ticket.ratingScore === null;
