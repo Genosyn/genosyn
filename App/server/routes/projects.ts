@@ -770,6 +770,41 @@ const todoLinkInputSchema = z.object({
     .describe("This is where the Todo came from. A Todo has at most one source."),
 });
 
+// One Todo by the number people already call it by, with the parent and subtasks
+// its page shows. Its own address is what lets someone share it.
+const TODO_PAGE_RELATED_LIMIT = 200;
+
+projectsRouter.get(
+  "/projects/:pSlug/todos/:number",
+  validateParams(
+    z.object({ cid: z.string().uuid(), pSlug: z.string(), number: z.coerce.number().int().min(1) }),
+  ),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const p = await loadProjectBySlug(cid, req.params.pSlug);
+    if (!p) return res.status(404).json({ error: "Project not found" });
+    const level = await findProjectAccess(p, actorOf(req));
+    if (!level) return res.status(403).json({ error: "No access to that project" });
+    const repo = AppDataSource.getRepository(Todo);
+    const todo = await repo.findOneBy({ projectId: p.id, number: Number(req.params.number) });
+    if (!todo) return res.status(404).json({ error: "Todo not found" });
+    const [subtasks, parent] = await Promise.all([
+      repo.find({
+        where: { projectId: p.id, parentTodoId: todo.id },
+        order: { sortOrder: "ASC", id: "ASC" },
+        take: TODO_PAGE_RELATED_LIMIT,
+      }),
+      todo.parentTodoId ? repo.findOneBy({ id: todo.parentTodoId, projectId: p.id }) : null,
+    ]);
+    const [hydrated, ...related] = await hydrateTodos(
+      cid,
+      [todo, ...subtasks, ...(parent ? [parent] : [])],
+      memberLinkReader(req),
+    );
+    res.json({ project: { ...p, myAccessLevel: level }, todo: hydrated, related });
+  },
+);
+
 const createTodoSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(10_000).optional(),

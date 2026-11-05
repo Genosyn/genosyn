@@ -64,6 +64,11 @@ export function Tasks() {
         ]}
       />
 
+      <P>
+        Clicking a todo opens it beside the board. <Strong>Open full page</Strong> gives it a page of
+        its own, with an address you can share and room for a long thread.
+      </P>
+
       <H2 id="subtasks">Subtasks</H2>
       <P>
         Open any todo and use <Strong>Add a subtask</Strong> in its panel to break the work into

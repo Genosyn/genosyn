@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { useComposerFileDrop } from "@/lib/fileDrop";
 import { useChatAttachments } from "@/lib/stagedChatAttachments";
 import { ChatAttachments } from "@/components/chat/ChatAttachments";
@@ -14,6 +15,7 @@ import {
   CornerUpLeft,
   ListTree,
   Mail,
+  Maximize2,
   MessageSquare,
   Plus,
   RefreshCw,
@@ -93,6 +95,7 @@ export function TodoDetailBody({
   onOpenTodo,
   onCreated,
   onReviewResolved,
+  wide = false,
 }: {
   todo: Todo;
   allTodos: Todo[];
@@ -108,6 +111,8 @@ export function TodoDetailBody({
   onCreated: (t: Todo) => void;
   /** A review was approved (`done`) or pushed back (`in_progress`) from the panel. */
   onReviewResolved?: (status: "done" | "in_progress") => void;
+  /** It has a page to itself: the fields sit in a column beside the work. */
+  wide?: boolean;
 }) {
   const [title, setTitle] = React.useState(todo.title);
   const [desc, setDesc] = React.useState(todo.description);
@@ -140,174 +145,168 @@ export function TodoDetailBody({
     : null;
   const subtasks = allTodos.filter((t) => t.parentTodoId === todo.id);
 
-  return (
-    <div>
-      {parent && (
-        <button
-          onClick={() => onOpenTodo(parent.id)}
-          className="mb-2 flex items-center gap-1.5 rounded-md text-xs text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300"
-          title="Open parent todo"
-        >
-          <CornerDownRight size={12} />
-          Sub-task of{" "}
-          <span className="font-mono">
-            {project.key}-{parent.number}
-          </span>
-          <span className="max-w-[14rem] truncate">· {parent.title}</span>
-        </button>
+  const parentLink = parent && (
+    <button
+      onClick={() => onOpenTodo(parent.id)}
+      className="mb-2 flex items-center gap-1.5 rounded-md text-xs text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300"
+      title="Open parent todo"
+    >
+      <CornerDownRight size={12} />
+      Sub-task of{" "}
+      <span className="font-mono">
+        {project.key}-{parent.number}
+      </span>
+      <span className="max-w-[14rem] truncate">· {parent.title}</span>
+    </button>
+  );
+  const links = (
+    <TodoLinksList todo={todo} companyId={companyId} companySlug={companySlug} canEdit={canEdit} />
+  );
+  const titleInput = (
+    <input
+      value={title}
+      readOnly={!canEdit}
+      onChange={(e) => setTitle(e.target.value)}
+      onBlur={commitTitle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      placeholder="Task title"
+      className={clsx(
+        "w-full bg-transparent font-semibold leading-tight text-slate-900 placeholder:text-slate-300 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-600",
+        wide ? "text-2xl" : "text-[17px]",
       )}
-      <TodoLinksList
-        todo={todo}
-        companyId={companyId}
-        companySlug={companySlug}
-        canEdit={canEdit}
-      />
-      <input
-        value={title}
-        readOnly={!canEdit}
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={commitTitle}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        placeholder="Task title"
-        className="w-full bg-transparent text-[17px] font-semibold leading-tight text-slate-900 placeholder:text-slate-300 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-600"
-      />
-
-      <div className="mt-4">
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            Description
-          </span>
-          {!descEditing && desc && canEdit && (
-            <button
-              onClick={() => setDescEditing(true)}
-              className="text-[11px] text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
-            >
-              Edit
-            </button>
-          )}
-        </div>
-        {descEditing ? (
-          <DescriptionEditor
-            value={desc}
-            onChange={(v) => {
-              setDesc(v);
-              setDescDirty(true);
-            }}
-            onDone={commitDesc}
-          />
-        ) : desc ? (
-          canEdit ? (
-            <button
-              type="button"
-              onClick={() => setDescEditing(true)}
-              className="block w-full rounded-lg border border-transparent px-3 py-2 text-left hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-800"
-            >
-              <MarkdownView source={desc} blockImages={todo.untrustedText} />
-            </button>
-          ) : (
-            <div className="px-3 py-2">
-              <MarkdownView source={desc} blockImages={todo.untrustedText} />
-            </div>
-          )
-        ) : canEdit ? (
+    />
+  );
+  const description = (
+    <div className="mt-4">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Description</span>
+        {!descEditing && desc && canEdit && (
+          <button
+            onClick={() => setDescEditing(true)}
+            className="text-[11px] text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
+          >
+            Edit
+          </button>
+        )}
+      </div>
+      {descEditing ? (
+        <DescriptionEditor
+          value={desc}
+          onChange={(v) => {
+            setDesc(v);
+            setDescDirty(true);
+          }}
+          onDone={commitDesc}
+        />
+      ) : desc ? (
+        canEdit ? (
           <button
             type="button"
             onClick={() => setDescEditing(true)}
-            className="block w-full rounded-lg border border-dashed border-slate-200 px-3 py-2 text-left text-sm text-slate-400 hover:border-slate-300 hover:text-slate-600 dark:border-slate-700 dark:text-slate-500 dark:hover:border-slate-600 dark:hover:text-slate-300"
+            className="block w-full rounded-lg border border-transparent px-3 py-2 text-left hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-800"
           >
-            Add a description — supports **markdown**, `code`, lists, links…
+            <MarkdownView source={desc} blockImages={todo.untrustedText} />
           </button>
         ) : (
-          <p className="px-3 py-2 text-sm text-slate-400 dark:text-slate-500">No description.</p>
+          <div className="px-3 py-2">
+            <MarkdownView source={desc} blockImages={todo.untrustedText} />
+          </div>
+        )
+      ) : canEdit ? (
+        <button
+          type="button"
+          onClick={() => setDescEditing(true)}
+          className="block w-full rounded-lg border border-dashed border-slate-200 px-3 py-2 text-left text-sm text-slate-400 hover:border-slate-300 hover:text-slate-600 dark:border-slate-700 dark:text-slate-500 dark:hover:border-slate-600 dark:hover:text-slate-300"
+        >
+          Add a description — supports **markdown**, `code`, lists, links…
+        </button>
+      ) : (
+        <p className="px-3 py-2 text-sm text-slate-400 dark:text-slate-500">No description.</p>
+      )}
+    </div>
+  );
+  const fields = (
+    <div
+      className={clsx(
+        "grid grid-cols-[88px_1fr] items-center gap-y-2.5 text-sm",
+        wide ? "" : "mt-6",
+      )}
+    >
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Status</span>
+      <div>
+        <StatusPicker
+          value={todo.status}
+          onChange={(s) => onPatch({ status: s })}
+          disabled={!canEdit}
+        />
+      </div>
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Priority</span>
+      <div>
+        <PriorityPicker
+          value={todo.priority}
+          onChange={(p) => onPatch({ priority: p })}
+          disabled={!canEdit}
+        />
+      </div>
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Assignee</span>
+      <div>
+        <AssigneePicker
+          value={refFromTodo(todo)}
+          employees={employees}
+          members={members}
+          onChange={(ref) => onPatch(patchForRef(ref))}
+          disabled={!canEdit}
+        />
+      </div>
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Reviewer</span>
+      <div>
+        <AssigneePicker
+          value={reviewerRefFromTodo(todo)}
+          employees={employees}
+          members={members}
+          onChange={(ref) => onPatch(patchForReviewerRef(ref))}
+          role="reviewer"
+          disabled={!canEdit}
+        />
+      </div>
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Due date</span>
+      <div className="flex items-center gap-2">
+        <Input
+          type="date"
+          value={due}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onPatch({
+              dueAt: e.target.value ? new Date(e.target.value).toISOString() : null,
+            })
+          }
+        />
+        {due && canEdit && (
+          <button
+            onClick={() => onPatch({ dueAt: null })}
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            title="Clear"
+          >
+            <X size={14} />
+          </button>
         )}
       </div>
-
-      <div className="mt-6 grid grid-cols-[88px_1fr] items-center gap-y-2.5 text-sm">
-        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-          Status
-        </span>
-        <div>
-          <StatusPicker
-            value={todo.status}
-            onChange={(s) => onPatch({ status: s })}
-            disabled={!canEdit}
-          />
-        </div>
-        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-          Priority
-        </span>
-        <div>
-          <PriorityPicker
-            value={todo.priority}
-            onChange={(p) => onPatch({ priority: p })}
-            disabled={!canEdit}
-          />
-        </div>
-        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-          Assignee
-        </span>
-        <div>
-          <AssigneePicker
-            value={refFromTodo(todo)}
-            employees={employees}
-            members={members}
-            onChange={(ref) => onPatch(patchForRef(ref))}
-            disabled={!canEdit}
-          />
-        </div>
-        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-          Reviewer
-        </span>
-        <div>
-          <AssigneePicker
-            value={reviewerRefFromTodo(todo)}
-            employees={employees}
-            members={members}
-            onChange={(ref) => onPatch(patchForReviewerRef(ref))}
-            role="reviewer"
-            disabled={!canEdit}
-          />
-        </div>
-        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-          Due date
-        </span>
-        <div className="flex items-center gap-2">
-          <Input
-            type="date"
-            value={due}
-            disabled={!canEdit}
-            onChange={(e) =>
-              onPatch({
-                dueAt: e.target.value ? new Date(e.target.value).toISOString() : null,
-              })
-            }
-          />
-          {due && canEdit && (
-            <button
-              onClick={() => onPatch({ dueAt: null })}
-              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-              title="Clear"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-          Repeat
-        </span>
-        <div>
-          <RecurrencePicker
-            value={todo.recurrence}
-            onChange={(r) => onPatch({ recurrence: r })}
-            disabled={!canEdit}
-          />
-        </div>
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Repeat</span>
+      <div>
+        <RecurrencePicker
+          value={todo.recurrence}
+          onChange={(r) => onPatch({ recurrence: r })}
+          disabled={!canEdit}
+        />
       </div>
-
+    </div>
+  );
+  const work = (
+    <>
       <TodoPickupPanel
         todo={todo}
         companyId={companyId}
@@ -378,8 +377,43 @@ export function TodoDetailBody({
           { label: "Completed", at: todo.completedAt, covers: ["complete"] },
         ]}
       />
+    </>
+  );
+
+  if (wide) {
+    return (
+      <div>
+        {parentLink}
+        {titleInput}
+        <div className="mt-4 grid gap-8 lg:grid-cols-[minmax(0,1fr)_288px]">
+          {/* On a phone the fields come first: they're what you check before reading on. */}
+          <aside className="space-y-4 lg:order-last">
+            {fields}
+            {links}
+          </aside>
+          <div className="min-w-0">
+            {description}
+            {work}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      {parentLink}
+      {links}
+      {titleInput}
+      {description}
+      {fields}
+      {work}
     </div>
   );
+}
+
+/** A Todo's own page, by the number people already call it by. */
+export function todoPagePath(companySlug: string, projectSlug: string, number: number): string {
+  return `/c/${companySlug}/tasks/p/${projectSlug}/t/${number}`;
 }
 
 /**
@@ -419,9 +453,17 @@ export function TodoDetailPanel(props: {
             <ShieldCheck size={10} /> Review
           </span>
         )}
+        <Link
+          to={todoPagePath(props.companySlug, project.slug, todo.number)}
+          className="ml-auto rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          title="Open full page"
+          aria-label="Open full page"
+        >
+          <Maximize2 size={16} />
+        </Link>
         <button
           onClick={onClose}
-          className="ml-auto rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           title="Close (Esc)"
         >
           <X size={16} />
@@ -1126,19 +1168,21 @@ function CommentRow({
           </div>
         ) : (
           <div className="mt-0.5 break-words text-sm text-slate-800 dark:text-slate-100">
-            {comment.pickup && shouldShowTurnSummary(comment.pickup.activity) && comment.pickup.activity && (
-              <TurnWorkSummary
-                summary={comment.pickup.activity}
-                activityUrl={`/api/companies/${companyId}/todos/${todoId}/pickups/${comment.pickup.id}/activity`}
-                messageId={comment.pickup.id}
-                companySlug={companySlug}
-                note={
-                  comment.pickup.access === "steps"
-                    ? "You see its steps but not what they read, because it worked with another Member's access."
-                    : null
-                }
-              />
-            )}
+            {comment.pickup &&
+              shouldShowTurnSummary(comment.pickup.activity) &&
+              comment.pickup.activity && (
+                <TurnWorkSummary
+                  summary={comment.pickup.activity}
+                  activityUrl={`/api/companies/${companyId}/todos/${todoId}/pickups/${comment.pickup.id}/activity`}
+                  messageId={comment.pickup.id}
+                  companySlug={companySlug}
+                  note={
+                    comment.pickup.access === "steps"
+                      ? "You see its steps but not what they read, because it worked with another Member's access."
+                      : null
+                  }
+                />
+              )}
             <ChatMarkdown content={comment.body} blockImages={comment.pickup?.preparationOnly} />
             <ChatAttachments
               attachments={comment.attachments ?? []}
