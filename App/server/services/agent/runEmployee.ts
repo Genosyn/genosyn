@@ -45,6 +45,7 @@ import { issueDelegatedMcpToken, resolveMcpToken, revokeMcpToken } from "../mcpT
 import { selfReviewToolScope } from "../proactive/reviewPolicy.js";
 import {
   PREPARATION_REPLY_BRIEF,
+  TRUSTED_SENDER_BRIEF,
   preparationMayReply,
   proactiveReviewBrief,
   proactiveReviewToolScope,
@@ -120,8 +121,6 @@ export type EmployeeAgentParams = {
    * them; ordinary interactive Members stay on the governed Genosyn surface.
    */
   allowPrivilegedToolSources?: boolean;
-  /** The browser alone, when the privileged sources are otherwise closed. */
-  allowBrowser?: boolean;
   /** Work that spans turns without a conversation, to come back to the same page. */
   browserSessionKey?: string;
   /** Re-check administrative Member authority before every ambient tool call. */
@@ -287,7 +286,10 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
   // way a review is: the token decides, whatever scope the caller passed.
   const reviewScope =
     selfReviewToolScope(tokenInfo?.selfReviewOnly) ??
-    proactiveReviewToolScope(tokenInfo?.proactiveReview, preparationMayReply(tokenInfo)) ??
+    proactiveReviewToolScope(tokenInfo?.proactiveReview, {
+      mayReply: preparationMayReply(tokenInfo),
+      trustedSender: tokenInfo?.trustedSender,
+    }) ??
     collaborationToolScope(tokenInfo?.collaboration);
   if (tokenInfo?.proactiveReview) {
     // The brief follows the company's live Decision stack settings, so a
@@ -298,6 +300,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     const brief = [
       proactiveReviewBrief(decisionStack),
       ...(preparationMayReply(tokenInfo) ? [PREPARATION_REPLY_BRIEF] : []),
+      ...(tokenInfo.trustedSender ? [TRUSTED_SENDER_BRIEF] : []),
     ].join("\n");
     params = { ...params, system: `${params.system}\n\n${brief}` };
   }
@@ -405,7 +408,6 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     runId: params.runId,
     signal: params.signal,
     allowPrivilegedToolSources: params.allowPrivilegedToolSources,
-    allowBrowser: params.allowBrowser,
     browserSessionKey: params.browserSessionKey,
     authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
     toolScope: params.toolScope,

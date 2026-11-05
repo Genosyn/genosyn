@@ -541,11 +541,15 @@ export function RunBrowserRecordingsPane({
   runId,
   recordings: allRecordings,
   className = "min-h-[360px] max-h-[60vh]",
+  baseUrl,
 }: {
   companyId: string;
-  runId: string;
+  /** The Run they're from. A Todo's recordings pass `baseUrl` instead. */
+  runId?: string;
   recordings: RunBrowserRecording[];
   className?: string;
+  /** Where these recordings are served, when it isn't under a Run. */
+  baseUrl?: string;
 }) {
   // Filtered here as well as at the call sites, so a Run whose only browser
   // session failed renders nothing at all instead of an empty player.
@@ -570,7 +574,7 @@ export function RunBrowserRecordingsPane({
 
   if (!selected) return null;
 
-  const recordingUrl = `/api/companies/${companyId}/runs/${runId}/browser-recordings/${selected.id}`;
+  const recordingUrl = `${baseUrl ?? `/api/companies/${companyId}/runs/${runId}/browser-recordings`}/${selected.id}`;
   const size = selected.status === "ready" ? formatBytes(selected.sizeBytes) : null;
   const duration =
     selected.startedAt && selected.finishedAt

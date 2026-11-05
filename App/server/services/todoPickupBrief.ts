@@ -97,6 +97,7 @@ function headline(input: TodoPickupBriefInput): string {
     case "wait_stopped":
     case "decision_answered":
     case "review_outcome":
+    case "work_session_ended":
       return `You are working on ${name} in project "${project.name}" ${details}. The thread above is what has happened so far.`;
     case "email_intake":
       return `${name} in project "${project.name}" ${details} was filed from an email and assigned to you.`;
@@ -128,17 +129,18 @@ function contract(input: TodoPickupBriefInput): string[] {
     : '"done"';
   return [
     input.preparationOnly
-      ? "Do what you can on this todo now. This session may only prepare: do the research and record keeping your tools allow, and use request_work_review for anything that needs more."
+      ? "Do what you can on this todo now. This session may only prepare: do the research and record keeping your tools allow, and use request_work_review for anything that needs more, and say what. A Member can send you back to this with their access."
       : "Work on this todo now. Actually do the work with your tools — don't just plan or acknowledge.",
     `- The todo is already in \`${todo.status}\`. When you finish, call \`update_todo\` with todoId "${todo.id}" and set status to ${finish}.`,
     ...(input.preparationOnly
       ? []
       : [
           "- If a browser action is queued for approval, stop there and end this session. This todo starts again when a person decides, and you call `browser_resume` then.",
+          "- If you used the browser, say in your report what you did there and what the page said at the end. A recording of it is kept with your report.",
         ]),
     `- If you need an answer before you can finish, ask for it (an email to the customer, or a question on this thread), then call \`wait_on_todo\` with todoId "${todo.id}" saying what you're waiting on and when to check back. This Todo wakes you when the reply arrives; don't stay in this session waiting.`,
     `- If you're blocked with nobody to ask, or the brief is too vague to act on, move the status back to "todo" via \`update_todo\` (todoId "${todo.id}") and say exactly what you need.`,
-    "- Your reply is posted as a comment on the todo's thread for the team to read. Make it a crisp report: what you did, where the output lives, anything that needs a decision.",
+    "- Your reply is posted as a comment on the todo's thread for the team to read. Make it a crisp report: what you did, where the output lives, anything that needs a decision. If there is nothing to report, say that in a sentence.",
   ];
 }
 

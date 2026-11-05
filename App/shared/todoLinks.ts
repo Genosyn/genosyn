@@ -11,6 +11,11 @@ export const TODO_LINK_KINDS = [
   "decision",
   "meeting",
   "run",
+  "work_session",
+  "estimate",
+  "invoice",
+  "bill",
+  "ticket",
 ] as const;
 
 export type TodoLinkKind = (typeof TODO_LINK_KINDS)[number];
@@ -31,6 +36,11 @@ export const TODO_LINK_KIND_LABEL: Record<TodoLinkKind, string> = {
   decision: "Decision",
   meeting: "Meeting",
   run: "Run",
+  work_session: "Work session",
+  estimate: "Estimate",
+  invoice: "Invoice",
+  bill: "Bill",
+  ticket: "Ticket",
 };
 
 /** A link as a reader sees it. `label` is null when this reader may not read the target. */

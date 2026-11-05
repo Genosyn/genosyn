@@ -27,6 +27,7 @@ import {
 } from "@/lib/createTask";
 import { errorMessage } from "@/lib/errors";
 import { submitFormOnModEnter } from "@/lib/keyboard";
+import type { TodoLinkKind } from "../../../shared/todoLinks";
 import {
   PRIORITY_LABEL,
   PRIORITY_ORDER,
@@ -50,26 +51,29 @@ type CreateTaskModalProps = {
   onClose: () => void;
   companyId: string;
   companySlug: string;
-  /** Says what the task is being made from, when it is made from something. */
-  heading?: string;
+  /** The record it's created from, if any, which the server links it to. */
+  link?: { kind: TodoLinkKind; targetId: string };
+  /** What it's created from, for the heading: "this email". */
+  what?: string;
   /** Where the title starts; empty when the person is writing it from scratch. */
-  initialTitle?: string;
+  suggestedTitle?: string;
+  /** Anything an AI Employee needs to do this, after the line every assignee gets. */
+  assigneeHint?: string;
   /** The person creating it, when a new task should start assigned to them. */
   assignToUserId?: string;
   /** The Project to start on, if this person can file in it. */
   preferredProjectSlug?: string | null;
-  /** The records the new Todo belongs with. See `TodoLink`. */
-  links?: Array<{ kind: "mail_thread"; targetId: string; isSource?: boolean }>;
-  /** What an AI Employee needs beyond its Grants to do this particular task. */
-  aiAssigneeNote?: string;
   layer?: ModalLayer;
   onCreated?: (todo: Todo) => void;
 };
 
 /**
  * The one way to create a Todo in a modal: from the keyboard anywhere
- * (`GlobalCreateTask`), or from an email thread. Mounted fresh for each open,
- * so a task abandoned with Escape leaves nothing behind for the next one.
+ * (`GlobalCreateTask`), or from a record a person can then see it from either
+ * side: an email, a work session, an estimate. The server links the two when it
+ * creates the Todo, so there is never a Todo that lost track of where it came
+ * from. Mounted fresh for each open, so a task abandoned with Escape leaves
+ * nothing behind for the next one.
  */
 export function CreateTaskModal(props: CreateTaskModalProps) {
   if (!props.open) return null;
@@ -80,18 +84,19 @@ function CreateTaskForm({
   onClose,
   companyId,
   companySlug,
-  heading = "Create a task",
-  initialTitle = "",
+  link,
+  what,
+  suggestedTitle = "",
+  assigneeHint,
   assignToUserId,
   preferredProjectSlug,
-  links,
-  aiAssigneeNote,
   layer,
   onCreated,
 }: CreateTaskModalProps) {
+  const heading = what ? `Create a task from ${what}` : "Create a task";
   const [picker, setPicker] = React.useState<Picker | null>(null);
   const [projectSlug, setProjectSlug] = React.useState("");
-  const [title, setTitle] = React.useState(initialTitle);
+  const [title, setTitle] = React.useState(suggestedTitle);
   const [description, setDescription] = React.useState("");
   const [assignee, setAssignee] = React.useState(assignToUserId ? `user:${assignToUserId}` : "");
   const [status, setStatus] = React.useState<TodoStatus>(DEFAULT_STATUS);
@@ -155,7 +160,7 @@ function CreateTaskForm({
           reviewerEmployeeId: reviewedBy.employeeId ?? undefined,
           reviewerUserId: reviewedBy.userId ?? undefined,
           recurrence: recurrence === "none" ? undefined : recurrence,
-          links,
+          links: link ? [{ kind: link.kind, targetId: link.targetId, isSource: true }] : undefined,
         },
       );
       writeLastProjectSlug(companyId, projectSlug);
@@ -303,7 +308,7 @@ function CreateTaskForm({
         {assignee.startsWith("ai:") && (
           <p className="text-xs text-slate-500 dark:text-slate-400">
             An AI Employee starts as soon as it is assigned, within your access and its Grants.
-            {aiAssigneeNote ? ` ${aiAssigneeNote}` : ""}
+            {assigneeHint ? ` ${assigneeHint}` : ""}
           </p>
         )}
         <Disclosure title="Advanced" summary={advancedSummary}>

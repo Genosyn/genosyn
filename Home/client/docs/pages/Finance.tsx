@@ -287,6 +287,14 @@ export function Finance() {
         SMTP host is down, say — is reported on the detail page, and the document is still issued.
       </P>
 
+      <H2 id="tasks">Estimates, invoices, bills and Tasks</H2>
+      <P>
+        Estimate, invoice and bill pages show the Todos linked to them, and{" "}
+        <Strong>Create task</Strong> files a new one from the record. An AI Employee working a Todo
+        links what it creates by itself. <DocLink to="/docs/tasks#finance">Todos and Finance</DocLink>{" "}
+        has the rest.
+      </P>
+
       <H2 id="customers">Customers</H2>
       <P>
         Customers — the billable accounts you invoice — now live in their own top-level{" "}

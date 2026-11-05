@@ -1,12 +1,13 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
-import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { shouldIgnoreShortcut } from "@/lib/keyboard";
 import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import {
   Bot,
   Hourglass,
   LayoutList,
+  Maximize2,
   Columns3,
   Mail,
   Plus,
@@ -85,7 +86,7 @@ import {
   STATUS_ORDER,
 } from "../components/todos/todoShared";
 import { ProjectIntakeTab } from "@/components/todos/ProjectIntakeTab";
-import { TodoDetailPanel } from "../components/todos/TodoDetail";
+import { TodoDetailPanel, todoPagePath } from "../components/todos/TodoDetail";
 
 type ProjectTodos = { project: Project; todos: Todo[] };
 
@@ -507,6 +508,7 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
       {peekTodo && (
         <TodoDetailPanel
           key={peekTodo.id}
+          canCreateFinance={company.financeAccess === "full"}
           todo={peekTodo}
           allTodos={todos}
           project={project}
@@ -1110,6 +1112,7 @@ function TodoRow({
   onDelete: () => void;
   onRename: (title: string) => void;
 }) {
+  const { companySlug = "" } = useParams();
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(todo.title);
   React.useEffect(() => setDraft(todo.title), [todo.title]);
@@ -1187,6 +1190,15 @@ function TodoRow({
           </button>
         )}
       </div>
+      <Link
+        to={todoPagePath(companySlug, project.slug, todo.number)}
+        onClick={(event) => event.stopPropagation()}
+        className="shrink-0 rounded p-0.5 text-slate-300 opacity-0 hover:text-slate-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-slate-600 dark:hover:text-slate-300"
+        title="Open full page"
+        aria-label={`Open ${project.key}-${todo.number} on its own page`}
+      >
+        <Maximize2 size={12} />
+      </Link>
       {parent && (
         <ParentChip parent={parent} project={project} onOpen={() => onOpenTodo(parent.id)} />
       )}
@@ -1373,8 +1385,26 @@ function TodoSourceChip({ todo }: { todo: Todo }) {
   );
 }
 
-/** It is waiting on someone, which the list and board should say at a glance. */
+/** What AI is doing on it or what it's waiting on, which a board should say at a glance. */
 function TodoWaitChip({ todo }: { todo: Todo }) {
+  if (todo.aiState === "working") {
+    return (
+      <span className="shrink-0" title="An AI Employee is working on this now">
+        <Badge tone="ai" size="sm">
+          Working
+        </Badge>
+      </span>
+    );
+  }
+  if (todo.aiState === "queued" && !todo.waitingOn) {
+    return (
+      <span className="shrink-0" title="An AI Employee will start on this soon">
+        <Badge tone="neutral" size="sm">
+          Queued
+        </Badge>
+      </span>
+    );
+  }
   if (!todo.waitingOn) return null;
   return (
     <span className="shrink-0" title={todo.waitingReason || TODO_WAIT_LABEL[todo.waitingOn]}>

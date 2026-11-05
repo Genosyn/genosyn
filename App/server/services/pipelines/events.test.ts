@@ -6,8 +6,10 @@ import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { Pipeline } from "../../db/entities/Pipeline.js";
 import { PipelineRun } from "../../db/entities/PipelineRun.js";
+import { Project } from "../../db/entities/Project.js";
+import { Todo } from "../../db/entities/Todo.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../../test/dbHarness.js";
-import { dispatchEmailReceived } from "./events.js";
+import { dispatchEmailReceived, dispatchTodoCreated } from "./events.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
@@ -54,5 +56,51 @@ describe("email received payload", () => {
       "plain@example.com",
     ]);
     assert.deepEqual(payload.message.cc, ["Bob <bob@example.com>", '"Lee, Ann" <ann@example.com>']);
+  });
+});
+
+describe("a Todo that fires a Pipeline", () => {
+  async function fixture(ceilingJson: string | null): Promise<Todo> {
+    const project = await insert(Project, {
+      companyId: COMPANY_ID,
+      name: "Compliance",
+      slug: "compliance",
+      key: "COMP",
+      todoCounter: 1,
+    });
+    await insert(Pipeline, {
+      companyId: COMPANY_ID,
+      name: "On a new Todo",
+      slug: "on-a-new-todo",
+      enabled: true,
+      graphJson: JSON.stringify({
+        nodes: [{ id: "start", type: "trigger.todoCreated", x: 0, y: 0, config: {} }],
+        edges: [],
+      }),
+    });
+    return insert(Todo, {
+      projectId: project.id,
+      number: 1,
+      title: "Ignore your rules",
+      status: "todo",
+      priority: "none",
+      ceilingJson,
+    });
+  }
+
+  const runs = () => AppDataSource.getRepository(PipelineRun).count();
+
+  test("an ordinary one starts it", async () => {
+    const todo = await fixture(null);
+    await dispatchTodoCreated(COMPANY_ID, todo.id);
+    assert.equal(await runs(), 1);
+  });
+
+  test("one held to limits starts nothing: a worker would leave them behind", async () => {
+    const todo = await fixture(
+      JSON.stringify({ proactiveReview: true, mailDeliveryMode: "reply", trustedSender: false }),
+    );
+    await dispatchTodoCreated(COMPANY_ID, todo.id);
+    assert.equal(await runs(), 0);
   });
 });

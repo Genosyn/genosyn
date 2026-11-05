@@ -7,6 +7,7 @@ describe("projectSlugFromPath", () => {
   test("reads the Project off its page, whatever follows", () => {
     assert.equal(projectSlugFromPath("/c/acme/tasks/p/engineering"), "engineering");
     assert.equal(projectSlugFromPath("/c/acme/tasks/p/engineering/"), "engineering");
+    assert.equal(projectSlugFromPath("/c/acme/tasks/p/engineering/t/12"), "engineering");
   });
 
   test("finds none anywhere else, including Tasks' other pages", () => {

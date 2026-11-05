@@ -74,8 +74,9 @@ export async function loadBrowserConfig(
     routineId?: string;
     conversationId?: string;
     runId?: string;
-    /** Work that spans turns without a conversation, to come back to the same page. */
-    sessionKey?: string;
+    /** The Todo and pickup this turn is working, to come back to the same page. */
+    todoId?: string;
+    todoPickupId?: string | null;
   },
 ): Promise<BrowserConfig> {
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
@@ -134,8 +135,10 @@ export async function loadBrowserConfig(
   const session = await createBrowserSession({
     companyId: employee.companyId,
     employeeId: employee.id,
-    conversationId: options.sessionKey ?? options.conversationId ?? null,
+    conversationId: options.conversationId ?? null,
     runId: options.runId ?? null,
+    todoId: options.todoId ?? null,
+    todoPickupId: options.todoPickupId ?? null,
     memberBrowserId: memberBrowser?.id ?? null,
   });
 

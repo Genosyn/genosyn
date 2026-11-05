@@ -1,12 +1,16 @@
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Bill } from "../db/entities/Bill.js";
 import { Contact } from "../db/entities/Contact.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Deal } from "../db/entities/Deal.js";
 import { Decision } from "../db/entities/Decision.js";
 import { EmployeeFinanceGrant, FINANCE_ACCESS_RANK } from "../db/entities/EmployeeFinanceGrant.js";
+import { Estimate } from "../db/entities/Estimate.js";
+import { Invoice } from "../db/entities/Invoice.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
+import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import {
   EmployeeRevenueGrant,
   REVENUE_ACCESS_RANK,
@@ -15,8 +19,11 @@ import { MailThread } from "../db/entities/MailThread.js";
 import { Meeting } from "../db/entities/Meeting.js";
 import type { FinanceAccess, Role } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
+import { Repository } from "../db/entities/Repository.js";
+import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
+import { SupportTicket } from "../db/entities/SupportTicket.js";
 import { Todo } from "../db/entities/Todo.js";
 import { TodoLink } from "../db/entities/TodoLink.js";
 import { User } from "../db/entities/User.js";
@@ -31,6 +38,7 @@ import { redactSensitiveText } from "./approvalRedaction.js";
 import { keysetPage, filterFingerprint, type Page, type PageRequest } from "./listPaging.js";
 import { fullyDecodedHeaderText } from "./mail/mime.js";
 import { hasCalendarAccess } from "./meetings/grants.js";
+import { supportAccessAtLeast } from "./support/grants.js";
 import { listAccessibleProjectIds, type ProjectActor } from "./projects.js";
 
 /**
@@ -130,15 +138,53 @@ async function targetLabel(
       });
       return owner ? cleanLabel(routine.name) : null;
     }
+    case "work_session": {
+      const row = await AppDataSource.getRepository(RepositoryWorkSession).findOne({
+        where: { id: targetId, companyId },
+        select: { id: true, title: true },
+      });
+      return row ? cleanLabel(row.title || "Work session") : null;
+    }
+    case "estimate": {
+      const row = await AppDataSource.getRepository(Estimate).findOne({
+        where: { id: targetId, companyId },
+        select: { id: true, number: true },
+      });
+      return row ? cleanLabel(row.number || "Draft") : null;
+    }
+    case "invoice": {
+      const row = await AppDataSource.getRepository(Invoice).findOne({
+        where: { id: targetId, companyId },
+        select: { id: true, number: true },
+      });
+      return row ? cleanLabel(row.number || "Draft") : null;
+    }
+    case "bill": {
+      const row = await AppDataSource.getRepository(Bill).findOne({
+        where: { id: targetId, companyId },
+        select: { id: true, number: true },
+      });
+      return row ? cleanLabel(row.number || "Draft") : null;
+    }
+    case "ticket": {
+      const row = await AppDataSource.getRepository(SupportTicket).findOne({
+        where: { id: targetId, companyId },
+        select: { id: true, number: true, subject: true },
+      });
+      return row ? cleanLabel(`#${row.number} ${row.subject}`) : null;
+    }
   }
 }
+
+/** What takes Finance access to read, for a Member and an AI Employee alike. */
+const FINANCE_KINDS = ["customer", "estimate", "invoice", "bill"] as const;
 
 /** Whether a Member could open this kind of record at all. */
 function memberMayRead(
   kind: TodoLinkKind,
   reader: Extract<TodoLinkReader, { kind: "member" }>,
 ): boolean {
-  if (kind !== "customer") return true;
+  if (!(FINANCE_KINDS as readonly TodoLinkKind[]).includes(kind)) return true;
   return financeAccessFor(reader.role, reader.financeAccess) !== "none";
 }
 
@@ -157,14 +203,22 @@ async function employeeReadableKeys(
   const idsOf = (kind: TodoLinkKind) =>
     links.filter((link) => link.kind === kind).map((link) => link.targetId);
 
-  if (kinds.has("customer") && reader.financeAccessLimit !== "none") {
+  if (FINANCE_KINDS.some((kind) => kinds.has(kind)) && reader.financeAccessLimit !== "none") {
     const grant = await AppDataSource.getRepository(EmployeeFinanceGrant).findOneBy({
       companyId,
       employeeId: reader.employeeId,
     });
     if (grant && typeof FINANCE_ACCESS_RANK[grant.accessLevel] === "number") {
-      for (const id of idsOf("customer")) readable.add(`customer:${id}`);
+      for (const kind of FINANCE_KINDS) {
+        for (const id of idsOf(kind)) readable.add(`${kind}:${id}`);
+      }
     }
+  }
+  if (
+    kinds.has("ticket") &&
+    (await supportAccessAtLeast(companyId, reader.employeeId, "read")) !== null
+  ) {
+    for (const id of idsOf("ticket")) readable.add(`ticket:${id}`);
   }
   if (kinds.has("contact") || kinds.has("deal")) {
     const grant = await AppDataSource.getRepository(EmployeeRevenueGrant).findOneBy({
@@ -217,6 +271,22 @@ async function employeeReadableKeys(
       }
     }
   }
+  if (kinds.has("work_session")) {
+    const [sessions, grants] = await Promise.all([
+      AppDataSource.getRepository(RepositoryWorkSession).find({
+        where: { id: In(idsOf("work_session")), companyId },
+        select: { id: true, repositoryId: true },
+      }),
+      AppDataSource.getRepository(EmployeeRepositoryGrant).find({
+        where: { employeeId: reader.employeeId },
+        select: { id: true, repositoryId: true },
+      }),
+    ]);
+    const granted = new Set(grants.map((grant) => grant.repositoryId));
+    for (const session of sessions) {
+      if (granted.has(session.repositoryId)) readable.add(`work_session:${session.id}`);
+    }
+  }
   // Any AI Employee in the company may read a Run's report (`get_run_report`).
   for (const id of idsOf("run")) readable.add(`run:${id}`);
   return readable;
@@ -267,7 +337,32 @@ async function targetPaths(companyId: string, links: TodoLink[]): Promise<Map<st
     decision: idsOf("decision"),
     meeting: idsOf("meeting"),
     run: idsOf("run"),
+    work_session: idsOf("work_session"),
   };
+  const bySlug = async (
+    entity: typeof Estimate | typeof Invoice | typeof Bill,
+    kind: "estimate" | "invoice" | "bill",
+    folder: string,
+  ) => {
+    const wanted = idsOf(kind);
+    if (wanted.length === 0) return;
+    const rows = await AppDataSource.getRepository(entity).find({
+      where: { id: In(wanted), companyId },
+      select: { id: true, slug: true },
+    });
+    for (const row of rows) paths.set(`${kind}:${row.id}`, `/finance/${folder}/${row.slug}`);
+  };
+  await bySlug(Estimate, "estimate", "estimates");
+  await bySlug(Invoice, "invoice", "invoices");
+  await bySlug(Bill, "bill", "bills");
+  const tickets = idsOf("ticket");
+  if (tickets.length) {
+    const rows = await AppDataSource.getRepository(SupportTicket).find({
+      where: { id: In(tickets), companyId },
+      select: { id: true },
+    });
+    for (const row of rows) paths.set(`ticket:${row.id}`, `/support/tickets/${row.id}`);
+  }
   if (ids.mail_thread.length) {
     const rows = await AppDataSource.getRepository(MailThread).find({
       where: { id: In(ids.mail_thread), companyId },
@@ -337,6 +432,23 @@ async function targetPaths(companyId: string, links: TodoLink[]): Promise<Map<st
       }
     }
   }
+  if (ids.work_session.length) {
+    const sessions = await AppDataSource.getRepository(RepositoryWorkSession).find({
+      where: { id: In(ids.work_session), companyId },
+      select: { id: true, repositoryId: true },
+    });
+    const repositories = sessions.length
+      ? await AppDataSource.getRepository(Repository).find({
+          where: { id: In(sessions.map((session) => session.repositoryId)), companyId },
+          select: { id: true, slug: true },
+        })
+      : [];
+    const slugOf = new Map(repositories.map((repository) => [repository.id, repository.slug]));
+    for (const session of sessions) {
+      const slug = slugOf.get(session.repositoryId);
+      if (slug) paths.set(`work_session:${session.id}`, `/repositories/${slug}/ai/${session.id}`);
+    }
+  }
   return paths;
 }
 
@@ -383,7 +495,7 @@ export function memberLinkAccessError(
 ): string | null {
   return memberMayRead(kind, reader)
     ? null
-    : "You don't have Finance access, so you can't link a Customer.";
+    : "You don't have Finance access, so you can't link that.";
 }
 
 /**

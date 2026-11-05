@@ -172,8 +172,8 @@ export function ProjectIntakeTab({
       />
       <p className="text-xs text-slate-500 dark:text-slate-400">
         Each mailbox needs AI analysis on at Email → Settings, and whoever works these needs Mail
-        access to it. By default they can research and prepare, keep their own todos, and propose
-        replies and bigger work for you to approve.
+        access to it. By default they can research and prepare, work the todo the email started,
+        and propose replies and bigger work for you to approve.
       </p>
 
       <Disclosure title="Advanced" summary={advanced}>
@@ -255,7 +255,7 @@ export function ProjectIntakeTab({
 
           <Textarea
             label="Trusted senders"
-            hint="One per line: an exact address, or @domain for everyone at exactly that domain. Mail the receiving server verifies from these can use this AI Employee's tools and browser. Gmail mailboxes only for now."
+            hint="One per line: an exact address, or @domain for everyone at exactly that domain. Mail the receiving server verifies from these can also use this AI Employee's browser and Vault logins. Gmail mailboxes only for now."
             rows={3}
             placeholder={"no-reply@example.com\n@example.com"}
             value={intake.trustedSenders}
@@ -267,11 +267,13 @@ export function ProjectIntakeTab({
           )}
           {senders.entries.length > 0 && (
             <Warning>
-              Email from these can use the browser, Vault and the other tools this AI
-              Employee&apos;s Grants allow, with no one approving first. Email it sends still follows
-              Replies. Anyone able to send authenticated mail from a listed domain reaches this, so
-              prefer exact addresses. Browser submits still wait for approval while that&apos;s on
-              for the employee, which matters for anything binding, like accepting an agreement.
+              Email from these can also use this AI Employee&apos;s browser and the Vault logins
+              it&apos;s granted, with no one approving first. Everything else stays preparation, and
+              replies still follow the setting above. The mail server vouches for the domain, not
+              the address, so anyone able to send authenticated mail from that domain reaches this.
+              Only list domains where you trust everyone who can send. Browser submits still wait
+              for approval while that&apos;s on for the employee, which matters for anything
+              binding, like accepting an agreement.
             </Warning>
           )}
         </div>

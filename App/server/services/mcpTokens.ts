@@ -56,6 +56,12 @@ export type McpTokenInfo = {
   /** The pickup this turn is running, when it is one: provenance for what it files. */
   todoPickupId: string | null;
   /**
+   * An owner named this email's sender on a Project's intake and the receiving
+   * server verified it, so this preparation turn also gets the browser and the
+   * Vault logins it's granted, and nothing else (`services/todoIntake.ts`).
+   */
+  trustedSender: boolean;
+  /**
    * Set when the turn is one AI Employee talking to colleagues — a turn in a
    * group discussion, or an answer to `ask_colleague`. Like
    * `proactiveReview`, this is authority, not provenance: such a turn can only
@@ -166,6 +172,7 @@ export function issueMcpToken(
     mailHandoverId?: string | null;
     repositoryWorkSessionId?: string | null;
     todoPickupId?: string | null;
+    trustedSender?: boolean;
     collaboration?: CollaborationTurn | null;
     /**
      * Start the turn already tainted: it replays a message that a tainted turn
@@ -212,6 +219,7 @@ export function issueMcpToken(
     mailHandoverId: origin.mailHandoverId ?? null,
     repositoryWorkSessionId: origin.repositoryWorkSessionId ?? null,
     todoPickupId: origin.todoPickupId ?? null,
+    trustedSender: origin.trustedSender ?? false,
     collaboration: origin.collaboration ?? null,
     authority,
     requesterUserId,
@@ -268,6 +276,21 @@ export function tokenOwnsAttachment(token: string, attachmentId: string): boolea
 }
 
 /** Mark this turn as having ingested untrusted web content. */
+/**
+ * The Todo this turn has taken on: one it filed for itself or moved to in progress.
+ * The server's to know rather than the model's to name, so what the turn starts next
+ * links back to the right work. A Pickup's own Todo wins over this (`mcpInternal`).
+ */
+const workingTodos = new Map<string, string>();
+
+export function noteWorkingTodo(token: string, todoId: string): void {
+  if (tokens.has(token)) workingTodos.set(turnStateToken(token), todoId);
+}
+
+export function workingTodoOf(token: string): string | null {
+  return tokens.has(token) ? (workingTodos.get(turnStateToken(token)) ?? null) : null;
+}
+
 export function markTokenTainted(token: string): void {
   if (!tokens.has(token)) return;
   token = turnStateToken(token);
@@ -351,6 +374,7 @@ export function revokeMcpToken(token: string): void {
   tokenAttachments.delete(token);
   stagedSidecars.delete(token);
   taintedTokens.delete(token);
+  workingTodos.delete(token);
   consultCounts.delete(token);
 }
 
@@ -374,6 +398,9 @@ function sweep(): void {
   }
   for (const k of taintedTokens) {
     if (!tokens.has(k)) taintedTokens.delete(k);
+  }
+  for (const k of workingTodos.keys()) {
+    if (!tokens.has(k)) workingTodos.delete(k);
   }
   for (const k of consultCounts.keys()) {
     if (!tokens.has(k)) consultCounts.delete(k);

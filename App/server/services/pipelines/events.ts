@@ -176,6 +176,9 @@ export async function dispatchTodoCreated(
 ): Promise<void> {
   const todo = await AppDataSource.getRepository(Todo).findOneBy({ id: todoId });
   if (!todo) return;
+  // A Pipeline's worker starts with no limits and the Todo's words as its input. So a
+  // Todo held to limits fires nothing: those words would leave its limits behind.
+  if (todo.ceilingJson) return;
   const project = await AppDataSource.getRepository(Project).findOneBy({
     id: todo.projectId,
     companyId,

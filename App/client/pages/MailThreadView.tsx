@@ -757,12 +757,10 @@ export default function MailThreadView() {
             onClose={() => setTaskOpen(false)}
             companyId={company.id}
             companySlug={company.slug}
-            heading="Create a task from this email"
-            initialTitle={thread.subject}
-            // The server links the two as it creates the Todo, so a Todo never
-            // loses track of the email it came from.
-            links={[{ kind: "mail_thread", targetId: thread.id, isSource: true }]}
-            aiAssigneeNote="It needs Mail access to this mailbox to read the email."
+            link={{ kind: "mail_thread", targetId: thread.id }}
+            what="this email"
+            suggestedTitle={thread.subject}
+            assigneeHint="It needs Mail access to this mailbox to read the email."
             onCreated={() => setTasksKey((key) => key + 1)}
           />
 
