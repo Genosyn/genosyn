@@ -1,5 +1,5 @@
 import React from "react";
-import { Clock3, Play, Square } from "lucide-react";
+import { Clock3, Hourglass, Play, Square } from "lucide-react";
 
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { LiveTurnCard } from "@/components/chat/TurnActivity";
@@ -9,9 +9,22 @@ import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { api, type Todo } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
-import { todoPickupHoldLabel, type TodoPickupView } from "../../../shared/todoPickups";
+import {
+  TODO_WAIT_LABEL,
+  todoPickupHoldLabel,
+  type TodoPickupView,
+} from "../../../shared/todoPickups";
 
 type Pickups = { active: TodoPickupView | null; recent: TodoPickupView[] };
+
+function shortWhen(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 /** What this reader is not shown of the steps, when it is not everything. */
 function stepsNote(pickup: TodoPickupView): string | null {
@@ -32,7 +45,17 @@ export function TodoPickupPanel({
   companySlug,
   canEdit,
 }: {
-  todo: Pick<Todo, "id" | "status" | "assigneeEmployeeId" | "projectId">;
+  todo: Pick<
+    Todo,
+    | "id"
+    | "status"
+    | "assigneeEmployeeId"
+    | "projectId"
+    | "waitingOn"
+    | "waitingReason"
+    | "waitingSince"
+    | "waitingCheckAt"
+  >;
   companyId: string;
   companySlug: string;
   canEdit: boolean;
@@ -72,28 +95,84 @@ export function TodoPickupPanel({
     }
   }
 
+  async function stopWaiting() {
+    setStarting(true);
+    setError(null);
+    try {
+      setPickups(
+        await api.post<Pickups>(`/api/companies/${companyId}/todos/${todo.id}/stop-waiting`, {}),
+      );
+    } catch (err) {
+      setError(errorMessage(err, "Could not end the wait."));
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  // A queued check-back while it waits is the wait, already shown.
+  const waiting = todo.waitingOn ?? null;
   const active = pickups?.active ?? null;
+  const shownActive = waiting && active?.status === "queued" ? null : active;
   const last = pickups?.recent[0] ?? null;
   const workable = ["backlog", "todo", "in_progress"].includes(todo.status);
-  const canStart = canEdit && Boolean(todo.assigneeEmployeeId) && workable && !active;
+  const canStart = canEdit && Boolean(todo.assigneeEmployeeId) && workable && !active && !waiting;
   if (!pickups && !error) return null;
-  if (!active && !canStart && !error) return null;
+  if (!shownActive && !canStart && !waiting && !error) return null;
 
   return (
     <div className="mt-4 space-y-2" aria-label="AI work on this task">
       <FormError message={error} />
-      {active?.status === "running" && (
+      {waiting && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-500/30 dark:bg-amber-500/10">
+          <Hourglass
+            size={14}
+            aria-hidden
+            className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300"
+          />
+          <div className="min-w-0 flex-1 text-xs">
+            <div className="font-medium text-slate-800 dark:text-slate-100">
+              {TODO_WAIT_LABEL[waiting]}
+            </div>
+            {todo.waitingReason && (
+              <div className="break-words text-slate-600 dark:text-slate-300">
+                {todo.waitingReason}
+              </div>
+            )}
+            <div className="text-slate-500 dark:text-slate-400">
+              {todo.waitingSince && `Since ${shortWhen(todo.waitingSince)}.`}
+              {todo.waitingCheckAt && ` Checks back ${shortWhen(todo.waitingCheckAt)}.`}
+            </div>
+          </div>
+          {canEdit && (
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={starting}
+              onClick={() => void stopWaiting()}
+              title="Send its AI Employee back to this now, with your access"
+            >
+              Stop waiting
+            </Button>
+          )}
+        </div>
+      )}
+      {shownActive?.status === "running" && (
         <RunningPickup
-          key={active.id}
-          pickup={active}
+          key={shownActive.id}
+          pickup={shownActive}
           base={base}
           companySlug={companySlug}
           canEdit={canEdit}
           onEnded={() => void load()}
         />
       )}
-      {active?.status === "queued" && (
-        <QueuedPickup pickup={active} base={base} canEdit={canEdit} onChanged={() => void load()} />
+      {shownActive?.status === "queued" && (
+        <QueuedPickup
+          pickup={shownActive}
+          base={base}
+          canEdit={canEdit}
+          onChanged={() => void load()}
+        />
       )}
       {canStart && (
         <div className="flex flex-wrap items-center gap-2">

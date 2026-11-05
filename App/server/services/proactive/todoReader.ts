@@ -116,6 +116,16 @@ export async function getTodoForEmployee(args: {
       reviewerUserId: todo.reviewerUserId,
       dueAt: todo.dueAt?.toISOString() ?? null,
       parentTodoId: todo.parentTodoId,
+      waiting: todo.waitingOn
+        ? {
+            on: todo.waitingOn,
+            refId: todo.waitingRefId,
+            reason: textWindow(todo.waitingReason, 0, 600).text,
+            since: todo.waitingSince?.toISOString() ?? null,
+            checkAt: todo.waitingCheckAt?.toISOString() ?? null,
+            followUpsSoFar: todo.followUpCount,
+          }
+        : null,
       updatedAt: todo.updatedAt.toISOString(),
       description: textWindow(todo.description, args.descriptionOffset ?? 0, 1_600),
       // Each link's label is the record's own name, which for an email is

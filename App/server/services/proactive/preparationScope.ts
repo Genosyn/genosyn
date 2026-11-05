@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { AppDataSource } from "../../db/datasource.js";
 import { Activity } from "../../db/entities/Activity.js";
+import { Project } from "../../db/entities/Project.js";
 import { Routine } from "../../db/entities/Routine.js";
+import { Todo } from "../../db/entities/Todo.js";
 import { Workstream } from "../../db/entities/Workstream.js";
 
 type PreparationContext = {
@@ -73,6 +75,26 @@ export async function proactivePreparationError(
         (row.assignedEmployeeId && row.assignedEmployeeId !== context.employeeId))
     )
       return "Proactive preparation can maintain only ordinary follow-ups assigned to you or unassigned, without reminders or recurrence. Preserve this follow-up and record your finding in your Workstream.";
+  }
+  if (["update_todo", "add_todo_comment", "link_todo", "wait_on_todo"].includes(toolName)) {
+    const parsed = idSchema.safeParse(args.todoId);
+    if (!parsed.success) return null;
+    const row = await AppDataSource.getRepository(Todo).findOneBy({ id: parsed.data });
+    const project = row
+      ? await AppDataSource.getRepository(Project).findOneBy({
+          id: row.projectId,
+          companyId: context.companyId,
+        })
+      : null;
+    if (
+      row &&
+      project &&
+      row.assigneeEmployeeId !== context.employeeId &&
+      row.reviewerEmployeeId !== context.employeeId &&
+      (row.assigneeEmployeeId || row.assigneeUserId)
+    ) {
+      return "Proactive preparation can maintain only Todos assigned to you, up for your review, or unassigned. Record your finding in your Workstream instead.";
+    }
   }
   return null;
 }

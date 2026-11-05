@@ -426,6 +426,12 @@ export function Decisions() {
         employee&apos;s suggestion; nothing is selected for you.
       </P>
       <P>
+        A question an AI Employee raised while working a{" "}
+        <DocLink to="/docs/tasks#waiting">todo</DocLink> comes back to that todo: the todo waits on
+        your answer, and its next session starts when you answer, with the report on its thread.
+        Answering authorizes nothing more than that session already had.
+      </P>
+      <P>
         Decisions raised during preparation-only work stay with humans, even if an AI decision
         policy normally routes the employee&apos;s questions. Answering records your choice and
         journal entry but starts no new session, and the row reads <em>Answer saved</em>. The

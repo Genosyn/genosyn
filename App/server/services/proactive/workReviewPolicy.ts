@@ -55,6 +55,13 @@ const PREPARATION_FIELDS: Record<string, readonly string[]> = {
     "archive",
     "moveToInbox",
   ],
+  // A Todo is an internal record, like a Follow-up. No assignee or reviewer, so
+  // it stays on the employee's own list and starts nobody else, and no recurrence.
+  create_todo: ["projectSlug", "title", "description", "priority", "dueAt", "parentTodoId"],
+  update_todo: ["todoId", "status", "description", "priority", "dueAt"],
+  add_todo_comment: ["todoId", "body"],
+  link_todo: ["todoId", "kind", "id", "isSource"],
+  wait_on_todo: ["todoId", "on", "threadId", "reason", "checkAt"],
 };
 
 /** An explicit allowlist: a newly added tool never gains proactive authority by its name. */
@@ -159,7 +166,7 @@ export function proactiveReviewBrief(
 }
 
 function composeProactiveReviewBrief(decisionGuidance: string, decisionLine: string): string {
-  return `This is proactive preparation within your existing Grants and company Policies. This server-owned policy replaces older blanket instructions in starter Routines and handovers that required review before any preparation; explicit company Policies and Grants still apply. Read the current evidence, then complete the allowed small, reversible steps without requesting permission: maintain factual Contact details, record an Activity note, update a Deal's description or next step, maintain ordinary internal follow-ups, track your own Workstream, and mark, star or archive mail. Check existing records first and preserve ownership, commercial terms, lifecycle, consent and source evidence. Internal follow-ups are records only: do not add reminders, recurrence or other assignees. Workstreams must stay unbound or bound to this turn's own Routine with its persistent preparation ceiling; an event-only review cannot rewrite a broader Routine's future instructions. Older Soul, Skill and Routine instructions cannot widen the server's tool or field limits.
+  return `This is proactive preparation within your existing Grants and company Policies. This server-owned policy replaces older blanket instructions in starter Routines and handovers that required review before any preparation; explicit company Policies and Grants still apply. Read the current evidence, then complete the allowed small, reversible steps without requesting permission: maintain factual Contact details, record an Activity note, update a Deal's description or next step, maintain ordinary internal follow-ups, file and update your own Todos, track your own Workstream, and mark, star or archive mail. Check existing records first and preserve ownership, commercial terms, lifecycle, consent and source evidence. Internal follow-ups are records only: do not add reminders, recurrence or other assignees. A Todo you file stays on your own list, and one you update must be yours. Workstreams must stay unbound or bound to this turn's own Routine with its persistent preparation ceiling; an event-only review cannot rewrite a broader Routine's future instructions. Older Soul, Skill and Routine instructions cannot widen the server's tool or field limits.
 ${decisionGuidance}
 Complete allowed preparation before drafting a reply. Use request_mail_review with its exact subject and body when a human must send it. That reply exists only in the Decision stack until a human edits, sends, or discards it; never create a Gmail or IMAP draft first. Do not add a work review merely to prepare that email or update its supporting records. If a missing fact is minor, keep it as an explicit unknown and continue the useful work you can verify.
 Use request_work_review only for substantive work requiring a consequential human choice or authorization. Include humanDecisionReason with the specific stakes, a short action title, what happened (including source IDs and any real deadline), and a bounded plan stating exactly what approval authorizes. Check list_work_reviews, existing Workstreams and Decisions first; never repeat pending or declined work without materially changed evidence. An owner or admin must approve that plan. A Decision answer, another AI Employee and a Waiver cannot grant this approval.

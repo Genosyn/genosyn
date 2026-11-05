@@ -730,7 +730,19 @@ export async function decideDecision(params: {
   await markDecisionNotificationsRead(updated);
   emitResourceChange(updated.companyId, "decision", undefined, { trigger: false });
   await recordDecisionOutcome(updated, option.label, note, params.userId);
+  await wakeTodoForDecisionQuietly(updated);
   return { outcome: "decided", decision: updated };
+}
+
+/** The Todo waiting on this carries on. A problem there mustn't undo the answer. */
+export async function wakeTodoForDecisionQuietly(decision: Decision): Promise<void> {
+  try {
+    const { wakeTodoForDecision } = await import("./todoWaits.js");
+    await wakeTodoForDecision(decision);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`[decisions] could not wake the Todo waiting on ${decision.id}:`, error);
+  }
 }
 
 /**
@@ -855,6 +867,7 @@ export async function cancelDecision(params: {
     targetLabel: decision.title,
     metadata: note ? { reason: note } : {},
   });
+  await wakeTodoForDecisionQuietly(updated);
   // Only tell the employee when a human dismissed it — an employee that
   // cancelled its own question does not need to read about it.
   if (params.userId) {

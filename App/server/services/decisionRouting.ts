@@ -11,7 +11,11 @@ import { isModelAvailable } from "./modelAvailability.js";
 import { waitForModel, type ModelWaitHandler, type ModelWaitResult } from "./modelWaits.js";
 import { getActiveModel } from "./models.js";
 import { recordAudit } from "./audit.js";
-import { notifyDecisionPending, parseDecisionOptions } from "./decisions.js";
+import {
+  notifyDecisionPending,
+  parseDecisionOptions,
+  wakeTodoForDecisionQuietly,
+} from "./decisions.js";
 import { markEntityNotificationsRead } from "./notifications.js";
 import { emitResourceChange } from "./resourceEvents.js";
 
@@ -386,6 +390,7 @@ export async function decideDecisionAsEmployee(params: {
     `${deciderName} decided "${updated.title}": ${option.label}`,
     note ? `Their note: ${note}` : "",
   );
+  await wakeTodoForDecisionQuietly(updated);
   // The asker is a blocked employee exactly as with a human answer — start
   // its pickup now, under its own authority (there is no Member to delegate).
   const { kickoffDecision } = await import("./decisionKickoff.js");

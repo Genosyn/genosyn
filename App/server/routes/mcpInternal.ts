@@ -93,6 +93,7 @@ import {
   type TodoPickupCeiling,
 } from "../services/todoPickups.js";
 import { TodoPickup } from "../db/entities/TodoPickup.js";
+import { MAX_TODO_FOLLOW_UPS, TodoWaitError, waitOnTodo } from "../services/todoWaits.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import {
   getJournalEvidence,
@@ -12796,6 +12797,54 @@ async function nextAiChainDepth(req: McpRequest): Promise<number> {
   return (parent?.aiChainDepth ?? 0) + 1;
 }
 
+/**
+ * A question this pickup raised for a person: its Todo now waits on the answer,
+ * however the answer comes. There is no check-back, because a human gate has its
+ * own stall sweep. A problem here is a log, never a failed question.
+ */
+async function waitOnThisPickupsTodo(
+  req: McpRequest,
+  on: "decision" | "mail_review" | "work_review",
+  refId: string,
+  reason: string,
+): Promise<void> {
+  if (!req.mcpTodoPickupId) return;
+  const authority = pickupAuthorityOf(req);
+  if (!authority) return;
+  try {
+    const pickup = await AppDataSource.getRepository(TodoPickup).findOne({
+      where: { id: req.mcpTodoPickupId },
+      select: { id: true, todoId: true },
+    });
+    const todo = pickup
+      ? await AppDataSource.getRepository(Todo).findOneBy({ id: pickup.todoId })
+      : null;
+    if (!todo || todo.assigneeEmployeeId !== req.mcpEmployee!.id) return;
+    if (on === "decision") {
+      await addTodoLink({
+        companyId: req.mcpCompany!.id,
+        todoId: todo.id,
+        kind: "decision",
+        targetId: refId,
+        createdByEmployeeId: req.mcpEmployee!.id,
+      });
+    }
+    await waitOnTodo({
+      companyId: req.mcpCompany!.id,
+      todo,
+      on,
+      refId,
+      reason,
+      checkAt: null,
+      authority,
+      ceiling: pickupCeilingOf(req),
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`[mcp] could not mark the Todo waiting on ${on} ${refId}:`, error);
+  }
+}
+
 /** Start the assignee on a Todo this turn handed over. Says why when it didn't. */
 async function startHandedOverTodo(
   req: McpRequest,
@@ -13167,6 +13216,97 @@ mcpInternalRouter.post(
     // Handing it to a colleague starts them on it, after this session ends.
     const note = handedOver ? await startHandedOverTodo(req, t, "assigned") : null;
     res.json({ todo: serializeTodo(t), ...(note ? { note } : {}) });
+  },
+);
+
+const waitOnTodoSchema = z
+  .object({
+    todoId: z.string().uuid(),
+    on: z.enum(["customer", "member", "date"]),
+    threadId: z.string().uuid().optional(),
+    reason: z.string().trim().min(1).max(2_000),
+    checkAt: z.string().datetime(),
+  })
+  .strict();
+
+// The employee says what its Todo is waiting on, and when to check back. A reply
+// on the thread or a Member's comment ends it sooner.
+mcpInternalRouter.post(
+  "/tools/wait_on_todo",
+  validateBody(waitOnTodoSchema),
+  async (req: McpRequest, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof waitOnTodoSchema>;
+      const co = req.mcpCompany!;
+      const self = req.mcpEmployee!;
+      const found = await loadEditableTodo(req, res, body.todoId);
+      if (!found) return;
+      if (found.todo.assigneeEmployeeId !== self.id) {
+        return res.status(403).json({ error: "Only the Todo's assignee can say it is waiting." });
+      }
+      const authority = pickupAuthorityOf(req);
+      if (!authority) return res.status(403).json({ error: "This turn can't start later work." });
+
+      let refId: string | null = null;
+      if (body.on === "customer") {
+        refId = body.threadId ?? req.mcpMailThreadId ?? null;
+        if (!refId) {
+          return res.status(400).json({ error: "Name the email thread you are waiting on." });
+        }
+        if (found.todo.followUpCount >= MAX_TODO_FOLLOW_UPS) {
+          return res.status(400).json({
+            error: `You have checked back ${found.todo.followUpCount} times with no reply. Close this Todo, or say what a person should decide.`,
+          });
+        }
+        const refused = await employeeLinkAccessError(
+          co.id,
+          {
+            kind: "employee",
+            employeeId: self.id,
+            financeAccessLimit: delegatedMemberFinanceAccess(req),
+          },
+          "mail_thread",
+          refId,
+        );
+        if (refused) return res.status(403).json({ error: refused });
+        await addTodoLink({
+          companyId: co.id,
+          todoId: found.todo.id,
+          kind: "mail_thread",
+          targetId: refId,
+          createdByEmployeeId: self.id,
+        });
+      }
+      await waitOnTodo({
+        companyId: co.id,
+        todo: found.todo,
+        on: body.on,
+        refId,
+        reason: body.reason,
+        checkAt: new Date(body.checkAt),
+        authority,
+        ceiling: pickupCeilingOf(req),
+      });
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "todo.wait",
+        targetType: "todo",
+        targetId: found.todo.id,
+        targetLabel: `${found.project.key}-${found.todo.number}: ${found.todo.title}`,
+        metadata: { via: "mcp", on: body.on },
+      });
+      res.json({
+        waiting: { on: body.on, checkAt: body.checkAt },
+        note: "Waiting. End this session now: this Todo wakes you when the answer arrives or the check-back comes.",
+      });
+    } catch (error) {
+      if (error instanceof TodoWaitError) return res.status(400).json({ error: error.message });
+      if (error instanceof TodoLinkError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      next(error);
+    }
   },
 );
 
@@ -15926,6 +16066,9 @@ mcpInternalRouter.post(
           selfReviewOnly: req.mcpSelfReviewOnly,
         },
       });
+      if (approval.status === "pending") {
+        await waitOnThisPickupsTodo(req, "work_review", approval.id, body.title);
+      }
       return res.json({
         approvalId: approval.id,
         status: approval.status,
@@ -16074,8 +16217,12 @@ mcpInternalRouter.post(
         runId: req.mcpRunId ?? null,
         conversationId: req.mcpConversationId ?? null,
         mailThreadId: req.mcpMailThreadId ?? null,
+        // An answer to a question raised from a pickup carries on in that Todo,
+        // so it starts no separate session of its own.
         automaticContinuation:
-          !req.mcpProactiveReview && mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode),
+          !req.mcpTodoPickupId &&
+          !req.mcpProactiveReview &&
+          mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode),
       });
       if (raised.outcome === "stack_off") {
         return res.status(403).json({ error: DECISION_STACK_OFF_MESSAGE });
@@ -16124,6 +16271,7 @@ mcpInternalRouter.post(
         `Asked for a decision: ${decision.title}`,
         `Options: ${options.map((o) => o.label).join(" · ")}`,
       );
+      await waitOnThisPickupsTodo(req, "decision", decision.id, decision.title);
       // M53: a DecisionPolicy rule may have routed the question to an AI
       // decider. The kickoff session is fired here, by the boundary that
       // created the row — the same rule the human answer's pickup follows.
@@ -16137,7 +16285,9 @@ mcpInternalRouter.post(
         decisionId: decision.id,
         status: decision.status,
         options: options.map((o) => ({ id: o.id, label: o.label })),
-        note: req.mcpProactiveReview
+        note: req.mcpTodoPickupId
+          ? "Stacked for a human, and this Todo now waits on the answer. End this session: it carries on here when someone answers."
+          : req.mcpProactiveReview
           ? "Stacked for a human. Finish this line of review. The answer is saved for list_decisions to read on a later review; answering does not start work or expand this turn’s authority. Continue only permitted preparation; a consequential action outside that scope needs its own human approval."
           : decision.pickupStatus === "skipped"
             ? "Stacked for a human. Record the Decision id and remaining work in your Workstream, then finish this line of work. The answer is saved in the Decision and your journal; list_decisions reads it back. Answering does not start another AI session. An approved standing Routine or a Member can continue."

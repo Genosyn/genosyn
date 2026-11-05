@@ -1358,6 +1358,19 @@ export async function executeMailReviewApproval(
     console.error(`[mail-review] send audit failed for ${approval.id}:`, error);
   }
   try {
+    // The Todo that proposed this now waits for the reply it asked for.
+    const { waitForReplyAfterReview } = await import("../todoWaits.js");
+    await waitForReplyAfterReview(
+      { ...approval, resultJson: JSON.stringify({ sentMessageId }) },
+      payload.threadId,
+    );
+  } catch (error) {
+    // The mailbox already accepted it. A Todo that doesn't move is worth a log,
+    // never a send that looks failed.
+    // eslint-disable-next-line no-console
+    console.error(`[mail-review] could not move the Todo for ${approval.id}:`, error);
+  }
+  try {
     await AppDataSource.getRepository(JournalEntry).save(
       AppDataSource.getRepository(JournalEntry).create({
         employeeId: approval.employeeId,

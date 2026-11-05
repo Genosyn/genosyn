@@ -114,6 +114,16 @@ const DAY_MS = 24 * 60 * 60_000;
 const CAPPED_MESSAGE = "It reached its limit of automatic sessions for today.";
 const HANDED_OVER = "It was handed to someone else.";
 
+/** Follow-up checks with no reply before a person has to decide. */
+const MAX_FOLLOW_UP_CHECKS = 3;
+/** Sessions that carry on work already started, rather than a person starting it. */
+const CONTINUATIONS: readonly TodoPickupTrigger[] = [
+  "left_open",
+  "wait_over",
+  "email_reply",
+  "decision_answered",
+  "review_outcome",
+];
 /** The statuses a Todo can be picked up from, by its assignee. */
 const WORKABLE: readonly TodoStatus[] = ["backlog", "todo", "in_progress"];
 
@@ -347,6 +357,8 @@ type StoredRerun = {
   ceiling: TodoPickupCeiling;
   byMember: boolean;
   note: string;
+  /** When it should start, for a check-back asked for while the session still runs. */
+  notBeforeAt?: string;
 };
 
 function mergedRerun(held: StoredRerun | null, request: TodoPickupRequest): StoredRerun {
@@ -361,6 +373,7 @@ function mergedRerun(held: StoredRerun | null, request: TodoPickupRequest): Stor
       ceiling: { ...ceiling, tainted: ceiling.tainted || held?.ceiling.tainted },
       byMember: request.byMember === true,
       note: appendNote(held?.note ?? "", request.note),
+      notBeforeAt: request.notBeforeAt?.toISOString(),
     };
   }
   return {
@@ -378,6 +391,13 @@ function mergedRerun(held: StoredRerun | null, request: TodoPickupRequest): Stor
     },
     byMember: held.byMember,
     note: appendNote(held.note, request.note),
+    // Whatever arrives soonest decides: a reply while it waits starts it now.
+    notBeforeAt:
+      held.notBeforeAt && request.notBeforeAt
+        ? new Date(
+            Math.min(Date.parse(held.notBeforeAt), request.notBeforeAt.getTime()),
+          ).toISOString()
+        : undefined,
   };
 }
 
@@ -597,6 +617,23 @@ async function recoveryNoteFor(pickup: TodoPickup): Promise<string> {
   ].join("\n");
 }
 
+/** What it tells a session that checked back and found nothing has happened. */
+function waitOverNote(todo: Todo): string {
+  const checked = todo.waitingOn === "customer" ? todo.followUpCount + 1 : 0;
+  const lines = [
+    `You said you would check back. You were waiting because: ${todo.waitingReason || "no reason given"}.`,
+  ];
+  if (todo.waitingOn === "customer") {
+    lines.push(
+      `No reply has arrived on email thread ${todo.waitingRefId}. This is check ${checked} of ${MAX_FOLLOW_UP_CHECKS}.`,
+      checked >= MAX_FOLLOW_UP_CHECKS
+        ? "Do not follow up again. Close this Todo if it no longer matters, or say what a person should decide."
+        : "Send one short follow-up if it is warranted, then call wait_on_todo again. Otherwise close this Todo or say what a person should decide.",
+    );
+  }
+  return lines.join("\n");
+}
+
 type Claimed = { pickup: TodoPickup; workerId: string };
 
 async function claimPickup(pickupId: string, now: Date): Promise<Claimed | null> {
@@ -805,12 +842,51 @@ export async function executeTodoPickup(
     }
     if (!isModelAvailable(model)) return await requeue("model_unavailable", new Date(), false);
     if (!(await memberAuthorityStands(pickup))) {
-      recorder.notice("ended", "The Member who asked can no longer lend their access");
-      return await end({
-        status: "failed",
-        error:
-          "The Member who started this signed out everywhere or left the company, so it can't run under their access. Assign it again to start it.",
-      });
+      // Carrying on with work already started shouldn't die with a sign-out, so
+      // it continues as the employee itself, only preparing. Nobody started this
+      // one by hand, so nobody's access is being borrowed.
+      if (!CONTINUATIONS.includes(pickup.trigger)) {
+        recorder.notice("ended", "The Member who asked can no longer lend their access");
+        return await end({
+          status: "failed",
+          error:
+            "The Member who started this signed out everywhere or left the company, so it can't run under their access. Assign it again to start it.",
+        });
+      }
+      pickup.authority = "employee";
+      pickup.requesterUserId = null;
+      pickup.requesterSessionVersion = null;
+      pickup.proactiveReview = true;
+      pickup.mailDeliveryMode = narrowestDelivery(pickup.mailDeliveryMode, "review");
+      await repo().update(
+        { id: pickup.id, status: "running", workerId },
+        {
+          authority: "employee",
+          requesterUserId: null,
+          requesterSessionVersion: null,
+          proactiveReview: true,
+          mailDeliveryMode: pickup.mailDeliveryMode,
+        },
+      );
+    }
+
+    // The check-back it asked for came. If a reply already ended the wait there
+    // is nothing to check, and if it's still waiting this is one more follow-up.
+    if (pickup.trigger === "wait_over") {
+      if (!todo.waitingOn) {
+        recorder.notice("ended", "The wait already ended");
+        return await end({ status: "skipped", error: "The wait already ended." });
+      }
+      pickup.note = waitOverNote(todo);
+      if (todo.waitingOn === "customer") todo.followUpCount += 1;
+    }
+    if (todo.waitingOn) {
+      todo.waitingOn = null;
+      todo.waitingRefId = null;
+      todo.waitingReason = "";
+      todo.waitingSince = null;
+      todo.waitingCheckAt = null;
+      await AppDataSource.getRepository(Todo).save(todo);
     }
 
     if (run.stoppedBy) return await end({ status: "stopped", reply: "" });
@@ -1159,6 +1235,7 @@ async function afterPickupEnded(args: {
       ceiling: stored.ceiling,
       byMember: stored.byMember,
       note: stored.note,
+      notBeforeAt: stored.notBeforeAt ? new Date(stored.notBeforeAt) : undefined,
     });
     return;
   }
@@ -1169,6 +1246,7 @@ async function afterPickupEnded(args: {
     status === "done" &&
     pickup.trigger !== "review" &&
     todo.status === "in_progress" &&
+    !todo.waitingOn &&
     todo.assigneeEmployeeId === pickup.employeeId
   ) {
     if (pickup.trigger === "left_open") {

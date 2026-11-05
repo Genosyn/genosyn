@@ -253,6 +253,7 @@ code, UI copy, commits, and docs.
 | **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
 | **Pickup** (one session an AI Employee spends on one Todo — `TodoPickup`) | Run (a Routine's), Work session (a Repository's), Job, Attempt, Kickoff |
+| **Waiting** (an `in_progress` Todo paused for a customer's reply, a person, a Decision, a review or a date — `Todo.waitingOn`; never a Todo status of its own) | Blocked, Snoozed, Paused, On hold |
 | **Work queue** (an AI Employee's queued Runs and Pickups; for Pickups, the `todo_pickups` table itself, which the scheduler's heartbeat starts) | Backlog (a Todo status), Inbox, Scheduler |
 | **Todo link** (a Todo's link to the record it came from or is about — an email thread, Customer, Contact, Deal, Decision, Meeting or Run; `TodoLink`, one of which may be its **source**) | Relation, Reference, Attachment |
 | **Goal** (a measurable objective — `Goal`, linked from `Routine.goalId`) | Objective, OKR, KPI, Target (as a noun) |
@@ -310,6 +311,23 @@ and description reach the session as bounded JSON, called data
 thread from losing their taint. Do not start a Todo outside `requestTodoPickup`,
 run its session without a row, let an event widen a Pickup, or read
 `untrustedText` content as a brief.
+
+**A Todo waits, and an email can't lend the session it wakes any authority.**
+`services/todoWaits.ts` holds what a Todo waits on and what ends the wait. A wait
+is a state of `in_progress`, and its check-back is a queued Pickup with a future
+`notBeforeAt`, so the work queue stays the only scheduler. A new inbound email on
+a linked thread sends the AI assignee back, in preparation scope with review-only
+replies whoever started the work, because a stranger wrote it; its words reach the
+session as bounded JSON, and the note on the Todo's thread names only the sender's
+address. An auto-responder doesn't count. A finished Todo stays finished. A Member
+answering on the thread runs under that Member, from a browser only. A question
+raised from a Pickup (`request_decision`, `request_mail_review`,
+`request_work_review`) makes its Todo wait, starts no separate session, and comes
+back to that Todo with the ceiling it had, because answering authorizes nothing.
+Three checks with no reply and the employee must close the Todo or ask a person.
+Do not add a Todo status for waiting, wake a session above preparation on an
+inbound email without an owner having asked for it in advance, or schedule a
+check-back any way but a Pickup.
 
 **"Connection" stays reserved** for one authenticated account inside an
 Integration. An app a Member approved through OAuth to use the Genosyn MCP
@@ -510,7 +528,8 @@ never the Member-level Decision-answer route. Proactive starter Routines,
 event-triggered work, and automatic email handovers can do bounded, reversible
 preparation within current Grants: maintain their own Workstreams, factual
 Contact details and ordinary Follow-ups, update Deal descriptions and next
-steps, add Activity notes, and mark, star or archive email. Routine research,
+steps, add Activity notes, file and update their own Todos, and mark, star or
+archive email. Routine research,
 preparation and housekeeping do not need a work Approval. A major work proposal
 must explain the concrete need for human judgement or authority. The server-owned
 preparation scope still excludes protected business fields, spending, security

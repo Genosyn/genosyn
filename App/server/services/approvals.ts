@@ -1387,6 +1387,13 @@ async function executeClaimedApproval(
       id: approval.id,
       companyId: approval.companyId,
     });
+    if (failedUpdate.affected === 1 && failed.kind === "mail_send") {
+      const { wakeTodoForUnsentReview } = await import("./todoWaits.js");
+      await wakeTodoForUnsentReview(failed, "failed").catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error(`[approvals] could not wake a Todo for ${failed.id}:`, error);
+      });
+    }
     return { outcome: "decided", approval: failed, sideEffectError: errorMessage };
   }
 
@@ -1675,6 +1682,8 @@ export async function recordApprovalRejection(approval: Approval): Promise<void>
     case "mail_send": {
       const { recordMailReviewRejection } = await import("./mail/reviewApprovals.js");
       await recordMailReviewRejection(approval);
+      const { wakeTodoForUnsentReview } = await import("./todoWaits.js");
+      await wakeTodoForUnsentReview(approval, "discarded");
       return;
     }
     case "proactive_work": {
@@ -1689,6 +1698,8 @@ export async function recordApprovalRejection(approval: Approval): Promise<void>
           authorUserId: approval.decidedByUserId,
         }),
       );
+      const { wakeTodoForDeclinedWork } = await import("./todoWaits.js");
+      await wakeTodoForDeclinedWork(approval);
       return;
     }
     case "routine": {

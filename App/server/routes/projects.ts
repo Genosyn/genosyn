@@ -16,7 +16,13 @@ import { TodoComment } from "../db/entities/TodoComment.js";
 import { User } from "../db/entities/User.js";
 import { Role } from "../db/entities/Membership.js";
 import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
-import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireBrowserSession,
+  requireCompanyMember,
+  usesBearerCredential,
+} from "../middleware/auth.js";
+import { wakeTodoForMemberComment } from "../services/todoWaits.js";
 import { describeBrowserSessionCondition } from "../middleware/routeMetadata.js";
 import { toSlug } from "../lib/slug.js";
 import { chatWithEmployee } from "../services/chat.js";
@@ -1511,6 +1517,26 @@ projectsRouter.post(
         attachmentIds: body.attachmentIds,
         mentionEmployeeId: mentionEmp?.id,
       });
+      // A Todo waiting on a person hears them. Only from a browser, because that
+      // starts AI work under this Member's authority, and not when they @-mentioned
+      // the assignee, which is its own reply.
+      if (
+        !mentionEmp &&
+        found.todo.waitingOn === "member" &&
+        req.session?.sessionVersion !== undefined &&
+        !usesBearerCredential(req)
+      ) {
+        const author = await AppDataSource.getRepository(User).findOneBy({ id: req.userId! });
+        void wakeTodoForMemberComment({
+          companyId: cid,
+          todo: found.todo,
+          userId: req.userId!,
+          sessionVersion: req.session.sessionVersion,
+          name: author?.name || author?.email || "A Member",
+        }).catch((err) => {
+          console.error("[todo-comments] waking the assignee failed", err);
+        });
+      }
       if (mentionEmp && pending) {
         // Fire-and-forget. Errors are captured onto the comment so the UI
         // surfaces them instead of silently hanging.
