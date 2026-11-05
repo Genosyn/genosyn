@@ -230,6 +230,13 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
         type: "longtext",
       },
       {
+        key: "linkMailThreadId",
+        label: "Came from email thread",
+        type: "text",
+        placeholder: "{{trigger.message.threadId}}",
+        hint: "Link the new task to the email that started this Pipeline, so each one shows the other.",
+      },
+      {
         key: "priority",
         label: "Priority",
         type: "select",

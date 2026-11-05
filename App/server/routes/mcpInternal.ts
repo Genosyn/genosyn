@@ -77,6 +77,15 @@ import { Skill } from "../db/entities/Skill.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
+import { TODO_LINK_KINDS, type TodoLinkKind } from "../../shared/todoLinks.js";
+import {
+  TodoLinkError,
+  addTodoLink,
+  employeeLinkAccessError,
+  pageLinkedTodos,
+  removeTodoLink,
+} from "../services/todoLinks.js";
+import { insertTodo, spawnNextRecurrence } from "../services/todos.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import {
   getJournalEvidence,
@@ -12645,6 +12654,7 @@ mcpInternalRouter.post(
       res.json(
         await getTodoForEmployee({
           ...(req.body as z.infer<typeof getTodoSchema>),
+          financeAccessLimit: delegatedMemberFinanceAccess(req),
           companyId: req.mcpCompany!.id,
           employeeId: req.mcpEmployee!.id,
           additionalActors: mcpProjectActors(req).filter((actor) => actor.kind === "user"),
@@ -12775,6 +12785,9 @@ mcpInternalRouter.post(
         slug: body.assigneeEmployeeSlug,
       });
       if (!other) return res.status(400).json({ error: "Unknown assignee" });
+      if (!(await hasProjectAccess(project, { kind: "ai", id: other.id }, "read"))) {
+        return res.status(400).json({ error: `${other.name} can't open this project` });
+      }
       assigneeId = other.id;
     }
 
@@ -12785,6 +12798,9 @@ mcpInternalRouter.post(
         slug: body.reviewerEmployeeSlug,
       });
       if (!rv) return res.status(400).json({ error: "Unknown reviewer" });
+      if (!(await hasProjectAccess(project, { kind: "ai", id: rv.id }, "read"))) {
+        return res.status(400).json({ error: `${rv.name} can't open this project` });
+      }
       reviewerId = rv.id;
     }
     // A Member as assignee or reviewer, instead of an AI Employee. They must
@@ -12802,37 +12818,45 @@ mcpInternalRouter.post(
       if (parentErr) return res.status(400).json({ error: parentErr });
     }
 
-    project.todoCounter += 1;
-    await projRepo.save(project);
-
-    const status: TodoStatus = body.status ?? "todo";
-    const todoRepo = AppDataSource.getRepository(Todo);
-    const last = await todoRepo.findOne({
-      where: { projectId: project.id, status },
-      order: { sortOrder: "DESC" },
-    });
-    const sortOrder = (last?.sortOrder ?? 0) + 1000;
-
-    const t = todoRepo.create({
-      projectId: project.id,
-      number: project.todoCounter,
+    const t = await insertTodo({
+      project,
       title: body.title,
-      description: body.description ?? "",
-      status,
-      priority: body.priority ?? "none",
+      description: body.description,
+      status: body.status,
+      priority: body.priority,
       assigneeEmployeeId: assigneeId,
-      assigneeUserId: body.assigneeUserId ?? null,
+      assigneeUserId: body.assigneeUserId,
       reviewerEmployeeId: reviewerId,
-      reviewerUserId: body.reviewerUserId ?? null,
-      createdById: null,
+      reviewerUserId: body.reviewerUserId,
       dueAt: body.dueAt ? new Date(body.dueAt) : null,
-      sortOrder,
-      completedAt: status === "done" ? new Date() : null,
-      recurrence: body.recurrence ?? "none",
-      recurrenceParentId: null,
-      parentTodoId: body.parentTodoId ?? null,
+      recurrence: body.recurrence,
+      parentTodoId: body.parentTodoId,
     });
-    await todoRepo.save(t);
+
+    // Where this Todo came from is the server's to say when it knows: a turn
+    // working an email files that thread as the source without the model naming
+    // it, and one in a Run links that Run.
+    const provenance: Array<{ kind: TodoLinkKind; id: string; isSource: boolean }> = [];
+    if (req.mcpMailThreadId) {
+      provenance.push({ kind: "mail_thread", id: req.mcpMailThreadId, isSource: true });
+    }
+    if (req.mcpRunId) {
+      provenance.push({ kind: "run", id: req.mcpRunId, isSource: !req.mcpMailThreadId });
+    }
+    for (const link of provenance) {
+      // The source being gone is no reason to lose the Todo it started.
+      await addTodoLink({
+        companyId: co.id,
+        todoId: t.id,
+        kind: link.kind,
+        targetId: link.id,
+        isSource: link.isSource,
+        createdByEmployeeId: self.id,
+      }).catch((err) => {
+        if (!(err instanceof TodoLinkError)) throw err;
+      });
+    }
+
     // The saved Todo remains useful follow-up work, but an event Pipeline
     // starts a separate worker that cannot inherit this turn's mail ceiling.
     if (mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode)) {
@@ -12909,6 +12933,9 @@ mcpInternalRouter.post(
           slug: body.assigneeEmployeeSlug,
         });
         if (!other) return res.status(400).json({ error: "Unknown assignee" });
+        if (!(await hasProjectAccess(project, { kind: "ai", id: other.id }, "read"))) {
+          return res.status(400).json({ error: `${other.name} can't open this project` });
+        }
         t.assigneeEmployeeId = other.id;
         t.assigneeUserId = null;
       }
@@ -12922,6 +12949,9 @@ mcpInternalRouter.post(
           slug: body.reviewerEmployeeSlug,
         });
         if (!rv) return res.status(400).json({ error: "Unknown reviewer" });
+        if (!(await hasProjectAccess(project, { kind: "ai", id: rv.id }, "read"))) {
+          return res.status(400).json({ error: `${rv.name} can't open this project` });
+        }
         t.reviewerEmployeeId = rv.id;
         t.reviewerUserId = null;
       }
@@ -12955,17 +12985,27 @@ mcpInternalRouter.post(
       t.parentTodoId = body.parentTodoId;
     }
     let justEnteredReview = false;
+    let justCompleted = false;
     const statusBefore = t.status;
     if (body.status !== undefined) {
       const prev = t.status;
       t.status = body.status;
-      if (body.status === "done" && prev !== "done") t.completedAt = new Date();
+      if (body.status === "done" && prev !== "done") {
+        t.completedAt = new Date();
+        justCompleted = true;
+      }
       if (body.status !== "done" && prev === "done") t.completedAt = null;
       if (body.status === "in_review" && prev !== "in_review") {
         justEnteredReview = true;
       }
     }
     await todoRepo.save(t);
+
+    // Finishing a recurring Todo puts the next one on the list, whoever
+    // finished it. A later occurrence stands on its own and starts no work.
+    if (justCompleted && t.recurrence !== "none") {
+      await spawnNextRecurrence(project, t);
+    }
 
     // The reviewer may have been set while the project was still open, or had
     // their access removed since. Notifying them anyway would push the todo's
@@ -13024,6 +13064,115 @@ mcpInternalRouter.post(
       },
     });
     res.json({ todo: serializeTodo(t) });
+  },
+);
+
+const todoLinkToolSchema = z
+  .object({
+    todoId: z.string().uuid(),
+    kind: z.enum(TODO_LINK_KINDS),
+    id: z.string().uuid(),
+    isSource: z.boolean().optional(),
+  })
+  .strict();
+
+// The Todo a link tool acts on, once the turn may edit its Project.
+async function loadEditableTodo(
+  req: McpRequest,
+  res: Response,
+  todoId: string,
+): Promise<{ todo: Todo; project: Project } | null> {
+  const todo = await AppDataSource.getRepository(Todo).findOneBy({ id: todoId });
+  const project = todo
+    ? await AppDataSource.getRepository(Project).findOneBy({
+        id: todo.projectId,
+        companyId: req.mcpCompany!.id,
+      })
+    : null;
+  if (!todo || !project) {
+    res.status(404).json({ error: "Todo not found" });
+    return null;
+  }
+  if (!(await hasDelegatedProjectAccess(req, project, "write"))) {
+    res.status(403).json({ error: "No access to that project" });
+    return null;
+  }
+  return { todo, project };
+}
+
+mcpInternalRouter.post(
+  "/tools/link_todo",
+  validateBody(todoLinkToolSchema),
+  async (req: McpRequest, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof todoLinkToolSchema>;
+      const co = req.mcpCompany!;
+      const self = req.mcpEmployee!;
+      const found = await loadEditableTodo(req, res, body.todoId);
+      if (!found) return;
+      const reader = {
+        kind: "employee" as const,
+        employeeId: self.id,
+        financeAccessLimit: delegatedMemberFinanceAccess(req),
+      };
+      const refused = await employeeLinkAccessError(co.id, reader, body.kind, body.id);
+      if (refused) return res.status(403).json({ error: refused });
+      const link = await addTodoLink({
+        companyId: co.id,
+        todoId: found.todo.id,
+        kind: body.kind,
+        targetId: body.id,
+        isSource: body.isSource,
+        createdByEmployeeId: self.id,
+      });
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "todo.link",
+        targetType: "todo",
+        targetId: found.todo.id,
+        targetLabel: `${found.project.key}-${found.todo.number}: ${found.todo.title}`,
+        metadata: { via: "mcp", kind: link.kind, label: link.label },
+      });
+      res.json({ link: { kind: link.kind, id: link.targetId, isSource: link.isSource } });
+    } catch (error) {
+      if (error instanceof TodoLinkError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      next(error);
+    }
+  },
+);
+
+const todoUnlinkToolSchema = z
+  .object({ todoId: z.string().uuid(), kind: z.enum(TODO_LINK_KINDS), id: z.string().uuid() })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/unlink_todo",
+  validateBody(todoUnlinkToolSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof todoUnlinkToolSchema>;
+    const co = req.mcpCompany!;
+    const found = await loadEditableTodo(req, res, body.todoId);
+    if (!found) return;
+    const removed = await removeTodoLink({
+      companyId: co.id,
+      todoId: found.todo.id,
+      kind: body.kind,
+      targetId: body.id,
+    });
+    if (!removed) return res.status(404).json({ error: "That link is not on this Todo" });
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: req.mcpEmployee!.id,
+      action: "todo.unlink",
+      targetType: "todo",
+      targetId: found.todo.id,
+      targetLabel: `${found.project.key}-${found.todo.number}: ${found.todo.title}`,
+      metadata: { via: "mcp", kind: body.kind },
+    });
+    res.json({ ok: true });
   },
 );
 
@@ -22020,9 +22169,26 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof getMailThreadSchema>;
     const found = await loadGrantedMailThread(req, res, body.threadId, "read");
     if (!found) return;
+    // The work this email already started, so it isn't started twice. Limited
+    // to Projects this turn can open, and capped: Tasks pages through the rest.
+    const linked = await pageLinkedTodos(
+      req.mcpCompany!.id,
+      mcpProjectActors(req),
+      "mail_thread",
+      found.thread.id,
+      { limit: 10 },
+    );
     res.json({
       thread: serializeMailThreadForAgent(found.thread),
       account: { accountId: found.account.id, address: found.account.address },
+      linkedTodos: linked.rows.map((todo) => ({
+        id: todo.id,
+        key: todo.key,
+        title: todo.title,
+        status: todo.status,
+        isSource: todo.isSource,
+        projectSlug: todo.project.slug,
+      })),
       ...(await readMailThreadForAgent(found.thread, body)),
     });
   },

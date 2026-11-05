@@ -24,6 +24,20 @@ import { createNotification } from "../services/notifications.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { kickoffAssignedTodo } from "../services/todoKickoff.js";
 import { kickoffTodoReview } from "../services/reviewKickoff.js";
+import { insertTodo, spawnNextRecurrence } from "../services/todos.js";
+import {
+  LINKED_TODO_PAGE,
+  TodoLinkError,
+  addTodoLink,
+  deleteTodoLinks,
+  memberLinkAccessError,
+  pageLinkedTodos,
+  presentTodoLinks,
+  removeTodoLink,
+  type TodoLinkReader,
+} from "../services/todoLinks.js";
+import { TODO_LINK_KINDS, type TodoLinkKind } from "../../shared/todoLinks.js";
+import { pageQueryShape } from "../services/listPaging.js";
 import {
   ProjectActor,
   countWriteHumans,
@@ -67,41 +81,6 @@ const RECURRENCES: TodoRecurrence[] = [
   "monthly",
   "yearly",
 ];
-
-/**
- * Advance a date by one recurrence period. `weekdays` skips ahead to the
- * next Monday–Friday slot; the others use straight calendar math via
- * `setDate`/`setMonth`/`setFullYear` so DST / month-length fall out for free.
- */
-function nextOccurrence(from: Date, recurrence: TodoRecurrence): Date | null {
-  if (recurrence === "none") return null;
-  const d = new Date(from.getTime());
-  switch (recurrence) {
-    case "daily":
-      d.setDate(d.getDate() + 1);
-      return d;
-    case "weekdays": {
-      do {
-        d.setDate(d.getDate() + 1);
-      } while (d.getDay() === 0 || d.getDay() === 6);
-      return d;
-    }
-    case "weekly":
-      d.setDate(d.getDate() + 7);
-      return d;
-    case "biweekly":
-      d.setDate(d.getDate() + 14);
-      return d;
-    case "monthly":
-      d.setMonth(d.getMonth() + 1);
-      return d;
-    case "yearly":
-      d.setFullYear(d.getFullYear() + 1);
-      return d;
-    default:
-      return null;
-  }
-}
 
 async function uniqueProjectSlug(companyId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(Project);
@@ -164,7 +143,7 @@ projectsRouter.get("/reviews", async (req, res) => {
     where: { projectId: In(projects.map((p) => p.id)), status: "in_review" },
     order: { updatedAt: "ASC" },
   });
-  const hydrated = await hydrateTodos(cid, todos);
+  const hydrated = await hydrateTodos(cid, todos, memberLinkReader(req));
   const projectById = new Map(projects.map((p) => [p.id, p]));
   res.json({
     todos: hydrated.map((t) => ({
@@ -360,6 +339,11 @@ projectsRouter.delete("/projects/:pSlug", async (req, res) => {
     return res.status(403).json({ error: "No access to that project" });
   }
   await deleteMembersForProject(p.id);
+  const todoIds = await AppDataSource.getRepository(Todo).find({
+    where: { projectId: p.id },
+    select: { id: true },
+  });
+  await deleteTodoLinks(todoIds.map((todo) => todo.id));
   await AppDataSource.getRepository(Todo).delete({ projectId: p.id });
   await deleteTagAssignments("project", p.id);
   await AppDataSource.getRepository(Project).delete({ id: p.id });
@@ -563,7 +547,7 @@ type PersonRef =
  * so the board view can render avatars without a second fetch. An assignee
  * or reviewer may be an AI employee OR a human member — the `kind` discriminates.
  */
-async function hydrateTodos(cid: string, todos: Todo[]) {
+async function hydrateTodos(cid: string, todos: Todo[], reader: TodoLinkReader) {
   const empIds = [
     ...new Set(
       todos
@@ -576,7 +560,7 @@ async function hydrateTodos(cid: string, todos: Todo[]) {
       todos.flatMap((t) => [t.assigneeUserId, t.reviewerUserId]).filter((x): x is string => !!x),
     ),
   ];
-  const [emps, users] = await Promise.all([
+  const [emps, users, links] = await Promise.all([
     empIds.length
       ? AppDataSource.getRepository(AIEmployee).find({
           where: { id: In(empIds), companyId: cid },
@@ -585,6 +569,11 @@ async function hydrateTodos(cid: string, todos: Todo[]) {
     userIds.length
       ? AppDataSource.getRepository(User).find({ where: { id: In(userIds) } })
       : Promise.resolve([]),
+    presentTodoLinks(
+      cid,
+      todos.map((t) => t.id),
+      reader,
+    ),
   ]);
   const empById = new Map(emps.map((e) => [e.id, e]));
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -604,7 +593,17 @@ async function hydrateTodos(cid: string, todos: Todo[]) {
     ...t,
     assignee: refFor(t.assigneeEmployeeId, t.assigneeUserId),
     reviewer: refFor(t.reviewerEmployeeId, t.reviewerUserId),
+    links: links.get(t.id) ?? [],
   }));
+}
+
+/** The Member behind this request, as a reader of what a link points at. */
+function memberLinkReader(req: Request): Extract<TodoLinkReader, { kind: "member" }> {
+  return {
+    kind: "member",
+    role: (req as Request & { role: Role }).role,
+    financeAccess: req.membership?.financeAccess,
+  };
 }
 
 async function validatePersonPair(
@@ -717,7 +716,7 @@ projectsRouter.get(
     try {
       if (limit !== undefined || cursor !== undefined) {
         const { rows, ...info } = await pageTodos(cid, p.id, filter, { limit, cursor }, (todos) =>
-          hydrateTodos(cid, todos),
+          hydrateTodos(cid, todos, memberLinkReader(req)),
         );
         return res.json({ ...info, project, todos: rows });
       }
@@ -726,13 +725,22 @@ projectsRouter.get(
         .addOrderBy("todo.createdAt", "ASC")
         .addOrderBy("todo.id", "ASC")
         .getMany();
-      res.json({ project, todos: await hydrateTodos(cid, todos) });
+      res.json({ project, todos: await hydrateTodos(cid, todos, memberLinkReader(req)) });
     } catch (err) {
       if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
       next(err);
     }
   },
 );
+
+const todoLinkInputSchema = z.object({
+  kind: z.enum(TODO_LINK_KINDS).describe("What kind of record this links to."),
+  targetId: z.string().uuid().describe("The record's id."),
+  isSource: z
+    .boolean()
+    .optional()
+    .describe("This is where the Todo came from. A Todo has at most one source."),
+});
 
 const createTodoSchema = z.object({
   title: z.string().min(1).max(200),
@@ -746,6 +754,8 @@ const createTodoSchema = z.object({
   dueAt: z.string().datetime().nullable().optional(),
   recurrence: z.enum(RECURRENCES as [TodoRecurrence, ...TodoRecurrence[]]).optional(),
   parentTodoId: z.string().uuid().nullable().optional(),
+  /** What else this Todo is about; one may be where it came from. */
+  links: z.array(todoLinkInputSchema).max(10).optional(),
 });
 
 function requireBrowserForAiAssignment(
@@ -799,42 +809,44 @@ projectsRouter.post(
       if (parentErr) return res.status(400).json({ error: parentErr });
     }
 
-    // Bump the per-project sequence atomically-ish. SQLite + better-sqlite3
-    // is synchronous so the read-then-write here is safe within a request;
-    // if this ever moves to Postgres with concurrent writes, switch to
-    // `UPDATE ... RETURNING`.
-    const projRepo = AppDataSource.getRepository(Project);
-    p.todoCounter += 1;
-    await projRepo.save(p);
+    for (const link of body.links ?? []) {
+      const linkErr = memberLinkAccessError(link.kind, memberLinkReader(req));
+      if (linkErr) return res.status(403).json({ error: linkErr });
+    }
 
-    const status = body.status ?? "todo";
-    // Place new todo at the bottom of its column so drag-to-reorder works.
-    const last = await AppDataSource.getRepository(Todo).findOne({
-      where: { projectId: p.id, status },
-      order: { sortOrder: "DESC" },
-    });
-    const sortOrder = (last?.sortOrder ?? 0) + 1000;
-
-    const t = AppDataSource.getRepository(Todo).create({
-      projectId: p.id,
-      number: p.todoCounter,
+    const t = await insertTodo({
+      project: p,
       title: body.title,
-      description: body.description ?? "",
-      status,
-      priority: body.priority ?? "none",
+      description: body.description,
+      status: body.status,
+      priority: body.priority,
       assigneeEmployeeId,
       assigneeUserId,
-      reviewerEmployeeId: body.reviewerEmployeeId ?? null,
-      reviewerUserId: body.reviewerUserId ?? null,
+      reviewerEmployeeId: body.reviewerEmployeeId,
+      reviewerUserId: body.reviewerUserId,
       createdById: req.userId ?? null,
       dueAt: body.dueAt ? new Date(body.dueAt) : null,
-      sortOrder,
-      completedAt: status === "done" ? new Date() : null,
-      recurrence: body.recurrence ?? "none",
-      recurrenceParentId: null,
-      parentTodoId: body.parentTodoId ?? null,
+      recurrence: body.recurrence,
+      parentTodoId: body.parentTodoId,
     });
-    await AppDataSource.getRepository(Todo).save(t);
+    // A link naming nothing in this company is refused, and the Todo it was
+    // meant for stays: losing what someone typed over a stale link helps nobody.
+    let linkError: string | null = null;
+    for (const link of body.links ?? []) {
+      try {
+        await addTodoLink({
+          companyId: cid,
+          todoId: t.id,
+          kind: link.kind,
+          targetId: link.targetId,
+          isSource: link.isSource,
+          createdByUserId: req.userId ?? null,
+        });
+      } catch (err) {
+        if (!(err instanceof TodoLinkError)) throw err;
+        linkError = err.message;
+      }
+    }
     void dispatchTodoCreated(cid, t.id).catch((err) => {
       console.error(`[pipelines] task event failed for ${t.id}:`, err);
     });
@@ -864,8 +876,8 @@ projectsRouter.post(
       });
     }
 
-    const [hydrated] = await hydrateTodos(cid, [t]);
-    res.json(hydrated);
+    const [hydrated] = await hydrateTodos(cid, [t], memberLinkReader(req));
+    res.json(linkError ? { ...hydrated, linkError } : hydrated);
   },
 );
 
@@ -1075,7 +1087,7 @@ projectsRouter.patch(
       });
     }
 
-    const [hydrated] = await hydrateTodos(cid, [t]);
+    const [hydrated] = await hydrateTodos(cid, [t], memberLinkReader(req));
     res.json(hydrated);
   },
 );
@@ -1154,47 +1166,6 @@ async function auditTodoPatch(
   else await recordAudit(params);
 }
 
-async function spawnNextRecurrence(project: Project, completed: Todo): Promise<void> {
-  const anchor = completed.dueAt ?? new Date();
-  const nextDue = nextOccurrence(anchor, completed.recurrence);
-  if (!nextDue) return;
-
-  const projRepo = AppDataSource.getRepository(Project);
-  project.todoCounter += 1;
-  await projRepo.save(project);
-
-  const todoRepo = AppDataSource.getRepository(Todo);
-  const last = await todoRepo.findOne({
-    where: { projectId: project.id, status: "todo" },
-    order: { sortOrder: "DESC" },
-  });
-  const sortOrder = (last?.sortOrder ?? 0) + 1000;
-
-  const next = todoRepo.create({
-    projectId: project.id,
-    number: project.todoCounter,
-    title: completed.title,
-    description: completed.description,
-    status: "todo",
-    priority: completed.priority,
-    assigneeEmployeeId: completed.assigneeEmployeeId,
-    assigneeUserId: completed.assigneeUserId,
-    reviewerEmployeeId: completed.reviewerEmployeeId,
-    reviewerUserId: completed.reviewerUserId,
-    createdById: completed.createdById,
-    dueAt: nextDue,
-    sortOrder,
-    completedAt: null,
-    recurrence: completed.recurrence,
-    recurrenceParentId: completed.recurrenceParentId ?? completed.id,
-    parentTodoId: completed.parentTodoId,
-  });
-  await todoRepo.save(next);
-  void dispatchTodoCreated(project.companyId, next.id).catch((err) => {
-    console.error(`[pipelines] task event failed for ${next.id}:`, err);
-  });
-}
-
 projectsRouter.delete("/todos/:tid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const found = await loadTodo(cid, req.params.tid);
@@ -1210,6 +1181,7 @@ projectsRouter.delete("/todos/:tid", async (req, res) => {
   });
   const ids = [found.todo.id, ...children.map((c) => c.id)];
   await AppDataSource.getRepository(TodoComment).delete({ todoId: In(ids) });
+  await deleteTodoLinks(ids);
   await todoRepo.delete({ id: In(ids) });
   await recordAudit({
     companyId: cid,
@@ -1272,6 +1244,118 @@ async function hydrateComments(cid: string, comments: TodoComment[]): Promise<Hy
     return { ...c, author, attachments: attachments.get(c.id) ?? [] };
   });
 }
+
+// ----- Links -----
+
+const addTodoLinkSchema = todoLinkInputSchema;
+
+// Link a Todo to a record: the email it came from, the Customer it is about.
+// Linking something already linked changes nothing.
+projectsRouter.post(
+  "/todos/:tid/links",
+  validateBody(addTodoLinkSchema),
+  async (req, res, next) => {
+    try {
+      const cid = (req.params as Record<string, string>).cid;
+      const found = await loadTodo(cid, req.params.tid);
+      if (!found) return res.status(404).json({ error: "Not found" });
+      if (!(await hasProjectAccess(found.project, actorOf(req), "write"))) {
+        return res.status(403).json({ error: "No access to that project" });
+      }
+      const body = req.body as z.infer<typeof addTodoLinkSchema>;
+      const refused = memberLinkAccessError(body.kind, memberLinkReader(req));
+      if (refused) return res.status(403).json({ error: refused });
+      const link = await addTodoLink({
+        companyId: cid,
+        todoId: found.todo.id,
+        kind: body.kind,
+        targetId: body.targetId,
+        isSource: body.isSource,
+        createdByUserId: req.userId ?? null,
+      });
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "todo.link",
+        targetType: "todo",
+        targetId: found.todo.id,
+        targetLabel: todoLabel(found.project, found.todo),
+        metadata: { kind: link.kind, label: link.label },
+      });
+      const views = await presentTodoLinks(cid, [found.todo.id], memberLinkReader(req));
+      res.json({ links: views.get(found.todo.id) ?? [] });
+    } catch (err) {
+      if (err instanceof TodoLinkError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  },
+);
+
+const todoLinkParamsSchema = z.object({
+  cid: z.string().uuid(),
+  tid: z.string().uuid(),
+  kind: z.enum(TODO_LINK_KINDS),
+  targetId: z.string().uuid(),
+});
+
+projectsRouter.delete(
+  "/todos/:tid/links/:kind/:targetId",
+  validateParams(todoLinkParamsSchema),
+  async (req, res) => {
+    const { cid, tid, kind, targetId } = req.params as unknown as z.infer<
+      typeof todoLinkParamsSchema
+    >;
+    const found = await loadTodo(cid, tid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    if (!(await hasProjectAccess(found.project, actorOf(req), "write"))) {
+      return res.status(403).json({ error: "No access to that project" });
+    }
+    const removed = await removeTodoLink({ companyId: cid, todoId: found.todo.id, kind, targetId });
+    if (!removed) return res.status(404).json({ error: "Not found" });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "todo.unlink",
+      targetType: "todo",
+      targetId: found.todo.id,
+      targetLabel: todoLabel(found.project, found.todo),
+      metadata: { kind },
+    });
+    res.json({ ok: true });
+  },
+);
+
+const linkedTodosQuerySchema = z.object({
+  kind: z.enum(TODO_LINK_KINDS).describe("What kind of record to look up."),
+  targetId: z.string().uuid().describe("The record's id."),
+  ...pageQueryShape,
+});
+
+// The way back from a record to the work it started: the Todos linked to one
+// email thread, Customer or Deal, limited to the Projects the caller can open.
+projectsRouter.get(
+  "/todo-links",
+  validateQuery(linkedTodosQuerySchema),
+  async (req, res, next) => {
+    try {
+      const cid = (req.params as Record<string, string>).cid;
+      const query = req.query as unknown as z.infer<typeof linkedTodosQuerySchema>;
+      const refused = memberLinkAccessError(query.kind as TodoLinkKind, memberLinkReader(req));
+      if (refused) return res.status(403).json({ error: refused });
+      const { rows, ...info } = await pageLinkedTodos(
+        cid,
+        [actorOf(req)],
+        query.kind as TodoLinkKind,
+        query.targetId,
+        { limit: query.limit, cursor: query.cursor },
+      );
+      res.json({ ...info, limits: LINKED_TODO_PAGE, todos: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 projectsRouter.get("/todos/:tid/comments", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;

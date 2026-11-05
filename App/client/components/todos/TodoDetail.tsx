@@ -25,6 +25,7 @@ import {
 
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { RecordHistory } from "@/components/RecordHistory";
+import { TodoLinksList } from "@/components/todos/TodoLinks";
 import {
   ChatResourceReference,
   insertResourceReference,
@@ -151,6 +152,12 @@ export function TodoDetailBody({
           <span className="max-w-[14rem] truncate">· {parent.title}</span>
         </button>
       )}
+      <TodoLinksList
+        todo={todo}
+        companyId={companyId}
+        companySlug={companySlug}
+        canEdit={canEdit}
+      />
       <input
         value={title}
         readOnly={!canEdit}

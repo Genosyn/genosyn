@@ -37,6 +37,7 @@ import { submitFormOnModEnter } from "../lib/keyboard";
 import { dateTimeLocalToIso, defaultFollowUpDue } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { RecordHistory } from "../components/RecordHistory";
+import { LinkedTodosCard } from "../components/todos/TodoLinks";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -506,6 +507,12 @@ export default function RevenueDealDetail() {
             roles={classifications.filter((row) => row.kind === "committee_role")}
             onAdd={addCommitteeMember}
             onRemove={(link) => void removeCommitteeMember(link)}
+          />
+          <LinkedTodosCard
+            companyId={company.id}
+            companySlug={company.slug}
+            kind="deal"
+            targetId={deal.id}
           />
           <RecordHistory
             companyId={company.id}

@@ -71,6 +71,35 @@ export function Tasks() {
         <LI>Deleting a parent deletes its subtasks with it.</LI>
       </UL>
 
+      <H2 id="links">Where a todo came from</H2>
+      <P>
+        A todo can be linked to the record it came from or is about: an email thread, a{" "}
+        <DocLink to="/docs/customers">Customer</DocLink>, a Contact or Deal in{" "}
+        <DocLink to="/docs/revenue">Revenue</DocLink>, a{" "}
+        <DocLink to="/docs/decisions">Decision</DocLink>, a Meeting, or a Routine Run. It reads both
+        ways: the todo&apos;s panel says <Strong>From email</Strong> with a link to the thread, and
+        the thread lists the todo under <Strong>Tasks</Strong>. Customer, Contact and Deal pages
+        show the same <Strong>Tasks</Strong> card when something is linked to them.
+      </P>
+      <P>
+        To make one from an email, open the thread and choose <Strong>Create task</Strong>. The title
+        starts as the subject, and you pick the Project and who it goes to. See{" "}
+        <DocLink to="/docs/email#create-task">Email</DocLink>.
+      </P>
+      <UL>
+        <LI>
+          A link grants nothing. On a todo, a link to a record you can&apos;t open shows only that
+          one exists, and a record lists only the todos in Projects you can open.
+        </LI>
+        <LI>
+          A todo keeps the name of what it was linked to, so it still says which email it came from
+          after that thread is gone from Genosyn. The name just stops being a link.
+        </LI>
+        <LI>
+          Hover a link in the panel and press its <Strong>×</Strong> to remove it.
+        </LI>
+      </UL>
+
       <H2 id="access">Who has access</H2>
       <P>
         A project is <Strong>open</Strong> by default: every Member and every{" "}
@@ -124,13 +153,18 @@ export function Tasks() {
       <P>
         AI Employees manage tasks through the built-in <Code>genosyn</Code> MCP server —{" "}
         <Code>list_projects</Code>, <Code>create_project</Code>, <Code>list_todos</Code>,{" "}
-        <Code>create_todo</Code>, <Code>update_todo</Code>, and <Code>add_todo_comment</Code> —
+        <Code>create_todo</Code>, <Code>update_todo</Code>, <Code>add_todo_comment</Code>,{" "}
+        <Code>link_todo</Code>, and <Code>unlink_todo</Code> —
         subject to each project&apos;s{" "}
         <DocLink to="/docs/tasks#access">access settings</DocLink>: <Code>list_projects</Code> only
         returns the projects an employee can reach, and the writes require{" "}
         <Strong>&quot;Can edit&quot;</Strong>. <Code>list_todos</Code> reads a project a page at a
         time in the board&apos;s order, with description previews (<Code>get_todo</Code> reads one in
-        full), and narrows to open work or to the employee&apos;s own Todos. An employee can hand a todo to a person as well as
+        full), and narrows to open work or to the employee&apos;s own Todos. A todo an employee
+        creates while working an email links that thread by itself, and{" "}
+        <Code>get_mail_thread</Code> shows the work a thread already started, so it isn&apos;t
+        started twice; <Code>link_todo</Code> and <Code>unlink_todo</Code> manage the rest, for
+        records its own Grants let it read. An employee can hand a todo to a person as well as
         to a teammate — <Code>list_members</Code> gives it each Member&apos;s user id — and that
         person must be able to open the project. When an employee
         creates a todo it assigns itself by default, and it can pass <Code>parentTodoId</Code> to

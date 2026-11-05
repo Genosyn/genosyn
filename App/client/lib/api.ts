@@ -1,3 +1,4 @@
+import type { TodoLinkView } from "../../shared/todoLinks";
 import type { BaseFilterOperator } from "../../shared/baseFilters";
 import type { EntryCategoryLock } from "../../shared/entryCategory";
 import type { ModelEffort } from "../../shared/modelEffort";
@@ -2574,6 +2575,8 @@ export type Todo = {
   updatedAt: string;
   assignee: TodoAssignee | null;
   reviewer: TodoReviewer | null;
+  /** Where it came from and what it is about, as this reader may see them. */
+  links?: TodoLinkView[];
 };
 
 /**
