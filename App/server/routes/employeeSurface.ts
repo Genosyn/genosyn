@@ -490,6 +490,12 @@ const sendSchema = z.object({
  *   event: activity   — one recorded step as it happens: a tool call or its
  *                       result, a wait and why, a thinking summary, a stop
  *                       (`ChatActivityEvent` in `shared/chatActivity.ts`).
+ *   event: pulse      — what the AI Model is doing right now, read off its own
+ *                       stream (`ModelPulse` in `shared/chatActivity.ts`):
+ *                       waiting, thinking, writing, writing a tool call. Holds
+ *                       no words and is never stored.
+ *   event: tool_output — the end of what a running command has printed so far,
+ *                       redacted like a result (`{ callId, output }`). Never stored.
  *   event: heartbeat  — the server clock every few seconds, so a quiet turn
  *                       reads as quiet rather than as a dead connection.
  *   event: assistant  — persisted assistant message row (final reply text,
@@ -526,8 +532,8 @@ employeeSurfaceRouter.post(
     // Keep the connection warm across long silent stretches of a turn — the
     // traffic resets the idle-read timers on any proxy between the browser and
     // this process, without which a slow reply drops mid-stream — and tell the
-    // browser the server is still there, with its clock, so it can say "no
-    // activity for 40s" about a quiet turn instead of "reconnecting".
+    // browser the server is still there, with its clock, so a quiet stretch
+    // never reads as "reconnecting".
     const heartbeat = setInterval(() => {
       writeEvent("heartbeat", { now: new Date().toISOString() });
     }, CHAT_STREAM_HEARTBEAT_MS);
@@ -614,6 +620,8 @@ employeeSurfaceRouter.post(
       await executeDurableChatTurn(enqueued.assistantMessage.id, {
         onChunk: (chunk) => writeEvent("chunk", { text: chunk }),
         onActivity: (event) => writeEvent("activity", event),
+        onPulse: (pulse) => writeEvent("pulse", pulse),
+        onToolOutput: (callId, output) => writeEvent("tool_output", { callId, output }),
         onProgress: (progress) => writeEvent("progress", progress),
         onContextUsage: (usage) =>
           writeEvent("context", {

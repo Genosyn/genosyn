@@ -1,4 +1,4 @@
-import type { ChatActivityEvent } from "../../shared/chatActivity.js";
+import type { ChatActivityEvent, ModelPulse } from "../../shared/chatActivity.js";
 import type { AgentProgress, ContextUsage } from "./agent/types.js";
 
 /**
@@ -10,9 +10,10 @@ import type { AgentProgress, ContextUsage } from "./agent/types.js";
  * from that moment on, without a gap or a repeat. Persisted activity rows
  * cover the past, but they land asynchronously and a reply's text is not
  * persisted token by token, so the running turn also keeps an in-memory copy:
- * every event it recorded, the reply text so far, and the subscribers to
- * fan both out to. A late subscriber takes a synchronous snapshot and
- * subscribes in the same tick, which is what makes the hand-over seamless.
+ * every event it recorded, the reply text so far, the AI Model's latest pulse,
+ * and the subscribers to fan them out to. A late subscriber takes a synchronous
+ * snapshot and subscribes in the same tick, which is what makes the hand-over
+ * seamless.
  *
  * Process-local on purpose, like the durable worker that owns the turn. A
  * reader attached to another replica falls back to the persisted rows
@@ -24,6 +25,8 @@ export type LiveTurnFrame =
   | { type: "text"; delta: string }
   | { type: "progress"; progress: AgentProgress }
   | { type: "context"; usage: ContextUsage }
+  | { type: "pulse"; pulse: ModelPulse }
+  | { type: "tool_output"; callId: string; output: string }
   /** The turn finalized; its row is now authoritative. */
   | { type: "final" }
   /**
@@ -41,6 +44,10 @@ const MAX_EVENTS_IN_MEMORY = 2_000;
 export class LiveTurn {
   /** The reply text streamed in this attempt. */
   text = "";
+  /** What the AI Model is doing as of the latest reading, for a reader attaching now. */
+  latestPulse: ModelPulse | null = null;
+  /** The end of what each running command has printed, for a reader attaching now. */
+  readonly toolOutputs = new Map<string, string>();
   private events: ChatActivityEvent[] = [];
   private listeners = new Set<LiveTurnListener>();
   private ended = false;
@@ -73,6 +80,8 @@ export class LiveTurn {
   /** A new attempt starts its reply from nothing; its events continue. */
   beginAttempt(): void {
     this.text = "";
+    this.latestPulse = null;
+    this.toolOutputs.clear();
     this.ended = false;
   }
 
@@ -94,6 +103,21 @@ export class LiveTurn {
 
   context(usage: ContextUsage): void {
     this.publish({ type: "context", usage });
+  }
+
+  pulse(pulse: ModelPulse): void {
+    this.latestPulse = pulse;
+    this.publish({ type: "pulse", pulse });
+  }
+
+  toolOutput(callId: string, output: string): void {
+    this.toolOutputs.set(callId, output);
+    this.publish({ type: "tool_output", callId, output });
+  }
+
+  /** A command returned: its result is the record now. */
+  toolFinished(callId: string): void {
+    this.toolOutputs.delete(callId);
   }
 
   subscribe(listener: LiveTurnListener): () => void {

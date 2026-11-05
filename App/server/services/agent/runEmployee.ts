@@ -38,6 +38,7 @@ import {
   type RetryCapabilityRecorder,
 } from "./retryPreflight.js";
 import { residentOnlyRegistry, type ToolRegistry } from "./tools/toolRegistry.js";
+import { preparingPulse } from "./modelStream.js";
 import type { RunDeadlineNotice } from "../runDeadlineNotice.js";
 import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
@@ -389,6 +390,10 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     });
     localTools.push(...guardPrivilegedTools([delegationTool], params.authorizePrivilegedToolCall));
   }
+
+  // Company MCP servers and the browser connect here, and a slow one is slow
+  // long before the AI Model has been asked anything.
+  params.callbacks?.onModelPulse?.(preparingPulse("Connecting its tools", params.model.model));
 
   if (params.model.authMode === "subscription") {
     return runSubscriptionEmployeeAgent(params, localTools, deferredLocalTools, diagnostics);

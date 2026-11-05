@@ -28,9 +28,15 @@ function redactUrlCredentialMaterial(value: string): string {
   });
 }
 
+/**
+ * A quoted value below reads a backslash and what follows it as one unit, and
+ * nothing else takes a backslash. Let a backslash match two ways and a value with
+ * no closing quote costs twice as much per backslash: enough escaped newlines in a
+ * key froze the whole server's event loop for tens of seconds.
+ */
 function redactStringCredentials(value: string): string {
   const assignmentPattern = new RegExp(
-    String.raw`\b(${SECRET_LABEL})\b(\s*[:=]\s*)(?:\[redacted\]|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s,;}&\]]+)`,
+    String.raw`\b(${SECRET_LABEL})\b(\s*[:=]\s*)(?:\[redacted\]|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;}&\]]+)`,
     "gi",
   );
 
@@ -39,9 +45,13 @@ function redactStringCredentials(value: string): string {
       /-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z0-9]+)? PRIVATE KEY-----/gi,
       "[redacted private key]",
     )
+    // A key that whatever clipped this text cut in two is still a key, whichever
+    // half is left, and so is one still arriving.
+    .replace(/-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----[\s\S]*$/i, "[redacted private key]")
+    .replace(/^[\s\S]*?-----END(?: [A-Z0-9]+)? PRIVATE KEY-----/i, "[redacted private key]")
     .replace(/\b(?:set-cookie|cookie)\s*:\s*[^\r\n]+/gi, "Cookie: [redacted]")
     .replace(
-      /("(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|cookie|credential|private[_-]?key|client[_-]?secret)"\s*:\s*)("(?:\\.|[^"])*"|[^,}\s]+)/gi,
+      /("(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|cookie|credential|private[_-]?key|client[_-]?secret)"\s*:\s*)("(?:\\[\s\S]|[^"\\])*"|[^,}\s]+)/gi,
       '$1"[redacted]"',
     )
     .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, "$1 [redacted]")

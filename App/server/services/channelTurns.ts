@@ -666,6 +666,9 @@ function recorderCallbacks(recorder: ChatTurnActivityRecorder): NonNullable<Chat
     onServedModelChange: (change) => recorder.servedModelChange(change),
     onBackgroundWork: (pending) => recorder.backgroundWork(pending),
     onThinkingFallback: (fallback) => recorder.thinkingFallback(fallback),
+    onModelPulse: (pulse) => recorder.modelPulse(pulse),
+    onModelCall: (call) => recorder.modelCall(call),
+    onToolOutput: (name, output, callId) => recorder.toolOutput(name, output, callId),
   };
 }
 
@@ -1475,6 +1478,8 @@ export async function followChannelTurn(args: {
     present: (event) => activityEventFor(event, access),
     presentProgress: (progress) =>
       access === "full" ? progress : { percent: progress.percent, label: "In progress" },
+    showPulse: access !== "none",
+    showToolOutput: access === "full",
     pollMs: args.pollMs,
     heartbeatMs: args.heartbeatMs,
   });

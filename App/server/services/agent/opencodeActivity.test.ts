@@ -196,6 +196,56 @@ test("overlapping native calls finishing out of order pair by call id; repeats a
   assert.equal((calls[3][2] as ToolResult).isError, true);
 });
 
+test("what a running command prints reaches the feed once per change, and stops at its end", () => {
+  const output: string[] = [];
+  const events = new OpenCodeEvents("session", {
+    onToolOutput: (name, text, callId) => output.push(`${name}|${callId}|${text}`),
+  });
+  events.accept(messageUpdated(assistant()));
+  const running = (text: string | undefined): Part =>
+    ({
+      id: "p1",
+      sessionID: "session",
+      messageID: "assistant",
+      type: "tool",
+      tool: "bash",
+      callID: "c1",
+      state: {
+        status: "running",
+        input: { command: "npm test" },
+        time: { start: 1 },
+        ...(text === undefined ? {} : { metadata: { output: text } }),
+      },
+    }) as unknown as Part;
+  events.accept(updated(running(undefined)));
+  events.accept(updated(running("")));
+  events.accept(updated(running("line 1\n")));
+  events.accept(updated(running("line 1\n")));
+  events.accept(updated(running("line 1\nline 2\n")));
+  assert.deepEqual(output, [
+    "bash|assistant:c1|line 1\n",
+    "bash|assistant:c1|line 1\nline 2\n",
+  ]);
+});
+
+test("a summary being written marks compaction, until it is done or another message starts", () => {
+  const seen: boolean[] = [];
+  const events = new OpenCodeEvents("session", undefined, null, undefined, (active) =>
+    seen.push(active),
+  );
+  const inProgress = (id: string, summary: boolean) =>
+    ({ ...assistant(id, summary), time: { created: 1 } }) as AssistantMessage;
+  events.accept(messageUpdated(assistant("before")));
+  assert.deepEqual(seen, [], "a finished message says nothing either way");
+  events.accept(messageUpdated(inProgress("summary", true)));
+  assert.deepEqual(seen, [true]);
+  events.accept(messageUpdated(assistant("summary", true)));
+  assert.deepEqual(seen, [true, false]);
+  events.accept(messageUpdated(inProgress("summary-2", true)));
+  events.accept(messageUpdated(inProgress("after", false)));
+  assert.deepEqual(seen, [true, false, true, false]);
+});
+
 test("a call that jumps straight to completed still reports its use first", () => {
   const { calls, callbacks } = collector();
   const events = new OpenCodeEvents("session", callbacks);

@@ -2,6 +2,7 @@ import React from "react";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { useChatAttachments } from "../lib/stagedChatAttachments";
 import { ChatAttachments } from "../components/chat/ChatAttachments";
+import { CopyTextButton, REVEAL_ON_HOVER } from "../components/chat/CopyTextButton";
 import { Select } from "@/components/ui/Select";
 import { Link } from "react-router-dom";
 import {
@@ -399,7 +400,13 @@ export default function Help({ company }: { company: Company }) {
             accepted = true;
             attachmentDraft.clear();
             setLive((current) => reduceLiveTurn(current, { event, data }, Date.now()));
-          } else if (event === "turn" || event === "activity" || event === "heartbeat") {
+          } else if (
+            event === "turn" ||
+            event === "activity" ||
+            event === "heartbeat" ||
+            event === "pulse" ||
+            event === "tool_output"
+          ) {
             setLive((current) => reduceLiveTurn(current, { event, data }, Date.now()));
           } else if (event === "chunk") {
             accumulated += (data as { text?: string } | null)?.text ?? "";
@@ -905,7 +912,7 @@ function HelpBubble({
           src={employeeAvatarUrl(companyId, employee.id, employee.avatarKey)}
         />
       </div>
-      <div className="min-w-0 max-w-[85%] sm:max-w-[75%]">
+      <div className="group min-w-0 flex-1">
         {shouldShowTurnSummary(message.activity) && message.activity && (
           <TurnWorkSummary
             summary={message.activity}
@@ -916,7 +923,7 @@ function HelpBubble({
         )}
         <div
           className={
-            "rounded-2xl rounded-tl-md px-3.5 py-2 text-sm leading-relaxed shadow-sm " +
+            "w-fit max-w-full rounded-2xl rounded-tl-md px-3.5 py-2 text-sm leading-relaxed shadow-sm " +
             (isError
               ? "border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
               : isUnavailable
@@ -936,6 +943,11 @@ function HelpBubble({
             }
           />
         </div>
+        {!isError && !isUnavailable && message.content.trim() && (
+          <div className={`mt-1 pl-1 ${REVEAL_ON_HOVER}`}>
+            <CopyTextButton text={message.content} />
+          </div>
+        )}
       </div>
     </div>
   );

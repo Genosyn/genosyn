@@ -9,8 +9,9 @@ export function Chat() {
         lead={
           <>
             Open an AI Employee and choose <Strong>Chat</Strong> to talk to them directly. While
-            they work you see exactly what they are doing — each step, how long it has taken, and
-            what the turn is waiting on — and every reply keeps a record of the work behind it.
+            they work you see exactly what they are doing — what the AI Model is thinking, each
+            step, how long it has taken, what a command is printing, and what the turn is waiting
+            on — and every reply keeps a record of the work behind it.
           </>
         }
       />
@@ -74,10 +75,15 @@ export function Chat() {
       <H2 id="live-activity">Watching the employee work</H2>
       <P>
         As soon as you send, a live card appears under the employee&apos;s name. Its top line says
-        what is happening right now and, on the right, how long the turn has been running. Below it
-        are the steps so far, newest last, each with its status and duration; older steps fold
-        behind <Strong>Show N earlier steps</Strong>. The reply streams in beneath the card as it is
-        written. Select a step to see its arguments and what it returned, or its error.
+        what is happening right now and, on the right, how long the turn has been running. Under
+        that is the evidence, read straight off the AI Model&apos;s own stream:{" "}
+        <Strong>Receiving now</Strong> while anything is arriving (or{" "}
+        <Strong>Last data 12s ago</Strong>), which AI Model it is, which of its calls this is, and
+        roughly how many tokens it has written. So you can tell a long thought from a stuck one at a
+        glance. Below are the steps so far, newest last, each with its status and duration; older
+        steps fold behind <Strong>Show N earlier steps</Strong>. The reply streams in beneath the
+        card as it is written. Select a step to see its arguments and what it returned, or its
+        error.
       </P>
       <KeyList
         rows={[
@@ -90,7 +96,28 @@ export function Chat() {
                 <em>Opening example.com</em> — with the argument that matters. A spinner while it
                 runs, a check when it is done, a cross if it failed. A call held for an owner&apos;s
                 approval says <Strong>Waiting for approval</Strong> and links to the approvals
-                inbox. Calls made by a parallel worker carry the worker&apos;s name.
+                inbox. A failed step shows the first line of its error. A command prints under its
+                step while it runs, so a long <em>npm test</em> is something to watch rather than
+                wait on. Calls made by a parallel worker carry the worker&apos;s name.
+              </>
+            ),
+          },
+          {
+            term: "Getting ready",
+            def: (
+              <>
+                Nothing has been asked of the AI Model yet, and the card says what the time is going
+                on: <em>Updating its Repositories</em>, <em>Connecting its tools</em> or{" "}
+                <em>Starting its runtime</em>.
+              </>
+            ),
+          },
+          {
+            term: "Waiting for the AI Model to start answering",
+            def: (
+              <>
+                The request has gone out and nothing has come back yet. Long conversations and
+                higher <a href="#thinking-level">thinking levels</a> take longer to start.
               </>
             ),
           },
@@ -98,11 +125,33 @@ export function Chat() {
             term: "Thinking",
             def: (
               <>
-                Between steps the employee is waiting on its AI Model. When the model shares a
-                summary of its reasoning (OpenAI reasoning summaries, Claude&apos;s thinking, a
-                self-hosted model&apos;s reasoning), the card shows what it is thinking about and
-                the step holds the summary. Genosyn asks for that summary on every chat turn, so a
-                higher <a href="#thinking-level">thinking level</a> shows more of it.
+                The AI Model is working on it. When it shares its reasoning (OpenAI reasoning
+                summaries, Claude&apos;s thinking, a self-hosted model&apos;s reasoning), the card
+                shows the thought as it forms, newest lines in view, with what it is about in the
+                top line. Genosyn asks for that summary on every chat turn, so a higher{" "}
+                <a href="#thinking-level">thinking level</a> shows more of it. A model that thinks
+                without sharing the words still reads as thinking for as long as it is sending
+                anything, and the step records how long it took.
+              </>
+            ),
+          },
+          {
+            term: "Preparing: Creating note",
+            def: (
+              <>
+                The AI Model is writing the arguments of its next step, with how much so far:{" "}
+                <em>4.2 KB written so far</em>. A step whose argument is a whole document can take
+                a while to write before it even runs; the finished step says{" "}
+                <em>written in 58s</em>.
+              </>
+            ),
+          },
+          {
+            term: "Compacting the conversation",
+            def: (
+              <>
+                Older parts of the conversation are being summarized to fit the AI Model&apos;s
+                context window.
               </>
             ),
           },
@@ -122,12 +171,24 @@ export function Chat() {
             ),
           },
           {
-            term: "No activity for 52s",
+            term: "No data from the AI Model for 2m 5s",
             def: (
               <>
-                Nothing at all has happened for a while — usually a slow AI Model working through
-                a long conversation. It is said plainly rather than shown as progress, so you can
-                decide whether to keep waiting or stop.
+                The AI Model&apos;s stream has actually gone silent: nothing at all has arrived, not
+                even a keep-alive, for two minutes (three if it has not started answering). The card
+                says what it was doing when it went quiet, so you can decide whether to keep waiting
+                or stop. Models do sometimes pause on long work and pick up again.
+              </>
+            ),
+          },
+          {
+            term: "Working",
+            def: (
+              <>
+                On an install with several servers you can be attached to one that is not running
+                this reply. It can then only see the steps as they land, so it says how long it has
+                been since the last one rather than guess what the AI Model is doing. The reply
+                carries on regardless.
               </>
             ),
           },
@@ -151,10 +212,26 @@ export function Chat() {
       <P>
         A finished reply keeps one quiet line above it, such as{" "}
         <Strong>Worked for 2m 14s · 9 steps</Strong> (or <Strong>Thought for 12s</Strong> when
-        there were no steps), plus how many steps failed or wait for approval. Select it to open the same steps the live card showed, with their inputs,
-        outputs and errors. Quick answers with nothing to show have no line. The record is saved
-        with the conversation, so a reload, another tab or a visit next week shows the same
-        history.
+        there were no steps, or <Strong>Stopped after 40s</Strong> when you stopped it), plus how
+        many steps failed or wait for approval. Select it to open the same steps the live card
+        showed, with their inputs, outputs and errors. It accounts for the time between steps too —{" "}
+        <em>Thought · 38s</em>, even when the AI Model shared no words — and ends with the facts of
+        the turn: the AI Model, how many calls it took, how long it thought, and the tokens it read
+        and wrote. Quick answers with nothing to show have no line. The record is saved with the
+        conversation, so a reload, another tab or a visit next week shows the same history.
+      </P>
+      <P>
+        Point at a message to see when it was sent and to <Strong>Copy</Strong> it as it was
+        written, markdown and all; on a phone these are always there. Each code block has its own{" "}
+        <Strong>Copy</Strong> and names its language, and a wide table scrolls inside the reply.{" "}
+        <Strong>Edit</Strong> on one of your own messages puts it back in the message box to change
+        it and send it again.
+      </P>
+      <P>
+        You can move around while a reply runs. The thread list marks every conversation with a
+        reply in progress as <Strong>Working</Strong>, and the browser tab says{" "}
+        <em>Working · Sam Flinch</em>, then <em>Reply ready · Sam Flinch</em> if it finished while
+        you were in another tab.
       </P>
 
       <H2 id="stop-and-queue">Stopping and queueing</H2>
@@ -230,6 +307,13 @@ export function Chat() {
         page is never kept. Long results are clipped. A reply in a discussion bound to a Decision,
         TLDR or review shows that the employee read the linked record, but not what it returned —
         the step says its details were not kept, and the record is on the card beside it.
+      </P>
+      <P>
+        What the card reads off the AI Model&apos;s stream is how it is working, never what it
+        wrote: its state, how long, how much, and which tool. None of that is kept beyond one line
+        per call saying where the time went. What a running command prints is redacted the same way
+        as its result, shown only to whoever can see that result, and not kept either: the result
+        is the record, once there is one.
       </P>
       <P>
         The same live card and <Strong>Worked for</Strong> line appear wherever an AI Employee

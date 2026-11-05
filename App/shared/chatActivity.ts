@@ -25,6 +25,8 @@
  *   - `notice`        something worth a quiet line: a compaction, a backup
  *                     key, a retry requested by the Member.
  *   - `stopped`       a Member stopped the turn.
+ *   - `model_call`    one request to the AI Model ended, and where its time
+ *                     went — see {@link ModelCallDetail}.
  *   - `turn_finished` the turn ended, with its summary.
  */
 export const CHAT_ACTIVITY_KINDS = [
@@ -36,6 +38,7 @@ export const CHAT_ACTIVITY_KINDS = [
   "waiting",
   "notice",
   "stopped",
+  "model_call",
   "turn_finished",
 ] as const;
 export type ChatActivityKind = (typeof CHAT_ACTIVITY_KINDS)[number];
@@ -86,6 +89,93 @@ export type WaitingDetail = {
 };
 export type NoticeDetail = { code: string; label: string };
 export type TurnFinishedDetail = TurnActivitySummary;
+
+/**
+ * What the AI Model is doing while it answers one request, as its own stream
+ * says. The stream is the only place that can tell a model that is working
+ * from one that has stopped: a long thought, a tool call whose arguments are a
+ * whole document, and a request nothing has come back for all look identical
+ * from the steps alone.
+ *
+ *   - `preparing`   nothing has been asked yet: the turn is getting ready.
+ *   - `waiting`     the request is sent and nothing has come back.
+ *   - `thinking`    it is thinking, whether or not it shares the words.
+ *   - `writing`     it is writing the reply.
+ *   - `tool_input`  it is writing the arguments of a tool call.
+ *   - `compacting`  it is summarizing older parts of the conversation to fit
+ *                   its context window.
+ *   - `finished`    this request ended; the runtime has the turn back.
+ */
+export type ModelPulseState =
+  | "preparing"
+  | "waiting"
+  | "thinking"
+  | "writing"
+  | "tool_input"
+  | "compacting"
+  | "finished";
+
+/**
+ * One reading of {@link ModelPulseState}, as it travels on a turn's stream.
+ *
+ * Live only: a pulse is never stored, and it holds no words. It says what state
+ * the model is in and how much it has produced, never what it produced, so it
+ * shows no more than the steps themselves to anyone who can follow the turn.
+ */
+export type ModelPulse = {
+  state: ModelPulseState;
+  /** Server-written words for `preparing`: "Updating its Repositories". */
+  label: string | null;
+  /** The AI Model's own id, as the request names it. */
+  model: string | null;
+  /** Which of this turn's requests to the AI Model this is, from 1; 0 before the first. */
+  request: number;
+  /** The tool whose arguments are being written, for `tool_input`. */
+  tool: string | null;
+  /** When this state began, ISO on the server's clock. */
+  since: string;
+  /** When this request went out; null before the first. */
+  sentAt: string | null;
+  /** When the AI Model last sent anything at all on this request, a keep-alive included. */
+  lastDataAt: string | null;
+  /** Characters written in this state: for `tool_input`, this tool call's arguments so far. */
+  chars: number;
+  /**
+   * Tokens the AI Model has written this turn: what it reported for requests
+   * that ended, and an estimate from the characters of the one in flight.
+   */
+  outputTokens: number;
+  /** The server's clock when this reading was sent. */
+  now: string;
+};
+
+/** Where one stretch of a request's time went. */
+export type ModelCallPhase = {
+  kind: Exclude<ModelPulseState, "preparing" | "finished">;
+  startedAt: string;
+  ms: number;
+  /** The tool whose arguments were written, for `tool_input`. */
+  tool?: string | null;
+  /** Characters written in this stretch; never the characters themselves. */
+  chars?: number;
+};
+
+/**
+ * One request to the AI Model, once it ended (`model_call` events). It is how a
+ * finished turn accounts for the time between its steps: a model that thought
+ * for a minute and shared no words leaves no other trace.
+ */
+export type ModelCallDetail = {
+  request: number;
+  model: string | null;
+  sentAt: string;
+  durationMs: number;
+  phases: ModelCallPhase[];
+  /** The whole prompt the provider counted, cached spans included; null when unreported. */
+  inputTokens: number | null;
+  outputTokens: number | null;
+  stopReason: string | null;
+};
 
 /**
  * Why a turn can be waiting rather than working. The chat has words for each;
@@ -160,6 +250,16 @@ export type TurnActivitySummary = {
   lastOrdinal: number;
   /** How the turn ended — the reply's status. */
   status: string;
+  /** Requests the AI Model answered. Zero on replies recorded before this was kept. */
+  modelCalls: number;
+  /** Time the AI Model spent thinking across those requests. */
+  thinkingMs: number;
+  /** The prompt tokens the provider counted, across every request. */
+  inputTokens: number;
+  /** The tokens it wrote, across every request. */
+  outputTokens: number;
+  /** The AI Model's own id, as the requests named it. */
+  model: string | null;
 };
 
 /** Parse a stored summary, tolerating rows written before a field existed. */
@@ -183,6 +283,11 @@ export function parseTurnActivitySummary(
       reasoning: value.reasoning === true,
       lastOrdinal: num(value.lastOrdinal),
       status: typeof value.status === "string" ? value.status : "ok",
+      modelCalls: num(value.modelCalls),
+      thinkingMs: num(value.thinkingMs),
+      inputTokens: num(value.inputTokens),
+      outputTokens: num(value.outputTokens),
+      model: typeof value.model === "string" && value.model ? value.model : null,
     };
   } catch {
     return null;
@@ -830,6 +935,26 @@ export function describeChatToolCall(
   }
   // An unknown verb, an Integration's tool, a company MCP server's tool.
   return finish(family, v("Using", "Used"), humanize(words) || "a tool", target, worker);
+}
+
+/**
+ * What a tool call is for while the AI Model is still writing its arguments —
+ * "Creating note", "Running a command". Nothing is known of the arguments yet,
+ * so a label that is only a verb says what kind of thing it is.
+ */
+const BARE_VERB_OBJECT: Partial<Record<ChatToolFamily, string>> = {
+  command: "a command",
+  file: "a file",
+  web: "a web page",
+  message: "a message",
+  people: "work",
+};
+
+export function describeChatToolDraft(rawName: string): string {
+  const { active, family } = describeChatToolCall(rawName, null);
+  if (active.includes(" ")) return active;
+  const object = BARE_VERB_OBJECT[family];
+  return object ? `${active} ${object}` : active;
 }
 
 function SALIENT_QUERY_PRESENT(args: Record<string, unknown>): boolean {

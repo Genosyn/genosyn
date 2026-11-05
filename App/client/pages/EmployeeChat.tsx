@@ -17,6 +17,7 @@ import {
   Lightbulb,
   MessageSquarePlus,
   Paperclip,
+  PenLine,
   Plug,
   RotateCcw,
   Send,
@@ -39,6 +40,7 @@ import {
   ModelEffort,
 } from "../lib/api";
 import { describeContextUsage } from "../lib/chatContextUsage";
+import { useReplyTabTitle } from "../lib/chatTabTitle";
 import { employeeMilestone } from "../lib/chatProgress";
 import {
   activeFlight,
@@ -55,6 +57,7 @@ import {
   type ComposerThinking,
   type NewThreadThinking,
 } from "../lib/thinkingLevel";
+import { CopyTextButton, REVEAL_ON_HOVER } from "../components/chat/CopyTextButton";
 import { ThinkingLevelPicker } from "../components/chat/ThinkingLevelPicker";
 import { errorMessage } from "../lib/errors";
 import { useComposerFileDrop } from "../lib/fileDrop";
@@ -187,6 +190,15 @@ export default function EmployeeChat() {
     ),
   );
   const isActiveResponse = sending;
+  /** Threads with a reply running, shown in the list so a Member can move between them. */
+  const workingConvIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const flight of Object.values(session.flights)) {
+      if (flight.sending && flight.conversationId) ids.add(flight.conversationId);
+    }
+    return ids;
+  }, [session.flights]);
+  useReplyTabTitle(emp.name, workingConvIds.size > 0 || isActiveResponse);
   /** A stop this browser asked for that the employee has not finished obeying. */
   const isInterrupting = interrupting;
   const visibleMessages = messages.filter((message) => message.status !== "working");
@@ -428,8 +440,24 @@ export default function EmployeeChat() {
     streamingReply,
     progress,
     live.events,
+    live.pulse?.state,
     visibleQueuedMessages.length,
   ]);
+
+  // Everything else that changes the thread's height — a line appearing on the
+  // live card, a thought growing, a step opened, an image arriving — follows the
+  // tail by the same rule, without each having to say so.
+  const transcriptObserver = React.useRef<ResizeObserver | null>(null);
+  const transcriptRef = React.useCallback((content: HTMLDivElement | null) => {
+    transcriptObserver.current?.disconnect();
+    transcriptObserver.current = null;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    transcriptObserver.current = new ResizeObserver(() => {
+      const el = scrollRef.current;
+      if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    transcriptObserver.current.observe(content);
+  }, []);
 
   /** Re-attach to the tail: used by the jump button and by sending a message. */
   function followTail() {
@@ -774,6 +802,7 @@ export default function EmployeeChat() {
         archivedLoaded={session.archivedLoaded}
         archivedError={archivedError}
         activeId={activeConvId}
+        workingIds={workingConvIds}
         onSelect={(id) => actions.update(emp.id, { activeConvId: id })}
         onDelete={handleDelete}
         onArchive={handleArchive}
@@ -853,7 +882,7 @@ export default function EmployeeChat() {
               visibleQueuedMessages.length === 0 ? (
               <EmptyState empName={emp.name} empRole={emp.role} onPick={(t) => send(t)} />
             ) : (
-              <div className="mx-auto flex max-w-3xl flex-col gap-5">
+              <div ref={transcriptRef} className="mx-auto flex max-w-3xl flex-col gap-5">
                 {visibleMessages.map((m, i) => (
                   <TurnBubble
                     key={m.id}
@@ -869,6 +898,10 @@ export default function EmployeeChat() {
                     retrying={retrying === m.id}
                     retryError={retryError?.id === m.id ? retryError.message : null}
                     onRetry={() => void retryReply(m)}
+                    onEditAgain={(content) => {
+                      actions.update(emp.id, { input: content });
+                      inputRef.current?.focus();
+                    }}
                   />
                 ))}
                 {isActiveResponse && (
@@ -991,6 +1024,7 @@ function ConversationList({
   archivedLoaded,
   archivedError,
   activeId,
+  workingIds,
   onSelect,
   onDelete,
   onArchive,
@@ -1007,6 +1041,8 @@ function ConversationList({
   archivedLoaded: boolean;
   archivedError: string | null;
   activeId: string | null;
+  /** Threads with a reply running right now. */
+  workingIds: ReadonlySet<string>;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onArchive: (id: string) => void;
@@ -1055,6 +1091,7 @@ function ConversationList({
                 key={c.id}
                 conv={c}
                 active={c.id === activeId}
+                working={workingIds.has(c.id)}
                 onSelect={onSelect}
                 actions={
                   !c.legacyUnclaimed ? (
@@ -1167,12 +1204,15 @@ function ConversationRow({
   conv,
   active,
   muted,
+  working,
   onSelect,
   actions,
 }: {
   conv: ConversationSummary;
   active: boolean;
   muted?: boolean;
+  /** A reply is running in this thread right now. */
+  working?: boolean;
   onSelect: (id: string) => void;
   actions: React.ReactNode;
 }) {
@@ -1198,9 +1238,16 @@ function ConversationRow({
               <span className="italic text-slate-400 dark:text-slate-500">New conversation</span>
             )}
           </div>
-          <div className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">
-            {formatRelative(conv.lastMessageAt ?? conv.updatedAt)}
-          </div>
+          {working ? (
+            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-300">
+              <ButtonSpinner size={10} className="motion-reduce:animate-none" />
+              Working
+            </div>
+          ) : (
+            <div className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">
+              {formatRelative(conv.lastMessageAt ?? conv.updatedAt)}
+            </div>
+          )}
         </button>
         {actions}
       </div>
@@ -1274,6 +1321,7 @@ function TurnBubble({
   retrying,
   retryError,
   onRetry,
+  onEditAgain,
 }: {
   message: ConversationMessage;
   authorName: string;
@@ -1288,6 +1336,8 @@ function TurnBubble({
   retrying: boolean;
   retryError: string | null;
   onRetry: () => void;
+  /** Put a message of the Member's back in the box, to change it and send it again. */
+  onEditAgain: (content: string) => void;
 }) {
   const mine = message.role === "user";
   const attachments = message.attachments ?? [];
@@ -1310,8 +1360,24 @@ function TurnBubble({
               ))}
             </div>
           )}
-          <div className="pr-1 text-right text-[10px] text-slate-400 opacity-0 transition group-hover:opacity-100 dark:text-slate-500">
-            {formatTime(message.createdAt)}
+          <div className={`flex items-center gap-2 pr-1 ${REVEAL_ON_HOVER}`}>
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              {formatTime(message.createdAt)}
+            </span>
+            {message.content.trim() && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onEditAgain(message.content)}
+                  title="Put this message back in the box to change it and send it again"
+                  className="touch-target relative inline-flex items-center gap-1 rounded-md px-1 text-xs text-slate-400 transition hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus dark:text-slate-500 dark:hover:text-slate-200"
+                >
+                  <PenLine size={12} aria-hidden="true" />
+                  Edit
+                </button>
+                <CopyTextButton text={message.content} />
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -1336,7 +1402,7 @@ function TurnBubble({
       <div className={"w-9 shrink-0 " + (showAvatar ? "" : "invisible")}>
         <Avatar name={authorName} size={32} />
       </div>
-      <div className="group min-w-0 max-w-[85%] sm:max-w-[75%]">
+      <div className="group min-w-0 flex-1">
         {showAvatar && (
           <div className="mb-1 flex items-center gap-1.5 text-[11px]">
             <span className="font-medium text-slate-700 dark:text-slate-200">{authorName}</span>
@@ -1372,7 +1438,7 @@ function TurnBubble({
         )}
         <div
           className={
-            "rounded-2xl rounded-tl-md px-3.5 py-2 text-sm leading-relaxed shadow-sm " +
+            "w-fit max-w-full rounded-2xl rounded-tl-md px-3.5 py-2 text-sm leading-relaxed shadow-sm " +
             (isError
               ? "border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
               : isSkipped
@@ -1449,8 +1515,13 @@ function TurnBubble({
               </span>
             </span>
           )}
-          <span className="text-[10px] text-slate-400 opacity-0 transition group-hover:opacity-100 dark:text-slate-500">
-            {formatTime(message.createdAt)}
+          <span className={`inline-flex items-center gap-2 ${REVEAL_ON_HOVER}`}>
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              {formatTime(message.createdAt)}
+            </span>
+            {!isError && !isSkipped && message.content.trim() && (
+              <CopyTextButton text={message.content} />
+            )}
           </span>
         </div>
       </div>
@@ -1608,8 +1679,8 @@ function EmptyState({
       <h2 className="mt-4 text-lg font-semibold text-slate-900 dark:text-slate-100">{empName}</h2>
       <div className="text-sm text-slate-500 dark:text-slate-400">{empRole}</div>
       <p className="mt-3 max-w-md text-sm text-slate-500 dark:text-slate-400">
-        Messages use {empName}&apos;s Soul and Skills as context. Each send spawns the
-        employee&apos;s CLI, so the first reply can take a few seconds.
+        Messages use {empName}&apos;s Soul and Skills as context. You can watch each step as they
+        work, read what they are thinking, and stop them at any time.
       </p>
       <div className="mt-6 flex w-full flex-col gap-2">
         {suggestions.map((s) => (
@@ -2604,10 +2675,13 @@ function gradientFor(name: string): string {
   return `linear-gradient(135deg, hsl(${h1} 70% 55%), hsl(${h2} 72% 45%))`;
 }
 
+/** When a message was sent: the time today, with the date on anything older. */
 function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === new Date().toDateString()) return time;
+  return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
 }
 
 function formatRelative(iso: string | null): string {

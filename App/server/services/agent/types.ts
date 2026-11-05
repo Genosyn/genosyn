@@ -3,6 +3,7 @@
 import type { ContextUsage } from "./contextUsage.js";
 import type { ApiKeyFailover } from "./apiKeyRing.js";
 import type { ModelEffort } from "../../../shared/modelEffort.js";
+import type { ModelCallDetail, ModelPulse } from "../../../shared/chatActivity.js";
 
 export type { ContextUsage } from "./contextUsage.js";
 export type { ApiKeyFailover } from "./apiKeyRing.js";
@@ -107,6 +108,16 @@ export type StreamCallbacks = {
   /** A reasoning block ended. */
   onReasoningEnd?: (block: string) => void;
   /**
+   * What the AI Model is doing right now, read off its own stream
+   * (`modelStream.ts`): waiting, thinking, writing the reply, writing a tool
+   * call's arguments. It holds no words, and a turn is never the worse for
+   * nobody listening. Not forwarded from a delegated worker: its requests are
+   * not the ones the Member is waiting on.
+   */
+  onModelPulse?: (pulse: ModelPulse) => void;
+  /** One request to the AI Model ended, and where its time went. */
+  onModelCall?: (call: ModelCallDetail) => void;
+  /**
    * The turn is waiting on the runtime itself rather than working — today a
    * ChatGPT-subscription AI Model's lock, which admits one turn at a time —
    * and again when the wait ends.
@@ -164,6 +175,11 @@ export type StreamCallbacks = {
    * native calls out of order.
    */
   onToolUse?: (name: string, input: Record<string, unknown>, callId?: string) => void;
+  /**
+   * What a running tool has printed so far, whole each time, when the runtime
+   * shows it: OpenCode's native `bash`. Live only; its result is what is kept.
+   */
+  onToolOutput?: (name: string, output: string, callId?: string) => void;
   /** Fired after a tool returns, before the result is fed back to the model. */
   onToolResult?: (name: string, result: ToolResult, callId?: string) => void;
   /** Fired once per turn with what the provider says the turn cost. */

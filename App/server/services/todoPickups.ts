@@ -829,6 +829,9 @@ function recorderCallbacks(
     onServedModelChange: (change) => recorder.servedModelChange(change),
     onBackgroundWork: (pending) => recorder.backgroundWork(pending),
     onThinkingFallback: (fallback) => recorder.thinkingFallback(fallback),
+    onModelPulse: (pulse) => recorder.modelPulse(pulse),
+    onModelCall: (call) => recorder.modelCall(call),
+    onToolOutput: (name, output, callId) => recorder.toolOutput(name, output, callId),
   };
 }
 
@@ -1970,5 +1973,7 @@ export async function followTodoPickup(args: {
     source,
     present: (event) => activityEventFor(event, access),
     presentProgress: (progress) => (access === "none" ? null : progress),
+    showPulse: access !== "none",
+    showToolOutput: access === "full",
   });
 }

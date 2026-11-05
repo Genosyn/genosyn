@@ -367,6 +367,7 @@ function RunningPickup({
         avatar={<Avatar name={name} size={24} kind="ai" />}
         live={followed.live}
         streamingReply={followed.text || null}
+        blockImages={pickup.preparationOnly}
         progress={followed.progress}
         connectionState={followed.connection}
         stopping={stopping}

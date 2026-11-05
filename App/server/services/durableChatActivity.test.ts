@@ -186,9 +186,11 @@ describe("recording a durable chat turn", () => {
     const enqueued = await enqueue(seed, "Which tools list bank transactions?");
     const live: ChatActivityEvent[] = [];
     const chunks: string[] = [];
+    const pulses: string[] = [];
     const outcome = await executeDurableChatTurn(enqueued.assistantMessage.id, {
       onActivity: (event) => live.push(event),
       onChunk: (text) => chunks.push(text),
+      onPulse: (pulse) => pulses.push(pulse.state),
     });
     assert.equal(outcome, "completed");
 
@@ -197,8 +199,10 @@ describe("recording a durable chat turn", () => {
       events.map((event) => [event.kind, event.name]),
       [
         ["turn_started", ""],
+        ["model_call", "1"],
         ["tool_use", "find_tools"],
         ["tool_result", "find_tools"],
+        ["model_call", "2"],
         ["turn_finished", ""],
       ],
     );
@@ -208,9 +212,22 @@ describe("recording a durable chat turn", () => {
       "the sending browser saw exactly the persisted events",
     );
     assert.equal((events[0].detail as { reason: string }).reason, "start");
-    assert.equal(events[1].summary, "Looking for the right tool · “banking transactions”");
-    assert.equal(events[2].callId, events[1].callId);
-    assert.equal(typeof (events[2].detail as { durationMs: unknown }).durationMs, "number");
+    const used = events.find((event) => event.kind === "tool_use")!;
+    const returned = events.find((event) => event.kind === "tool_result")!;
+    assert.equal(used.summary, "Looking for the right tool · “banking transactions”");
+    assert.equal(returned.callId, used.callId);
+    assert.equal(typeof (returned.detail as { durationMs: unknown }).durationMs, "number");
+    // The whole seam, end to end: the sending browser hears the AI Model's state
+    // from getting ready to the end of each request, and none of it is a row.
+    assert.equal(pulses[0], "preparing");
+    assert.ok(pulses.includes("waiting"));
+    assert.ok(pulses.includes("tool_input"));
+    assert.ok(pulses.includes("writing"));
+    assert.equal(pulses.at(-1), "finished");
+    assert.equal(
+      (events.find((event) => event.kind === "model_call")?.detail as { model: string }).model,
+      "activity-test",
+    );
 
     const row = await reload(enqueued.assistantMessage.id);
     assert.equal(row.status, "ok");
@@ -221,6 +238,8 @@ describe("recording a durable chat turn", () => {
     assert.equal(summary.steps, 1);
     assert.equal(summary.failed, 0);
     assert.equal(summary.lastOrdinal, events.at(-1)?.ordinal);
+    assert.equal(summary.modelCalls, 2);
+    assert.equal(summary.model, "activity-test");
   });
 
   test("a stop is recorded once and the reply keeps what was written", async () => {
@@ -272,7 +291,7 @@ describe("recording a durable chat turn", () => {
     events = await listChatActivity(enqueued.assistantMessage.id, 0, 100);
     assert.deepEqual(
       events.map((event) => event.kind),
-      ["waiting", "turn_started", "turn_finished"],
+      ["waiting", "turn_started", "model_call", "turn_finished"],
     );
     assert.equal(
       (events[1].detail as { reason: string }).reason,
@@ -309,6 +328,7 @@ describe("recording a durable chat turn", () => {
       [
         ["notice", "retry_requested"],
         ["turn_started", ""],
+        ["model_call", "1"],
         ["turn_finished", ""],
       ],
     );
