@@ -14,7 +14,7 @@ import type {
 import { redactSensitiveText } from "./approvalRedaction.js";
 import { filterFingerprint, keysetPage, type Page, type PageRequest } from "./listPaging.js";
 import { listAccessibleProjectIds, type ProjectActor } from "./projects.js";
-import { inDispatchOrder } from "./todoPickups.js";
+import { inDispatchOrder, todoLimits } from "./todoPickups.js";
 
 /**
  * What an AI Employee has on its plate: the session it's in, the Todos queued for
@@ -79,6 +79,7 @@ async function present(
         ref: `${project.key}-${todo.number}`,
         title: redactSensitiveText(todo.title).slice(0, TITLE_CHARS),
         untrustedText: todo.untrustedText,
+        heldToLimits: todoLimits(todo) !== null,
         projectSlug: project.slug,
         projectName: project.name,
         status: todo.status,

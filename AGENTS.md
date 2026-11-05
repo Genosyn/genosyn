@@ -360,13 +360,20 @@ held to, and `requestTodoPickup` applies it to every request, so a stranger's To
 stays held when a trusted sender writes on its thread. A Member's comment, assignment,
 @-mention or Stop waiting isn't a grant, and stays within it too. The only way past it
 is **Use my access** on the Todo's panel (`overLimits`): one session, tainted, asked
-first. A preparing turn that comments on or edits any Todo holds that Todo as well
-(`holdTodoToTurn`), because its words replay there. A session held to preparing changes
+first (`TodoPickup.overLimits`). What a session may do is decided when it starts, because
+a row can sit queued for a month. New outside words end a lend that hasn't started,
+wake or no wake. A turn working a particular email holds any Todo it comments on or edits
+(`holdTodoToTurn`), since its words replay there, and an unlimited session that reads a
+held Todo becomes tainted. A Routine that could only prepare doesn't hold a person's Todo
+by posting a status: its comment just replays as information (`fromLimitedTurn`). A
+plain Member's answer runs under them, and an owner's or admin's as the last session
+ran. A session held to preparing changes
 only its own Todo and thread, can file subtasks of it but start nothing on them, and
 can't mark anything urgent. A held Todo starts no Pipelines (`dispatchTodoCreated`), its
 next recurrence inherits its limits without the trust, and what a Pipeline files from
 an email or a webhook starts held. A trusted sender only counts on a thread nobody else
-has written on, closed Todos included. Filing starts no Pipelines. Do
+has written on, closed Todos included, and this mailbox's own address only counts on what
+it really sent. Trust stays with the employee it started. Filing starts no Pipelines. Do
 not widen a mailbox's instructions list
 (`mail/analysisAutomation.ts`) to do this, let the model name a target, give an AI
 tool a way to read or write an intake, treat `From:` as evidence, let an email's
