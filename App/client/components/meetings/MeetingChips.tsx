@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { CalendarDays, Mic, Video } from "lucide-react";
+import { Building2, CalendarDays, Mic, Video } from "lucide-react";
 import {
   MEETING_STATUS_LABELS,
   MEETING_STATUS_TONES,
@@ -42,8 +42,16 @@ export function ProviderChip({ provider }: { provider: ConferenceProvider }) {
   );
 }
 
-/** A recorded meeting, as it appears in a list. */
-export function MeetingRow({ meeting, to }: { meeting: Meeting; to: string }) {
+/** A recorded meeting, as it appears in a list. A customer's own list needs no reminder of whose it is. */
+export function MeetingRow({
+  meeting,
+  to,
+  showCustomer = true,
+}: {
+  meeting: Meeting;
+  to: string;
+  showCustomer?: boolean;
+}) {
   const when = meeting.scheduledStartAt ?? meeting.startedAt ?? meeting.createdAt;
   const at = new Date(when);
   const span =
@@ -83,6 +91,12 @@ export function MeetingRow({ meeting, to }: { meeting: Meeting; to: string }) {
           </span>
           {span && <span className="tabular-nums">{span}</span>}
           <ProviderChip provider={meeting.conferenceProvider} />
+          {showCustomer && meeting.customer && (
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <Building2 size={11} className="shrink-0" />
+              <span className="truncate">{meeting.customer.name}</span>
+            </span>
+          )}
         </span>
         {meeting.summaryText && (
           <span className="mt-1 line-clamp-2 block text-xs text-slate-500 dark:text-slate-400">

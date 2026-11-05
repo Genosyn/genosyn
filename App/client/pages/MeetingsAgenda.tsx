@@ -405,8 +405,9 @@ function NewMeetingModal({
           sends the disclosed guest to join it. Leave it empty and you can still upload the
           recording or paste a transcript afterwards. The notetaker is also the employee whose AI
           Model transcribes the audio and writes the meeting up, so a recording with nobody
-          assigned stays a recording. Attendees who are already Contacts get the call on their
-          timeline. You can add attendees later too.
+          assigned stays a recording. Attendees from outside the company link the meeting to their
+          Customer, which Genosyn creates if you don&apos;t have one yet, and attendees who are
+          already Contacts get the call on their timeline. You can add attendees later too.
         </p>
         <FormError message={error} />
         <div className="flex justify-end gap-2">

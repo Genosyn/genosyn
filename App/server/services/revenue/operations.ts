@@ -17,6 +17,7 @@ import { DealContact } from "../../db/entities/DealContact.js";
 import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
 import { Estimate } from "../../db/entities/Estimate.js";
 import { Invoice } from "../../db/entities/Invoice.js";
+import { Meeting } from "../../db/entities/Meeting.js";
 import { Partnership } from "../../db/entities/Partnership.js";
 import { PartnershipContact } from "../../db/entities/PartnershipContact.js";
 import { RecurringInvoice } from "../../db/entities/RecurringInvoice.js";
@@ -77,6 +78,7 @@ const OPERATION_ENTITIES: Record<string, EntityTarget<ObjectLiteral>> = {
   deal_contact: DealContact,
   estimate: Estimate,
   invoice: Invoice,
+  meeting: Meeting,
   partnership_contact: PartnershipContact,
   recurring_invoice: RecurringInvoice,
   revenue_custom_value: RevenueCustomValue,

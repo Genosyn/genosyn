@@ -3,7 +3,7 @@ import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { Membership } from "../../db/entities/Membership.js";
 import { User } from "../../db/entities/User.js";
-import { emailDomain } from "../../lib/emailAddress.js";
+import { emailDomain, normalizeEmail } from "../../lib/emailAddress.js";
 
 /**
  * "Is this attendee one of us?"
@@ -21,24 +21,48 @@ import { emailDomain } from "../../lib/emailAddress.js";
  * failure being an absence rather than an error. The list below is only the
  * hosts big enough that this is a real risk; an unknown small host being
  * treated as internal costs one un-recorded meeting, while the reverse costs
- * a recording nobody expected.
+ * a recording nobody expected. The same list stops a meeting treating everyone
+ * at one of these hosts as a single customer.
  */
 const FREE_MAIL_DOMAINS = new Set([
+  "126.com",
+  "163.com",
   "aol.com",
+  "fastmail.com",
   "gmail.com",
+  "gmx.com",
+  "gmx.de",
+  "gmx.net",
   "googlemail.com",
+  "hey.com",
+  "hotmail.co.uk",
   "hotmail.com",
+  "hotmail.fr",
   "icloud.com",
   "live.com",
   "mac.com",
+  "mail.com",
+  "mail.ru",
   "me.com",
   "msn.com",
+  "naver.com",
   "outlook.com",
   "pm.me",
   "proton.me",
   "protonmail.com",
+  "qq.com",
+  "rediffmail.com",
+  "tuta.io",
+  "tutanota.com",
+  "web.de",
+  "yahoo.co.in",
+  "yahoo.co.jp",
+  "yahoo.co.uk",
   "yahoo.com",
+  "yahoo.de",
+  "yahoo.fr",
   "yandex.com",
+  "ymail.com",
   "zoho.com",
 ]);
 
@@ -47,14 +71,8 @@ export function isFreeMailDomain(domain: string | null | undefined): boolean {
   return FREE_MAIL_DOMAINS.has(domain.toLowerCase());
 }
 
-/**
- * The domains this company demonstrably owns, lowercased.
- *
- * Returns an empty set when everything it found was free mail, and callers
- * must treat that as "we cannot tell" rather than "nobody is internal" — see
- * {@link isInternalAddress}.
- */
-export async function companyDomains(companyId: string): Promise<Set<string>> {
+/** Every address the company has proven it owns, free mail included. */
+async function companyAddresses(companyId: string): Promise<string[]> {
   const [calendars, mailboxes, memberships] = await Promise.all([
     AppDataSource.getRepository(CalendarAccount).find({
       where: { companyId },
@@ -83,7 +101,10 @@ export async function companyDomains(companyId: string): Promise<Set<string>> {
     });
     addresses.push(...users.map((row) => row.email));
   }
+  return addresses;
+}
 
+function ownedDomains(addresses: string[]): Set<string> {
   const domains = new Set<string>();
   for (const address of addresses) {
     const domain = emailDomain(address);
@@ -91,6 +112,34 @@ export async function companyDomains(companyId: string): Promise<Set<string>> {
     domains.add(domain.toLowerCase());
   }
   return domains;
+}
+
+/**
+ * The domains this company demonstrably owns, lowercased.
+ *
+ * Returns an empty set when everything it found was free mail, and callers
+ * must treat that as "we cannot tell" rather than "nobody is internal" — see
+ * {@link isInternalAddress}.
+ */
+export async function companyDomains(companyId: string): Promise<Set<string>> {
+  return ownedDomains(await companyAddresses(companyId));
+}
+
+/**
+ * Who counts as the company itself: its domains, and the exact addresses of
+ * its Members, calendars and mailboxes. A founder signing in with `@gmail.com`
+ * gives no domain, so only the exact address can say they are not a customer.
+ */
+export async function companyIdentity(
+  companyId: string,
+): Promise<{ domains: Set<string>; addresses: Set<string> }> {
+  const addresses = await companyAddresses(companyId);
+  return {
+    domains: ownedDomains(addresses),
+    addresses: new Set(
+      addresses.map((address) => normalizeEmail(address)).filter((a): a is string => !!a),
+    ),
+  };
 }
 
 /**

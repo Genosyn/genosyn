@@ -13,6 +13,7 @@ import {
   requireCompanyMember,
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
+import { effectiveFinanceAccess, requireFinanceRead } from "../middleware/financeAccess.js";
 import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { ListQueryError } from "../services/listPaging.js";
@@ -26,6 +27,10 @@ import {
 } from "../services/meetings/accounts.js";
 import { syncCalendarAccount } from "../services/meetings/calendarSync.js";
 import {
+  meetingCustomerSummaries,
+  type MeetingCustomerSummary,
+} from "../services/meetings/customerLink.js";
+import {
   deleteCalendarGrant,
   listCalendarGrants,
   upsertCalendarGrant,
@@ -37,7 +42,11 @@ import {
   startNotetaker,
   stopNotetaker,
 } from "../services/meetings/recorder.js";
-import { linkMeeting } from "../services/meetings/revenueLink.js";
+import {
+  linkMeeting,
+  MeetingCustomerError,
+  setMeetingCustomer,
+} from "../services/meetings/revenueLink.js";
 import {
   serializeCalendarAccount,
   serializeCalendarEvent,
@@ -149,6 +158,25 @@ async function auditMeeting(
     targetLabel: meeting.title,
     metadata,
   });
+}
+
+/**
+ * A meeting's customer as this reader may see it. Customers follow Finance
+ * access, and the link grants nothing: a Member with none learns that the
+ * meeting has a customer, never which. The rest of the meeting stays theirs.
+ */
+async function customerForViewer(
+  req: Request,
+  meeting: { customerId: string | null },
+): Promise<{ customer: MeetingCustomerSummary | null; customerWithheld: boolean }> {
+  if (effectiveFinanceAccess(req) === "none") {
+    return { customer: null, customerWithheld: !!meeting.customerId };
+  }
+  const summaries = await meetingCustomerSummaries(cid(req), [meeting.customerId]);
+  return {
+    customer: (meeting.customerId && summaries.get(meeting.customerId)) || null,
+    customerWithheld: false,
+  };
 }
 
 /**
@@ -441,6 +469,7 @@ meetingsRouter.post(
 // either, one page with its total and the cursor to the next — the list the
 // `list_meetings` AI tool reads, from the same function, so the two cannot
 // drift apart (the tool's own pages hold only the calendars it has a Grant to).
+// Each row names its customer for a reader with Finance access.
 meetingsRouter.get(
   "/meetings",
   validateQuery(meetingListQuerySchema),
@@ -456,11 +485,22 @@ meetingsRouter.get(
         { limit, cursor },
         serializeMeeting,
       );
+      const customers =
+        effectiveFinanceAccess(req) === "none"
+          ? new Map<string, MeetingCustomerSummary>()
+          : await meetingCustomerSummaries(
+              cid(req),
+              rows.map((row) => row.customerId),
+            );
+      const meetings = rows.map((row) => ({
+        ...row,
+        customer: (row.customerId && customers.get(row.customerId)) || null,
+      }));
       if (limit === undefined && cursor === undefined) {
-        res.json({ meetings: rows });
+        res.json({ meetings });
         return;
       }
-      res.json({ ...info, meetings: rows });
+      res.json({ ...info, meetings });
     } catch (err) {
       if (err instanceof ListQueryError) {
         res.status(err.status).json({ error: err.message });
@@ -520,9 +560,49 @@ meetingsRouter.get(
     ]);
     res.json({
       meeting: serializeMeeting(meeting),
+      ...(await customerForViewer(req, meeting)),
       participants: participants.map(serializeParticipant),
       transcript: segments.map(serializeSegment),
     });
+  }),
+);
+
+const meetingCustomerBody = z.object({
+  customerId: z
+    .string()
+    .uuid()
+    .nullable()
+    .describe("The Customer this meeting is with, or null for none. Automatic linking stops."),
+});
+
+// Choosing shows the reader the customer they picked, so it asks what opening
+// Customers asks. It changes the meeting, not the customer, so it asks no more.
+meetingsRouter.put(
+  "/meetings/:id/customer",
+  requireFinanceRead,
+  validateParams(meetingIdParams),
+  validateBody(meetingCustomerBody),
+  h(async (req, res) => {
+    const id = (req.params as z.infer<typeof meetingIdParams>).id;
+    const { customerId } = req.body as z.infer<typeof meetingCustomerBody>;
+    let meeting;
+    try {
+      meeting = await setMeetingCustomer(cid(req), id, customerId);
+    } catch (err) {
+      if (err instanceof MeetingCustomerError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+    if (!meeting) {
+      res.status(404).json({ error: "Meeting not found." });
+      return;
+    }
+    await auditMeeting(req, meeting, customerId ? "customer.link" : "customer.unlink", {
+      customerId,
+    });
+    res.json({ meeting: serializeMeeting(meeting), ...(await customerForViewer(req, meeting)) });
   }),
 );
 

@@ -29,6 +29,7 @@ const noCounts: AccountMergeCounts = {
   estimates: 0,
   recurringInvoices: 0,
   credits: 0,
+  meetings: 0,
   customValuesCopied: 0,
   customValueConflicts: 0,
 };

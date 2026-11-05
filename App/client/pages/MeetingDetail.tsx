@@ -1,6 +1,8 @@
 import React from "react";
 import { Link, useOutletContext, useParams } from "react-router-dom";
 import {
+  Building2,
+  Check,
   CheckCircle2,
   ExternalLink,
   FileText,
@@ -15,9 +17,10 @@ import {
   Video,
 } from "lucide-react";
 import { Breadcrumbs } from "../components/AppShell";
+import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { useDialog } from "../components/ui/Dialog";
@@ -25,14 +28,18 @@ import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { RecordHistory } from "../components/RecordHistory";
 import { Panel, ProviderChip, StatusChip } from "../components/meetings/MeetingChips";
+import { api, type Company, type Customer } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
   formatDuration,
   formatOffset,
   meetingsApi,
   parseEmailList,
+  type Meeting,
+  type MeetingCustomer,
   type MeetingDetail as MeetingDetailPayload,
 } from "../lib/meetings";
+import { effectiveFinanceAccess } from "../lib/subpages";
 import type { MeetingsOutletCtx } from "./MeetingsLayout";
 
 /**
@@ -43,7 +50,9 @@ import type { MeetingsOutletCtx } from "./MeetingsLayout";
  * because it answers "what happened", the action items next because they are
  * what someone has to do, attendees beside them because "who said that" is the
  * follow-up question, and the transcript last because it is the evidence you
- * open only when the summary is not enough.
+ * open only when the summary is not enough. Which Customer the meeting is with
+ * sits in the header as well as its own card, so it is one press away on a
+ * phone, where the side column comes after the transcript.
  */
 export default function MeetingDetail() {
   const { company } = useOutletContext<MeetingsOutletCtx>();
@@ -133,7 +142,9 @@ export default function MeetingDetail() {
       const { result } = await meetingsApi.link(company.id, meetingId);
       // A match rewrites the attendee list in place; a miss leaves the page
       // exactly as it was, so that is the one outcome worth saying out loud.
-      if (result.matched === 0) setNotice("No attendee matched an existing Contact.");
+      if (result.matched === 0 && !result.customerId) {
+        setNotice("No attendee matched an existing Contact or Customer.");
+      }
       reload();
     } catch (err) {
       void dialog.error(err, { title: "Couldn’t re-link the attendees" });
@@ -202,7 +213,7 @@ export default function MeetingDetail() {
     );
   }
 
-  const { meeting, participants, transcript } = data;
+  const { meeting, customer, customerWithheld, participants, transcript } = data;
   const when = meeting.scheduledStartAt ?? meeting.startedAt ?? meeting.createdAt;
   const knownContacts = participants.filter((row) => row.contactId);
   // `skipped` belongs here with `scheduled` and `failed`: the automatic pass
@@ -257,6 +268,15 @@ export default function MeetingDetail() {
                 <span className="tabular-nums">{formatDuration(meeting.durationMs)}</span>
               )}
               <ProviderChip provider={meeting.conferenceProvider} />
+              {customer && (
+                <Link
+                  to={`/c/${company.slug}/customers/${customer.slug}`}
+                  className="inline-flex min-w-0 items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  <Building2 size={14} className="shrink-0" />
+                  <span className="truncate">{customer.name}</span>
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -436,6 +456,14 @@ export default function MeetingDetail() {
         </div>
 
         <div className="space-y-6">
+          <MeetingCustomerCard
+            company={company}
+            meeting={meeting}
+            customer={customer}
+            withheld={customerWithheld}
+            onChanged={reload}
+          />
+
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <header className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -483,8 +511,8 @@ export default function MeetingDetail() {
             </header>
             {participants.length === 0 ? (
               <p className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
-                Nobody recorded on this meeting. Add who was on the call and Genosyn puts it on
-                their timeline if they are already a Contact.
+                Nobody recorded on this meeting. Add who was on the call and Genosyn links it to
+                their Customer, and puts it on their timeline if they are already a Contact.
               </p>
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -552,6 +580,240 @@ export default function MeetingDetail() {
         onSaved={reload}
       />
     </div>
+  );
+}
+
+const ACCOUNT_STATUS_LABEL: Record<MeetingCustomer["accountStatus"], string> = {
+  prospect: "Prospect",
+  customer: "Customer",
+  former: "Former customer",
+};
+
+/**
+ * Which Customer this meeting is with, and the way to it. A link grants nothing,
+ * so a Member whose Finance access doesn't reach Customers is told one exists and
+ * not which, and isn't offered a picker that could only answer 403.
+ */
+export function MeetingCustomerCard({
+  company,
+  meeting,
+  customer,
+  withheld,
+  onChanged,
+}: {
+  company: Company;
+  meeting: Meeting;
+  customer: MeetingCustomer | null;
+  withheld: boolean;
+  onChanged: () => void;
+}) {
+  const [picking, setPicking] = React.useState(false);
+  const canChoose = effectiveFinanceAccess(company) !== "none";
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+          <Building2 size={14} /> Customer
+        </h2>
+        {canChoose && (
+          <Button variant="ghost" size="sm" onClick={() => setPicking(true)}>
+            {customer ? "Change" : "Link"}
+          </Button>
+        )}
+      </header>
+      <div className="px-4 py-3">
+        {customer ? (
+          <>
+            <Link
+              to={`/c/${company.slug}/customers/${customer.slug}`}
+              className="text-sm font-medium text-slate-900 hover:text-indigo-600 hover:underline dark:text-slate-100 dark:hover:text-indigo-400"
+            >
+              {customer.name}
+            </Link>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <Badge>{ACCOUNT_STATUS_LABEL[customer.accountStatus]}</Badge>
+              {customer.archived && <Badge tone="warning">Archived</Badge>}
+              {customer.domain && <span className="min-w-0 truncate">{customer.domain}</span>}
+            </div>
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {meeting.customerChosen ? "Chosen by a Member." : "Linked from the attendees."}
+            </p>
+          </>
+        ) : withheld ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            This meeting is linked to a customer. Your finance access doesn&apos;t include
+            Customers.
+          </p>
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {meeting.customerChosen
+              ? "A Member removed the link, so Genosyn leaves this meeting alone."
+              : "Nobody on this meeting is from outside the company yet. Add them as attendees and Genosyn links their Customer, creating it if you don’t have one."}
+          </p>
+        )}
+      </div>
+      {canChoose && (
+        <LinkCustomerModal
+          open={picking}
+          companyId={company.id}
+          meetingId={meeting.id}
+          currentId={customer?.id ?? null}
+          onClose={() => setPicking(false)}
+          onSaved={onChanged}
+        />
+      )}
+    </section>
+  );
+}
+
+/**
+ * Choose this meeting's customer by hand, or remove the link. Either is final:
+ * Genosyn stops working it out from the attendees, so the choice sticks.
+ */
+function LinkCustomerModal({
+  open,
+  companyId,
+  meetingId,
+  currentId,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  companyId: string;
+  meetingId: string;
+  currentId: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [query, setQuery] = React.useState("");
+  const [results, setResults] = React.useState<Customer[] | null>(null);
+  const [saving, setSaving] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (open) {
+      setQuery("");
+      setError(null);
+    }
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const q = query.trim();
+    const timer = window.setTimeout(() => {
+      api
+        .get<{ customers: Customer[] }>(
+          `/api/companies/${companyId}/customers?limit=20${q ? `&q=${encodeURIComponent(q)}` : ""}`,
+        )
+        .then((page) => {
+          if (cancelled) return;
+          setResults(page.customers);
+          setError(null);
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          setResults([]);
+          setError(errorMessage(err));
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, query, companyId]);
+
+  const choose = async (customerId: string | null) => {
+    setSaving(customerId ?? "none");
+    setError(null);
+    try {
+      await meetingsApi.setCustomer(companyId, meetingId, customerId);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Link a customer"
+      description="Your choice sticks: Genosyn stops working this meeting's customer out from its attendees."
+      footer={
+        <>
+          {currentId && (
+            <Button
+              variant="secondary"
+              type="button"
+              loading={saving === "none"}
+              disabled={saving !== null}
+              onClick={() => void choose(null)}
+            >
+              Remove link
+            </Button>
+          )}
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Input
+          label="Search customers"
+          value={query}
+          autoFocus
+          placeholder="Name or domain"
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <FormError message={error} />
+        {results === null ? (
+          <div className="flex justify-center p-6">
+            <Spinner size={18} />
+          </div>
+        ) : results.length === 0 ? (
+          <p className="py-4 text-center text-sm text-slate-500 dark:text-slate-400">
+            No customers match that.
+          </p>
+        ) : (
+          <ul className="max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
+            {results.map((row) => (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  disabled={saving !== null}
+                  onClick={() => void choose(row.id)}
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50 disabled:opacity-60 dark:hover:bg-slate-800/60"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-slate-900 dark:text-slate-100">
+                      {row.name}
+                    </span>
+                    {row.domain && (
+                      <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                        {row.domain}
+                      </span>
+                    )}
+                  </span>
+                  {saving === row.id ? (
+                    <ButtonSpinner />
+                  ) : (
+                    row.id === currentId && (
+                      <Check size={14} className="shrink-0 text-indigo-600 dark:text-indigo-400" />
+                    )
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -629,7 +891,7 @@ function PasteTranscriptModal({
  * The path that makes an uploaded recording as useful as a synced one: a call
  * with no attendees can never reach a customer's timeline, however good its
  * transcript is. Saving re-runs the linker, so a Contact match takes effect
- * immediately rather than at the next pass.
+ * immediately rather than at the next pass, and the meeting finds its Customer.
  */
 function AddAttendeesModal({
   open,
@@ -692,9 +954,10 @@ function AddAttendeesModal({
           onChange={(e) => setValue(e.target.value)}
         />
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Separate with commas, semicolons, or new lines. Anyone who is already a Contact gets this
-          call on their timeline; anyone who is not is simply recorded as having been here — Genosyn
-          never creates a Contact on its own.
+          Separate with commas, semicolons, or new lines. People from outside the company link this
+          meeting to their Customer, which Genosyn creates if you don&apos;t have one yet. Anyone
+          who is already a Contact gets this call on their timeline; Genosyn never creates a Contact
+          on its own.
         </p>
         <FormError message={error} />
         <FormSuccess message={notice} />

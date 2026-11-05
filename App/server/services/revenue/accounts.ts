@@ -47,6 +47,7 @@ export type AccountMergeCounts = {
   estimates: number;
   recurringInvoices: number;
   credits: number;
+  meetings: number;
   customValuesCopied: number;
   customValueConflicts: number;
 };
@@ -565,6 +566,7 @@ async function accountMergePreview(
       estimates: count("estimates"),
       recurringInvoices: count("recurringInvoices"),
       credits: count("credits"),
+      meetings: count("meetings"),
       customValuesCopied: preview.customValuesCopied,
       customValueConflicts: preview.customValueConflicts,
     },

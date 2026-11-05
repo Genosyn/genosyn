@@ -239,6 +239,16 @@ trusted-origin check, is in `App/server/index.ts`.
   thread's existing participants, including anyone a sender put on CC, is the opt-in
   as it warns; a reply reaching anyone else or carrying an attachment is a finding.
 
+- **A calendar invite creating a prospect Customer.** A meeting links to the
+  Customer its outside attendees belong to and creates one when nobody is known
+  (`App/server/services/meetings/customerLink.ts`), and anyone can put an address on
+  an invite. One row a Member can archive, marked `prospect`, is the feature. What
+  would be a finding: an attendee's display name or an event's title reaching a
+  Customer's name, a Contact created from an attendee, a Customer in another
+  Company being matched or changed, an automatic pass overriding
+  `Meeting.customerChosen`, or a Member without Finance access reading a meeting's
+  Customer.
+
 - **AI Employee commands run on the host, with no OS sandbox.** OpenCode's
   native coding tools, Genosyn's coding tools, Repository work-session
   commands, command Checks, stdio MCP servers, and server-managed git all run

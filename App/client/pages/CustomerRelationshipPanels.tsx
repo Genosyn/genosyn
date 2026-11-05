@@ -264,7 +264,7 @@ export function CustomerMeetingsList({
     return (
       <EmptyState
         title="No meetings yet"
-        description="Calendar meetings with this account's people are linked here automatically, with their recordings, transcripts, and summaries."
+        description="Meetings with this account's people are linked here automatically, with their recordings, transcripts, and summaries."
       />
     );
   }
@@ -273,7 +273,11 @@ export function CustomerMeetingsList({
       <ul className="divide-y divide-slate-100 dark:divide-slate-800">
         {meetings.map((meeting) => (
           <li key={meeting.id}>
-            <MeetingRow meeting={meeting} to={`/c/${companySlug}/meetings/${meeting.id}`} />
+            <MeetingRow
+              meeting={meeting}
+              to={`/c/${companySlug}/meetings/${meeting.id}`}
+              showCustomer={false}
+            />
           </li>
         ))}
       </ul>

@@ -4,6 +4,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { AppDataSource } from "../../db/datasource.js";
 import { Activity } from "../../db/entities/Activity.js";
 import { Contact } from "../../db/entities/Contact.js";
+import { Customer } from "../../db/entities/Customer.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { DealStage } from "../../db/entities/DealStage.js";
 import { Meeting } from "../../db/entities/Meeting.js";
@@ -52,9 +53,11 @@ describe("linkMeeting", () => {
 
     const result = await linkMeeting(CO, meeting.id);
     assert.equal(result.matched, 1);
-    assert.equal(result.activities, 1);
+    assert.equal(result.activities, 2, "the Contact's row, and the new Customer's");
 
-    const rows = await AppDataSource.getRepository(Activity).find({ where: { companyId: CO } });
+    const rows = (
+      await AppDataSource.getRepository(Activity).find({ where: { companyId: CO } })
+    ).filter((row) => row.contactId);
     assert.equal(rows.length, 1);
     assert.equal(rows[0].kind, "meeting");
     assert.equal(rows[0].contactId, contact.id);
@@ -72,11 +75,40 @@ describe("linkMeeting", () => {
     const result = await linkMeeting(CO, meeting.id);
     assert.equal(result.matched, 0);
     assert.equal(await AppDataSource.getRepository(Contact).count(), 0);
-    assert.equal(await AppDataSource.getRepository(Activity).count(), 0);
 
     // It still records that the pass ran, so it is not retried forever.
     const after = await AppDataSource.getRepository(Meeting).findOneByOrFail({ id: meeting.id });
     assert.ok(after.linkedAt);
+  });
+
+  test("puts a call with no known Contact on its new Customer's timeline", async () => {
+    const meeting = await meetingWith([{ email: "someone@nowhere.test" }]);
+
+    const result = await linkMeeting(CO, meeting.id);
+
+    const customer = await AppDataSource.getRepository(Customer).findOneByOrFail({
+      companyId: CO,
+    });
+    assert.equal(customer.domain, "nowhere.test");
+    assert.equal(result.customerId, customer.id);
+    assert.equal(result.activities, 1);
+    const [row] = await AppDataSource.getRepository(Activity).find({ where: { companyId: CO } });
+    assert.equal(row.kind, "meeting");
+    assert.equal(row.customerId, customer.id);
+    assert.equal(row.contactId, null);
+    assert.equal(row.meetingId, meeting.id);
+    assert.equal(row.occurredAt.toISOString(), "2026-08-01T10:00:00.000Z");
+  });
+
+  test("a meeting of colleagues reaches no timeline and starts no Customer", async () => {
+    const meeting = await meetingWith([{ email: "colleague@ourco.test", isInternal: true }]);
+
+    const result = await linkMeeting(CO, meeting.id);
+
+    assert.equal(result.customerId, null);
+    assert.equal(result.activities, 0);
+    assert.equal(await AppDataSource.getRepository(Customer).count(), 0);
+    assert.equal(await AppDataSource.getRepository(Activity).count(), 0);
   });
 
   test("writes one row per known Contact on the call", async () => {
@@ -90,7 +122,26 @@ describe("linkMeeting", () => {
 
     const result = await linkMeeting(CO, meeting.id);
     assert.equal(result.matched, 2);
-    assert.equal(await AppDataSource.getRepository(Activity).count(), 2);
+    const rows = await AppDataSource.getRepository(Activity).find({ where: { companyId: CO } });
+    assert.equal(rows.filter((row) => row.contactId).length, 2);
+  });
+
+  test("one account row is enough when a Contact's row already reaches the account", async () => {
+    const customer = await insert(Customer, { companyId: CO, name: "Acme", slug: "acme" });
+    await insert(Contact, {
+      companyId: CO,
+      email: "buyer@customer.test",
+      name: "Buyer",
+      customerId: customer.id,
+    });
+    const meeting = await meetingWith([{ email: "buyer@customer.test" }]);
+
+    await linkMeeting(CO, meeting.id);
+
+    const rows = await AppDataSource.getRepository(Activity).find({ where: { companyId: CO } });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].customerId, customer.id);
+    assert.ok(rows[0].contactId);
   });
 
   test("is idempotent — re-running writes nothing twice", async () => {
@@ -98,21 +149,55 @@ describe("linkMeeting", () => {
     const meeting = await meetingWith([{ email: "buyer@customer.test" }]);
 
     await linkMeeting(CO, meeting.id);
+    const count = await AppDataSource.getRepository(Activity).count();
     const second = await linkMeeting(CO, meeting.id);
 
     assert.equal(second.activities, 0, "a re-run must report no fresh writes");
-    assert.equal(await AppDataSource.getRepository(Activity).count(), 1);
+    assert.equal(await AppDataSource.getRepository(Activity).count(), count);
   });
 
   test("picks up a Contact created after the call, which mail linking cannot", async () => {
     const meeting = await meetingWith([{ email: "late@customer.test" }]);
     await linkMeeting(CO, meeting.id);
-    assert.equal(await AppDataSource.getRepository(Activity).count(), 0);
+    const contactRows = () =>
+      AppDataSource.getRepository(Activity)
+        .find({ where: { companyId: CO } })
+        .then((rows) => rows.filter((row) => row.contactId).length);
+    assert.equal(await contactRows(), 0);
 
     await insert(Contact, { companyId: CO, email: "late@customer.test", name: "Late" });
     const second = await linkMeeting(CO, meeting.id);
     assert.equal(second.matched, 1);
-    assert.equal(await AppDataSource.getRepository(Activity).count(), 1);
+    assert.equal(await contactRows(), 1);
+  });
+
+  test("files the call on a Deal of a Customer found without any Contact", async () => {
+    const customer = await insert(Customer, {
+      companyId: CO,
+      name: "Acme",
+      slug: "acme",
+      domain: "acme.test",
+    });
+    const stage = await insert(DealStage, {
+      companyId: CO,
+      name: "Discovery",
+      slug: "discovery",
+      sortOrder: 0,
+      probability: 10,
+    });
+    const deal = await insert(Deal, {
+      companyId: CO,
+      title: "Live one",
+      customerId: customer.id,
+      stageId: stage.id,
+      status: "open",
+    });
+    const meeting = await meetingWith([{ email: "someone@acme.test" }]);
+
+    const result = await linkMeeting(CO, meeting.id);
+
+    assert.equal(result.dealId, deal.id);
+    assert.equal(result.customerId, customer.id);
   });
 
   test("resolves the account and prefers an open Deal", async () => {
@@ -162,7 +247,8 @@ describe("linkMeeting", () => {
 
     const result = await linkMeeting(CO, meeting.id);
     assert.equal(result.matched, 0);
-    assert.equal(await AppDataSource.getRepository(Activity).count(), 0);
+    const rows = await AppDataSource.getRepository(Activity).find({ where: { companyId: CO } });
+    assert.ok(rows.every((row) => !row.contactId));
   });
 
   test("stamps the resolved Contact onto the participant row", async () => {
@@ -188,8 +274,9 @@ describe("linkMeeting", () => {
     });
     await linkMeeting(CO, meeting.id);
 
-    const row = await AppDataSource.getRepository(Activity).findOneByOrFail({ companyId: CO });
-    assert.equal(row.bodyText, "They want SSO before signing.");
+    const rows = await AppDataSource.getRepository(Activity).find({ where: { companyId: CO } });
+    assert.ok(rows.length > 0);
+    for (const row of rows) assert.equal(row.bodyText, "They want SSO before signing.");
   });
 
   test("a missing meeting is a no-op, not a throw", async () => {

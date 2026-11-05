@@ -25,6 +25,7 @@ import { MeetingParticipant } from "../../db/entities/MeetingParticipant.js";
 import { MeetingTranscriptSegment } from "../../db/entities/MeetingTranscriptSegment.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
 import { providerForUrl } from "./conference.js";
+import { linkMeetingCustomerSafely } from "./customerLink.js";
 import { companyDomains, isInternalAddress } from "./domains.js";
 import type { StoredAttendee } from "./calendarSync.js";
 
@@ -150,6 +151,7 @@ export async function armMeetingsForAccount(
       }),
     );
     await syncParticipantsFromEvent(meeting, event, domains);
+    await linkMeetingCustomerSafely(account.companyId, meeting.id);
     armed += 1;
   }
   return armed;
@@ -400,7 +402,8 @@ export async function listTranscriptSegments(
  * nothing for the linker to match, so an ad-hoc meeting with no attendees can
  * never reach a customer's timeline no matter how good its transcript is. It
  * is the whole reason this path can stand alone on an install with no calendar
- * connected.
+ * connected. It is also what finds or creates the meeting's Customer, which
+ * the returned row already carries.
  */
 export async function createAdHocMeeting(args: {
   companyId: string;
@@ -432,12 +435,14 @@ export async function createAdHocMeeting(args: {
   );
   if (args.attendeeEmails && args.attendeeEmails.length > 0) {
     await addParticipants(meeting, args.attendeeEmails);
+    return (await repo.findOneBy({ id: meeting.id })) ?? meeting;
   }
   return meeting;
 }
 
 /**
- * Put people on a meeting by address.
+ * Put people on a meeting by address, and work out its Customer from who is on
+ * it now.
  *
  * De-duplicated against what is already there, so calling it twice with an
  * overlapping list does not violate the `(meetingId, email)` unique index.
@@ -467,6 +472,7 @@ export async function addParticipants(meeting: Meeting, emails: string[]): Promi
     );
     added += 1;
   }
+  if (added > 0) await linkMeetingCustomerSafely(meeting.companyId, meeting.id);
   return added;
 }
 
