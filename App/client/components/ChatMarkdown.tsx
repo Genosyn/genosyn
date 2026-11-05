@@ -12,14 +12,24 @@ import DOMPurify from "dompurify";
  * anything scripty before we hand it to `dangerouslySetInnerHTML` — the
  * model output is ultimately user-controlled text, so we don't trust it.
  */
-export function ChatMarkdown({ content }: { content: string }) {
+export function ChatMarkdown({
+  content,
+  blockImages = false,
+}: {
+  content: string;
+  /**
+   * Words outside content may have shaped. A remote image loads by itself when this
+   * is read, and its URL can carry whatever the session was talked into putting there.
+   */
+  blockImages?: boolean;
+}) {
   const html = React.useMemo(() => {
     const raw = marked.parse(content ?? "", {
       async: false,
       gfm: true,
       breaks: true,
     }) as string;
-    return DOMPurify.sanitize(raw);
+    return DOMPurify.sanitize(raw, blockImages ? { FORBID_TAGS: ["img"] } : undefined);
   }, [content]);
   return (
     <div

@@ -32,6 +32,7 @@ import { createNotification } from "../services/notifications.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import {
   deleteTodoPickups,
+  todoLimits,
   markTodoTainted,
   presentCommentPickups,
   requestTodoPickup,
@@ -613,7 +614,10 @@ async function hydrateTodos(cid: string, todos: Todo[], reader: TodoLinkReader) 
     return null;
   }
 
-  return todos.map((t) => ({
+  // `ceilingJson` is the server's own: what a session may do, not a field of the Todo.
+  // A person gets to know that there are limits, and that only they can go past them.
+  return todos.map(({ ceilingJson, ...t }) => ({
+    heldToLimits: todoLimits({ ceilingJson }) !== null,
     ...t,
     assignee: refFor(t.assigneeEmployeeId, t.assigneeUserId),
     reviewer: refFor(t.reviewerEmployeeId, t.reviewerUserId),
@@ -1612,6 +1616,7 @@ projectsRouter.post(
           userId: req.userId!,
           sessionVersion: req.session.sessionVersion,
           name: author?.name || author?.email || "A Member",
+          role: req.membership?.role,
         }).catch((err) => {
           console.error("[todo-comments] waking the assignee failed", err);
         });
@@ -1683,6 +1688,7 @@ async function respondAsEmployee(
   });
   const turn = await composeTodoMentionContext({
     companyId,
+    todoId,
     comments: thread,
     triggerCommentId: requester.commentId,
     requesterUserId: requester.userId,
@@ -1710,7 +1716,13 @@ async function respondAsEmployee(
     : `You are collaborating on **${project.key}-${todo.number}: ${todo.title}** ` +
       `(status: ${todo.status}, priority: ${todo.priority}).` +
       (todo.description ? `\n\nDescription:\n${todo.description}` : "");
-  const history = [{ role: "user" as const, content: header }, ...turn.history];
+  // Mentioning an AI Employee grants nothing, so the outside words on this thread stay
+  // behind the Todo's limits here as well.
+  const limits = todoLimits(todo);
+  const heldLine = limits
+    ? "\n\nThis Todo started from outside words, so this turn can read and prepare, not act. If it needs more, say what. A Member can send you back to it with their access from this Todo."
+    : "";
+  const history = [{ role: "user" as const, content: header + heldLine }, ...turn.history];
 
   const result = await chatWithEmployee(companyId, employeeId, turn.message, history, {
     requesterUserId: requester.userId,
@@ -1719,7 +1731,14 @@ async function respondAsEmployee(
     // The comment thread on one Todo is the transcript this turn replays, so
     // it is what the reply serializes against — not the whole employee.
     workloadScope: `todo:${todo.id}`,
-    startTainted: todo.tainted,
+    startTainted: todo.tainted || limits?.tainted === true,
+    ...(limits
+      ? {
+          proactiveReview: limits.proactiveReview === true,
+          mailDeliveryMode: limits.mailDeliveryMode ?? null,
+          mailThreadId: limits.mailThreadId ?? null,
+        }
+      : {}),
   });
   if (result.tainted) await markTodoTainted(todo.id);
   const reply = result.reply || "(no reply)";

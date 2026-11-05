@@ -75,6 +75,13 @@ export class TodoPickup {
   @Column({ type: "boolean", default: false })
   startedByMember!: boolean;
 
+  /**
+   * A person chose, on the Todo, to lend this one session their access past the Todo's
+   * limits. New outside words on the Todo clear it before the session starts.
+   */
+  @Column({ type: "boolean", default: false })
+  overLimits!: boolean;
+
   /** The delivery ceiling it inherited. See `services/mail/deliveryPolicy.ts`. */
   @Column({ type: "varchar", nullable: true })
   mailDeliveryMode!: string | null;

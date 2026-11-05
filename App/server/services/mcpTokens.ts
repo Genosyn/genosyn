@@ -56,6 +56,12 @@ export type McpTokenInfo = {
   /** The pickup this turn is running, when it is one: provenance for what it files. */
   todoPickupId: string | null;
   /**
+   * An owner named this email's sender on a Project's intake and the receiving
+   * server verified it, so this preparation turn also gets the browser and the
+   * Vault logins it's granted, and nothing else (`services/todoIntake.ts`).
+   */
+  trustedSender: boolean;
+  /**
    * Set when the turn is one AI Employee talking to colleagues — a turn in a
    * group discussion, or an answer to `ask_colleague`. Like
    * `proactiveReview`, this is authority, not provenance: such a turn can only
@@ -166,6 +172,7 @@ export function issueMcpToken(
     mailHandoverId?: string | null;
     repositoryWorkSessionId?: string | null;
     todoPickupId?: string | null;
+    trustedSender?: boolean;
     collaboration?: CollaborationTurn | null;
     /**
      * Start the turn already tainted: it replays a message that a tainted turn
@@ -212,6 +219,7 @@ export function issueMcpToken(
     mailHandoverId: origin.mailHandoverId ?? null,
     repositoryWorkSessionId: origin.repositoryWorkSessionId ?? null,
     todoPickupId: origin.todoPickupId ?? null,
+    trustedSender: origin.trustedSender ?? false,
     collaboration: origin.collaboration ?? null,
     authority,
     requesterUserId,

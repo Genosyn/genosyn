@@ -206,11 +206,11 @@ export function TodoDetailBody({
               onClick={() => setDescEditing(true)}
               className="block w-full rounded-lg border border-transparent px-3 py-2 text-left hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-800"
             >
-              <MarkdownView source={desc} />
+              <MarkdownView source={desc} blockImages={todo.untrustedText} />
             </button>
           ) : (
             <div className="px-3 py-2">
-              <MarkdownView source={desc} />
+              <MarkdownView source={desc} blockImages={todo.untrustedText} />
             </div>
           )
         ) : canEdit ? (
@@ -1139,7 +1139,7 @@ function CommentRow({
                 }
               />
             )}
-            <ChatMarkdown content={comment.body} />
+            <ChatMarkdown content={comment.body} blockImages={comment.pickup?.preparationOnly} />
             <ChatAttachments
               attachments={comment.attachments ?? []}
               urlFor={(id) =>
@@ -1237,15 +1237,22 @@ function formatWhen(iso: string): string {
  * Lightweight GFM renderer. DOMPurify strips any script-y bits — task bodies
  * are user-controlled so we don't trust them. Matches the chat bubble look.
  */
-export function MarkdownView({ source }: { source: string }) {
+export function MarkdownView({
+  source,
+  blockImages = false,
+}: {
+  source: string;
+  /** Text nobody at the company wrote: an image in it would tell a stranger it was opened. */
+  blockImages?: boolean;
+}) {
   const html = React.useMemo(() => {
     const raw = marked.parse(source ?? "", {
       async: false,
       gfm: true,
       breaks: true,
     }) as string;
-    return DOMPurify.sanitize(raw);
-  }, [source]);
+    return DOMPurify.sanitize(raw, blockImages ? { FORBID_TAGS: ["img"] } : undefined);
+  }, [source, blockImages]);
   return (
     <div
       className="chat-md break-words text-sm text-slate-800 dark:text-slate-100"

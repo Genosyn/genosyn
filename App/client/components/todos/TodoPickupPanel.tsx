@@ -6,6 +6,7 @@ import { LiveTurnCard } from "@/components/chat/TurnActivity";
 import { useFollowedTurn } from "@/components/chat/useFollowedTurn";
 import { Avatar } from "@/components/todos/todoShared";
 import { Button } from "@/components/ui/Button";
+import { useDialog } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
 import { api, type Todo } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
@@ -55,6 +56,7 @@ export function TodoPickupPanel({
     | "waitingReason"
     | "waitingSince"
     | "waitingCheckAt"
+    | "heldToLimits"
   >;
   companyId: string;
   companySlug: string;
@@ -63,6 +65,7 @@ export function TodoPickupPanel({
   const [pickups, setPickups] = React.useState<Pickups | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [starting, setStarting] = React.useState(false);
+  const dialog = useDialog();
   const base = `/api/companies/${companyId}/todos/${todo.id}/pickups`;
   const ticket = React.useRef(0);
 
@@ -83,11 +86,22 @@ export function TodoPickupPanel({
   }, [load]);
   useLiveRefetch("todo", () => void load(), todo.projectId);
 
-  async function startNow() {
+  /** Going past a Todo's limits is the one thing here that's asked first. */
+  async function lendsAccess(): Promise<boolean> {
+    return dialog.confirm({
+      title: "Use your access for this session?",
+      message:
+        "Outside words, like an email, may be on its thread, and they stay there. For this one session its AI Employee can do what you can, and anything it sends waits for approval. It goes back to its limits after.",
+      confirmLabel: "Use my access",
+    });
+  }
+
+  async function startNow(withMyAccess = false) {
+    if (withMyAccess && !(await lendsAccess())) return;
     setStarting(true);
     setError(null);
     try {
-      setPickups(await api.post<Pickups>(base, {}));
+      setPickups(await api.post<Pickups>(base, withMyAccess ? { withMyAccess } : {}));
     } catch (err) {
       setError(errorMessage(err, "Could not start this."));
     } finally {
@@ -95,12 +109,16 @@ export function TodoPickupPanel({
     }
   }
 
-  async function stopWaiting() {
+  async function stopWaiting(withMyAccess = false) {
+    if (withMyAccess && !(await lendsAccess())) return;
     setStarting(true);
     setError(null);
     try {
       setPickups(
-        await api.post<Pickups>(`/api/companies/${companyId}/todos/${todo.id}/stop-waiting`, {}),
+        await api.post<Pickups>(
+          `/api/companies/${companyId}/todos/${todo.id}/stop-waiting`,
+          withMyAccess ? { withMyAccess } : {},
+        ),
       );
     } catch (err) {
       setError(errorMessage(err, "Could not end the wait."));
@@ -118,6 +136,8 @@ export function TodoPickupPanel({
   const canStart = canEdit && Boolean(todo.assigneeEmployeeId) && workable && !active && !waiting;
   if (!pickups && !error) return null;
   if (!shownActive && !canStart && !waiting && !error) return null;
+  const held = todo.heldToLimits === true;
+  const access = held ? "within its limits" : "with your access";
 
   return (
     <div className="mt-4 space-y-2" aria-label="AI work on this task">
@@ -142,19 +162,39 @@ export function TodoPickupPanel({
               {todo.waitingSince && `Since ${shortWhen(todo.waitingSince)}.`}
               {todo.waitingCheckAt && ` Checks back ${shortWhen(todo.waitingCheckAt)}.`}
             </div>
+            {canEdit && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={starting}
+                  onClick={() => void stopWaiting()}
+                  title={`Send its AI Employee back to this now, ${access}`}
+                >
+                  Stop waiting
+                </Button>
+                {held && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    loading={starting}
+                    onClick={() => void stopWaiting(true)}
+                    title="Send its AI Employee back to this now, with what you can do, for this session"
+                  >
+                    Use my access
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
-          {canEdit && (
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={starting}
-              onClick={() => void stopWaiting()}
-              title="Send its AI Employee back to this now, with your access"
-            >
-              Stop waiting
-            </Button>
-          )}
         </div>
+      )}
+      {held && canEdit && (canStart || waiting) && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          An outside email or a limited session started this, so its AI Employee works within limits
+          here, whoever asks. It can read and prepare, and a comment or a new assignee doesn&apos;t
+          change that. Only Use my access does, for one session.
+        </p>
       )}
       {shownActive?.status === "running" && (
         <RunningPickup
@@ -181,10 +221,21 @@ export function TodoPickupPanel({
             variant="secondary"
             loading={starting}
             onClick={() => void startNow()}
-            title="Send its AI Employee to work on this now, with your access"
+            title={`Send its AI Employee to work on this now, ${access}`}
           >
             <Play size={13} className="mr-1.5" /> Start now
           </Button>
+          {held && (
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={starting}
+              onClick={() => void startNow(true)}
+              title="Send its AI Employee to work on this now, with what you can do, for this session"
+            >
+              Use my access
+            </Button>
+          )}
           {last?.status === "failed" && last.error && (
             <span className="min-w-0 text-xs text-slate-500 dark:text-slate-400">
               Last try: {last.error}
@@ -286,7 +337,13 @@ function RunningPickup({
         stopping={stopping}
         onStop={canEdit ? () => void stop() : undefined}
         companySlug={companySlug}
-        context={pickup.preparationOnly ? "Preparing only" : null}
+        context={
+          pickup.preparationOnly
+            ? pickup.withBrowser
+              ? "Preparing, with the browser"
+              : "Preparing only"
+            : null
+        }
         note={stepsNote(pickup)}
         stopError={stopError}
       />

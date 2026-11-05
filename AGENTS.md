@@ -351,10 +351,30 @@ scope with review-only replies; `replyMode: send` lets `send_mail` answer the so
 thread only, to its existing participants worked out by the server, with no
 attachments, at most 3 a day, under a Send Grant; a trusted sender verified by the
 receiving server (`services/mail/senderVerification.ts`, topmost
-`Authentication-Results` only, and only for a mailbox whose server can be named)
-gets the employee's tools plus the browser, and nothing else a delivery ceiling
-closes. `TodoPickup.trustedSender` narrows like the rest of a ceiling and isn't
-inherited. Do not widen a mailbox's instructions list
+`Authentication-Results` only, with a sender's own words taken out of it, and only
+for a mailbox whose server can be named) gets preparation plus the browser and its
+granted Vault logins. Both are additions to the preparation allowlist, because every
+broader reading leaked: a denylist misses the next tool that reaches outside. Every
+ceiling only narrows for a Todo: `Todo.ceilingJson` holds the narrowest it has been
+held to, and `requestTodoPickup` applies it to every request, so a stranger's Todo
+stays held when a trusted sender writes on its thread. A Member's comment, assignment,
+@-mention or Stop waiting isn't a grant, and stays within it too. The only way past it
+is **Use my access** on the Todo's panel (`overLimits`): one session, tainted, asked
+first (`TodoPickup.overLimits`). What a session may do is decided when it starts, because
+a row can sit queued for a month. New outside words end a lend that hasn't started,
+wake or no wake. A turn working a particular email holds any Todo it comments on or edits
+(`holdTodoToTurn`), since its words replay there, and an unlimited session that reads a
+held Todo becomes tainted. A Routine that could only prepare doesn't hold a person's Todo
+by posting a status: its comment just replays as information (`fromLimitedTurn`). A
+plain Member's answer runs under them, and an owner's or admin's as the last session
+ran. A session held to preparing changes
+only its own Todo and thread, can file subtasks of it but start nothing on them, and
+can't mark anything urgent. A held Todo starts no Pipelines (`dispatchTodoCreated`), its
+next recurrence inherits its limits without the trust, and what a Pipeline files from
+an email or a webhook starts held. A trusted sender only counts on a thread nobody else
+has written on, closed Todos included, and this mailbox's own address only counts on what
+it really sent. Trust stays with the employee it started. Filing starts no Pipelines. Do
+not widen a mailbox's instructions list
 (`mail/analysisAutomation.ts`) to do this, let the model name a target, give an AI
 tool a way to read or write an intake, treat `From:` as evidence, let an email's
 Pickup send any other way, or file from anything but the arrival read. A browser

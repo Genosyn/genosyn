@@ -2580,6 +2580,13 @@ export type Todo = {
   /** Where it came from and what it is about, as this reader may see them. */
   links?: TodoLinkView[];
   /** What this `in_progress` Todo is waiting on, and when it checks back. */
+  /** Nobody at the company wrote its title and description: an AI or an email did. */
+  untrustedText?: boolean;
+  /**
+   * It started from outside words, so its AI Employee works within limits here, whoever
+   * asks. Only a person choosing to lend a session their access goes past them.
+   */
+  heldToLimits?: boolean;
   waitingOn?: TodoWaitKind | null;
   waitingReason?: string;
   waitingSince?: string | null;

@@ -44,6 +44,10 @@ export class TodoComment {
   @Column({ type: "boolean", default: false })
   systemNote!: boolean;
 
+  /** A turn that could only prepare wrote this, so it replays as information. */
+  @Column({ type: "boolean", default: false })
+  fromLimitedTurn!: boolean;
+
   /** The session this comment reports, when it is a pickup's report. */
   @Column({ type: "varchar", nullable: true })
   pickupId!: string | null;

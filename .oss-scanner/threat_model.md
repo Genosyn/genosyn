@@ -232,12 +232,21 @@ trusted-origin check, is in `App/server/index.ts`.
   starts an AI Employee on it. Off by default, and owners and admins only, from a
   browser session. A stranger getting a Todo filed, or a session in preparation scope
   run, on a Project with intake on is the feature. What would be a finding: an email
-  choosing a Project off the closed list, a session exceeding `eventPickupCeiling`,
-  an API key, a plain Member or an AI tool changing an intake, or `verifySender`
-  accepting a sender the mailbox's own receiving server didn't verify (a forged lower
-  `Authentication-Results`, say). "Send replies without review" reaching the
-  thread's existing participants, including anyone a sender put on CC, is the opt-in
-  as it warns; a reply reaching anyone else or carrying an attachment is a finding.
+  choosing a Project off the closed list; any session an email started or woke using
+  a tool outside preparation, other than a trusted sender's browser and Vault logins
+  or the opted-in reply; a later automatic session on such a Todo going further than
+  it did (`Todo.ceilingJson` only narrows); a Member's comment, assignment, @-mention or
+  Stop waiting lifting those limits, since only Use my access on the Todo does, for one
+  session; a queued session starting without limits its Todo has since been held to; an
+  unlimited session reading a held Todo and staying untainted; a held Todo starting a
+  Pipeline; an API key, a plain Member or an AI tool
+  changing an intake; or `verifySender` accepting a sender the mailbox's own receiving
+  server didn't verify (a forged lower `Authentication-Results`, or a result quoted
+  inside a comment, say). It vouches for a domain, not an address, by design, and a
+  trusted sender forwarding someone else's words is still a trusted sender's email. "Send
+  replies without review" reaching the thread's existing participants, including
+  anyone a sender put on CC, is the opt-in as it warns; a reply reaching anyone else or
+  carrying an attachment is a finding.
 
 - **AI Employee commands run on the host, with no OS sandbox.** OpenCode's
   native coding tools, Genosyn's coding tools, Repository work-session

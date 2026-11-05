@@ -107,6 +107,8 @@ export type TodoPickupView = {
   requester: { id: string; name: string } | null;
   /** It can't send mail, use the browser or start other work on its own. */
   preparationOnly: boolean;
+  /** Preparing, plus the browser: an owner trusts the sender of the email behind it. */
+  withBrowser?: boolean;
   attempt: number;
   /** When it was asked for, ISO with milliseconds. */
   startedAt: string;
@@ -128,6 +130,8 @@ export type TodoQueueItem = {
   title: string;
   /** Nobody at the company wrote this text, so it is a request, not an instruction. */
   untrustedText: boolean;
+  /** Outside words started this, so its session works within limits. */
+  heldToLimits: boolean;
   projectSlug: string;
   projectName: string;
   status: string;
