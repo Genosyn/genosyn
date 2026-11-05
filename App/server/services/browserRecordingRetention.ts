@@ -1,4 +1,7 @@
-import { expireBrowserRecordingsFinishedBefore } from "./browserRecordings.js";
+import {
+  expireBrowserRecordingsFinishedBefore,
+  recoverInterruptedTodoRecordings,
+} from "./browserRecordings.js";
 import { getBrowserSettings } from "./runtimeSettings.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 
@@ -19,6 +22,8 @@ import { withSchedulerLease } from "./schedulerLeases.js";
 
 const PASS_INTERVAL_MS = 60 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
+/** A session closed longer ago than this has been looked at by an earlier pass. */
+const RECOVERY_WINDOW_MS = 7 * DAY_MS;
 
 let passTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -27,6 +32,12 @@ export async function pruneExpiredBrowserRecordings(
   now: Date = new Date(),
   assertHeld?: () => void,
 ): Promise<number> {
+  await recoverInterruptedTodoRecordings(new Date(now.getTime() - RECOVERY_WINDOW_MS)).catch(
+    (err: unknown) => {
+      // eslint-disable-next-line no-console
+      console.error("[browser-recordings] could not recover a Todo's recording:", err);
+    },
+  );
   const days = getBrowserSettings().recordingRetentionDays;
   if (days <= 0) return 0;
   const { deleted, bytes } = await expireBrowserRecordingsFinishedBefore(

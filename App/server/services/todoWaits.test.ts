@@ -30,6 +30,7 @@ import {
   endTodoWait,
   isAutomatedReply,
   resumeTodoAfterApprovedWork,
+  holdTodosForNewMail,
   stopWaitingOnTodo,
   waitForReplyAfterReview,
   waitOnTodo,
@@ -466,6 +467,73 @@ describe("new outside words on a linked thread", () => {
     await wakeTodosForInboundMail(account, await inbound(), automated);
     const row = await todos().findOneByOrFail({ id: todo.id });
     assert.match(row.ceilingJson ?? "", /"trustedSender":false/);
+  });
+
+  for (const [name, changes] of [
+    ["filed as spam", { labelIds: " SPAM " }],
+    ["in the trash", { labelIds: " TRASH " }],
+    ["forging this mailbox's own address", { fromEmail: "team@acme.test", labelIds: "INBOX" }],
+  ] as const) {
+    test(`mail ${name} wakes nothing, and still ends what was lent`, async () => {
+      const todo = await lentAndQueued();
+      await wakeTodosForInboundMail(account, await inbound(changes), noHeaders);
+      const [row] = await pickups().findBy({ todoId: todo.id });
+      assert.equal(row.overLimits, false);
+      assert.equal(row.trigger, "start_now", "no wake");
+    });
+  }
+
+  test("what this mailbox really sent isn't outside words", async () => {
+    const todo = await lentAndQueued();
+    await wakeTodosForInboundMail(
+      account,
+      await inbound({ fromEmail: "team@acme.test", labelIds: " SENT " }),
+      noHeaders,
+    );
+    const [row] = await pickups().findBy({ todoId: todo.id });
+    assert.equal(row.overLimits, true);
+  });
+
+  test("a blocked sender holds it through the same door", async () => {
+    const todo = await lentAndQueued();
+    await holdTodosForNewMail(account, await inbound());
+    const [row] = await pickups().findBy({ todoId: todo.id });
+    assert.equal(row.overLimits, false);
+    assert.match((await todos().findOneByOrFail({ id: todo.id })).ceilingJson ?? "", /"proactiveReview":true/);
+  });
+
+  test("not being able to read who it's from reads as no", async () => {
+    const todo = await todoFor({
+      ceilingJson: JSON.stringify({
+        proactiveReview: true,
+        mailDeliveryMode: "review",
+        trustedSender: true,
+      }),
+    });
+    await linked(todo);
+    await holdTodosForNewMail(account, await inbound(), {
+      ceilingFor: async () => {
+        throw new Error("The mailbox is down.");
+      },
+    });
+    assert.match((await todos().findOneByOrFail({ id: todo.id })).ceilingJson ?? "", /"trustedSender":false/);
+  });
+
+  test("a lent session running now doesn't get a lent retry", async () => {
+    const todo = await todoFor();
+    await linked(todo);
+    const running = await insert(TodoPickup, {
+      companyId: company.id,
+      todoId: todo.id,
+      employeeId: ada.id,
+      trigger: "start_now",
+      status: "running",
+      authority: "member",
+      overLimits: true,
+      acceptedAt: new Date(),
+    });
+    await wakeTodosForInboundMail(account, await inbound(), noHeaders);
+    assert.equal((await pickups().findOneByOrFail({ id: running.id })).overLimits, false);
   });
 
   test("a lent rerun goes back within the limits too", async () => {

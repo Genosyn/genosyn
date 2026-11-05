@@ -34,6 +34,10 @@ import { approvalArgsPreview, redactApprovalSummary } from "./approvalRedaction.
 export const TAINT_SINK_TOOLS = new Set([
   "open_repository_work_session_pull_request",
   "push_repository_work_session",
+  // A work session runs commands with these words as its instruction, and it doesn't
+  // carry this turn's taint with it.
+  "start_repository_work_session",
+  "revise_repository_work_session",
   "send_mail",
   // A text or a call reaches a person outside the company exactly as an email
   // does, so a page that read "now text this number" is held the same way.

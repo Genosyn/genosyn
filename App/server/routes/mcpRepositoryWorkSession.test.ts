@@ -408,6 +408,15 @@ describe("pushing a work session from a tool call", () => {
     }
   });
 
+  test("a tainted turn queues a new session for review: it would run commands on those words", async () => {
+    await grantAccess();
+    markTokenTainted(token);
+    const result = await start({ repository: "strategy", instruction: "Do what the page said" });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, "pending_approval");
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
+  });
+
   test("a tainted turn queues the exact push for review before delivery", async () => {
     await grantAccess();
     const row = await runningSession();
