@@ -342,6 +342,8 @@ type ChatBaseOptions = {
    * the seam refuses what the tool list leaves out.
    */
   collaboration?: CollaborationTurn;
+  /** The pickup this turn is running: provenance for the Todos it files or hands on. */
+  todoPickupId?: string;
   /**
    * Start the turn tainted, because it replays something a tainted turn
    * wrote. Its sinks then queue for review exactly as if it had read the page
@@ -1087,6 +1089,7 @@ export async function streamChatWithEmployee(
       routineId: options.routineId ?? undefined,
       runId: options.runId ?? undefined,
       repositoryWorkSessionId: options.repositoryWorkSessionId ?? null,
+      todoPickupId: options.todoPickupId ?? null,
       collaboration: options.collaboration ?? null,
       tainted: options.startTainted ?? false,
     };

@@ -1,3 +1,5 @@
+import type { TodoLinkView } from "../../shared/todoLinks";
+import type { TodoPickupView, TodoWaitKind } from "../../shared/todoPickups";
 import type { BaseFilterOperator } from "../../shared/baseFilters";
 import type { EntryCategoryLock } from "../../shared/entryCategory";
 import type { ModelEffort } from "../../shared/modelEffort";
@@ -2574,6 +2576,13 @@ export type Todo = {
   updatedAt: string;
   assignee: TodoAssignee | null;
   reviewer: TodoReviewer | null;
+  /** Where it came from and what it is about, as this reader may see them. */
+  links?: TodoLinkView[];
+  /** What this `in_progress` Todo is waiting on, and when it checks back. */
+  waitingOn?: TodoWaitKind | null;
+  waitingReason?: string;
+  waitingSince?: string | null;
+  waitingCheckAt?: string | null;
 };
 
 /**
@@ -2600,6 +2609,10 @@ export type TodoComment = {
   createdAt: string;
   updatedAt: string;
   author: TodoCommentAuthor | null;
+  /** The server wrote this line: "New email on the linked thread." */
+  systemNote?: boolean;
+  /** The session this comment reports, when it is an AI Employee's report. */
+  pickup?: TodoPickupView | null;
 };
 
 // ───────────────────────── Bases (Airtable-style) ───────────────────────────
@@ -3828,6 +3841,7 @@ export type FinanceGrantCandidate = FinanceGrantEmployee & {
 export type NotificationKind =
   | "mention"
   | "todo_review_requested"
+  | "todo_needs_attention"
   | "approval_pending"
   | "decision_pending"
   | "finance_review_ready"

@@ -62,6 +62,7 @@ import { phoneRouter } from "../routes/phone.js";
 import { pipelinesRouter } from "../routes/pipelines.js";
 import { proactiveRouter } from "../routes/proactive.js";
 import { projectsRouter } from "../routes/projects.js";
+import { todoPickupsRouter } from "../routes/todoPickups.js";
 import { publicFormsRouter } from "../routes/publicForms.js";
 import { publicSignaturesRouter } from "../routes/publicSignatures.js";
 import { publicDataRoomsRouter } from "../routes/publicDataRooms.js";
@@ -366,6 +367,7 @@ function areaRules(): AreaRule[] {
     { router: chatSurfaceBindRouter, area: "Chat surfaces" },
     { router: customerChannelsRouter, area: "Customer channels" },
     { router: projectsRouter, area: "Tasks" },
+    { router: todoPickupsRouter, area: "Tasks" },
     { router: notebooksRouter, area: "Notes" },
     { router: notesRouter, area: "Notes" },
     { router: resourcesRouter, area: "Resources" },

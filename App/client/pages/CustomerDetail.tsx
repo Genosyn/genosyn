@@ -65,6 +65,7 @@ import {
   type AccountMergeTarget,
 } from "../components/revenue/AccountMergeModal";
 import { RecordHistory } from "@/components/RecordHistory";
+import { LinkedTodosCard } from "../components/todos/TodoLinks";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
@@ -1022,6 +1023,13 @@ function CustomerOverview({ company }: { company: Company }) {
                   </ul>
                 )}
               </section>
+
+              <LinkedTodosCard
+                companyId={company.id}
+                companySlug={company.slug}
+                kind="customer"
+                targetId={customer.id}
+              />
 
               <RecordHistory
                 companyId={company.id}

@@ -541,6 +541,10 @@ const PROJECT_TOOLS = [
   "create_todo",
   "update_todo",
   "add_todo_comment",
+  "start_todo",
+  "wait_on_todo",
+  "link_todo",
+  "unlink_todo",
 ] as const;
 /**
  * The open web carries no company data in either direction, so it needs no

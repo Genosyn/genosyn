@@ -243,6 +243,8 @@ import { TaxRate } from "../db/entities/TaxRate.js";
 import { Team } from "../db/entities/Team.js";
 import { Todo } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
+import { TodoLink } from "../db/entities/TodoLink.js";
+import { TodoPickup } from "../db/entities/TodoPickup.js";
 import { Vendor } from "../db/entities/Vendor.js";
 import { VendorCredit } from "../db/entities/VendorCredit.js";
 import { VendorCreditApplication } from "../db/entities/VendorCreditApplication.js";
@@ -411,6 +413,8 @@ export async function deleteCompanyCascade(args: {
     if (baseIds.length) {
       await m.delete(BaseTable, { baseId: In(baseIds) });
     }
+    await m.delete(TodoLink, { companyId });
+    await m.delete(TodoPickup, { companyId });
     if (todoIds.length) {
       await m.delete(TodoComment, { todoId: In(todoIds) });
       await m.delete(Todo, { id: In(todoIds) });

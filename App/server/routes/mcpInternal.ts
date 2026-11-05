@@ -77,6 +77,23 @@ import { Skill } from "../db/entities/Skill.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
+import { TODO_LINK_KINDS, type TodoLinkKind } from "../../shared/todoLinks.js";
+import {
+  TodoLinkError,
+  addTodoLink,
+  employeeLinkAccessError,
+  pageLinkedTodos,
+  removeTodoLink,
+} from "../services/todoLinks.js";
+import { insertTodo, spawnNextRecurrence } from "../services/todos.js";
+import {
+  markTodoTainted,
+  requestTodoPickup,
+  type TodoPickupAuthority,
+  type TodoPickupCeiling,
+} from "../services/todoPickups.js";
+import { TodoPickup } from "../db/entities/TodoPickup.js";
+import { MAX_TODO_FOLLOW_UPS, TodoWaitError, waitOnTodo } from "../services/todoWaits.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import {
   getJournalEvidence,
@@ -1088,6 +1105,7 @@ type McpRequest = Request & {
   mcpMailHandoverId?: string | null;
   /** The Repository work session this turn may act on, if any. */
   mcpRepositoryWorkSessionId?: string | null;
+  mcpTodoPickupId?: string | null;
   mcpAuthority?: "employee" | "member" | "untrusted";
   mcpRequesterUserId?: string | null;
   /**
@@ -1137,6 +1155,7 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpCollaboration = info.collaboration;
   req.mcpMailHandoverId = info.mailHandoverId;
   req.mcpRepositoryWorkSessionId = info.repositoryWorkSessionId;
+  req.mcpTodoPickupId = info.todoPickupId;
   req.mcpAuthority = info.authority;
   req.mcpRequesterUserId = info.requesterUserId;
   req.mcpRequesterSessionVersion = info.requesterSessionVersion;
@@ -12668,6 +12687,7 @@ mcpInternalRouter.post(
       res.json(
         await getTodoForEmployee({
           ...(req.body as z.infer<typeof getTodoSchema>),
+          financeAccessLimit: delegatedMemberFinanceAccess(req),
           companyId: req.mcpCompany!.id,
           employeeId: req.mcpEmployee!.id,
           additionalActors: mcpProjectActors(req).filter((actor) => actor.kind === "user"),
@@ -12732,6 +12752,7 @@ mcpInternalRouter.post(
     if (!(await hasDelegatedProjectAccess(req, project, "write"))) {
       return res.status(403).json({ error: "No access to that project" });
     }
+    if (isTokenTainted(req.mcpToken!)) await markTodoTainted(todo.id);
     const repo = AppDataSource.getRepository(TodoComment);
     const comment = await repo.save(
       repo.create({
@@ -12754,6 +12775,127 @@ mcpInternalRouter.post(
     res.json({ comment: { id: comment.id, todoId: todo.id, createdAt: comment.createdAt } });
   },
 );
+
+/**
+ * Whose access a pickup this turn asks for runs with: the turn's own. A
+ * Member-delegated turn hands on that Member's authority and an employee's turn
+ * its own, so handing work to a colleague never widens either.
+ */
+function pickupAuthorityOf(req: McpRequest): TodoPickupAuthority | null {
+  if (req.mcpAuthority === "member") {
+    return req.mcpRequesterUserId && typeof req.mcpRequesterSessionVersion === "number"
+      ? {
+          kind: "member",
+          userId: req.mcpRequesterUserId,
+          sessionVersion: req.mcpRequesterSessionVersion,
+        }
+      : null;
+  }
+  return req.mcpAuthority === "employee" ? { kind: "employee" } : null;
+}
+
+/** What this turn is held to travels with the work it starts, so it can't be shed. */
+function pickupCeilingOf(req: McpRequest): TodoPickupCeiling {
+  return {
+    mailDeliveryMode: req.mcpMailDeliveryMode ?? null,
+    proactiveReview: req.mcpProactiveReview === true,
+    tainted: isTokenTainted(req.mcpToken!),
+    mailThreadId: req.mcpMailThreadId ?? null,
+  };
+}
+
+/** How deep in a chain of AI hand-offs this turn's next Todo sits. */
+async function nextAiChainDepth(req: McpRequest): Promise<number> {
+  if (!req.mcpTodoPickupId) return 0;
+  const pickup = await AppDataSource.getRepository(TodoPickup).findOne({
+    where: { id: req.mcpTodoPickupId },
+    select: { id: true, todoId: true },
+  });
+  const parent = pickup
+    ? await AppDataSource.getRepository(Todo).findOne({
+        where: { id: pickup.todoId },
+        select: { id: true, aiChainDepth: true },
+      })
+    : null;
+  return (parent?.aiChainDepth ?? 0) + 1;
+}
+
+/**
+ * A question this pickup raised for a person: its Todo now waits on the answer,
+ * however the answer comes. There is no check-back, because a human gate has its
+ * own stall sweep. A problem here is a log, never a failed question.
+ */
+async function waitOnThisPickupsTodo(
+  req: McpRequest,
+  on: "decision" | "mail_review" | "work_review",
+  refId: string,
+  reason: string,
+): Promise<void> {
+  if (!req.mcpTodoPickupId) return;
+  const authority = pickupAuthorityOf(req);
+  if (!authority) return;
+  try {
+    const pickup = await AppDataSource.getRepository(TodoPickup).findOne({
+      where: { id: req.mcpTodoPickupId },
+      select: { id: true, todoId: true },
+    });
+    const todo = pickup
+      ? await AppDataSource.getRepository(Todo).findOneBy({ id: pickup.todoId })
+      : null;
+    if (!todo || todo.assigneeEmployeeId !== req.mcpEmployee!.id) return;
+    if (on === "decision") {
+      await addTodoLink({
+        companyId: req.mcpCompany!.id,
+        todoId: todo.id,
+        kind: "decision",
+        targetId: refId,
+        createdByEmployeeId: req.mcpEmployee!.id,
+      });
+    }
+    await waitOnTodo({
+      companyId: req.mcpCompany!.id,
+      todo,
+      on,
+      refId,
+      reason,
+      checkAt: null,
+      authority,
+      ceiling: pickupCeilingOf(req),
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`[mcp] could not mark the Todo waiting on ${on} ${refId}:`, error);
+  }
+}
+
+/** Start the assignee on a Todo this turn handed over. Says why when it didn't. */
+async function startHandedOverTodo(
+  req: McpRequest,
+  todo: Todo,
+  trigger: "assigned" | "start_now",
+): Promise<string | null> {
+  const authority = pickupAuthorityOf(req);
+  if (!authority || !todo.assigneeEmployeeId) return null;
+  const outcome = await requestTodoPickup({
+    companyId: req.mcpCompany!.id,
+    todoId: todo.id,
+    employeeId: todo.assigneeEmployeeId,
+    trigger,
+    authority,
+    ceiling: pickupCeilingOf(req),
+  });
+  if (outcome.started) return null;
+  switch (outcome.reason) {
+    case "no_model":
+      return "Saved. Its assignee has no AI Model connected, so nothing started.";
+    case "too_deep":
+      return "Saved, but not started: this work has passed through too many AI hand-offs. A Member can start it.";
+    case "capped":
+      return "Saved, but not started: this Todo reached its limit of automatic sessions today.";
+    default:
+      return null;
+  }
+}
 
 const createTodoSchema = z
   .object({
@@ -12798,6 +12940,9 @@ mcpInternalRouter.post(
         slug: body.assigneeEmployeeSlug,
       });
       if (!other) return res.status(400).json({ error: "Unknown assignee" });
+      if (!(await hasProjectAccess(project, { kind: "ai", id: other.id }, "read"))) {
+        return res.status(400).json({ error: `${other.name} can't open this project` });
+      }
       assigneeId = other.id;
     }
 
@@ -12808,6 +12953,9 @@ mcpInternalRouter.post(
         slug: body.reviewerEmployeeSlug,
       });
       if (!rv) return res.status(400).json({ error: "Unknown reviewer" });
+      if (!(await hasProjectAccess(project, { kind: "ai", id: rv.id }, "read"))) {
+        return res.status(400).json({ error: `${rv.name} can't open this project` });
+      }
       reviewerId = rv.id;
     }
     // A Member as assignee or reviewer, instead of an AI Employee. They must
@@ -12825,37 +12973,50 @@ mcpInternalRouter.post(
       if (parentErr) return res.status(400).json({ error: parentErr });
     }
 
-    project.todoCounter += 1;
-    await projRepo.save(project);
-
-    const status: TodoStatus = body.status ?? "todo";
-    const todoRepo = AppDataSource.getRepository(Todo);
-    const last = await todoRepo.findOne({
-      where: { projectId: project.id, status },
-      order: { sortOrder: "DESC" },
-    });
-    const sortOrder = (last?.sortOrder ?? 0) + 1000;
-
-    const t = todoRepo.create({
-      projectId: project.id,
-      number: project.todoCounter,
+    const t = await insertTodo({
+      project,
       title: body.title,
-      description: body.description ?? "",
-      status,
-      priority: body.priority ?? "none",
+      description: body.description,
+      status: body.status,
+      priority: body.priority,
       assigneeEmployeeId: assigneeId,
-      assigneeUserId: body.assigneeUserId ?? null,
+      assigneeUserId: body.assigneeUserId,
       reviewerEmployeeId: reviewerId,
-      reviewerUserId: body.reviewerUserId ?? null,
-      createdById: null,
+      reviewerUserId: body.reviewerUserId,
       dueAt: body.dueAt ? new Date(body.dueAt) : null,
-      sortOrder,
-      completedAt: status === "done" ? new Date() : null,
-      recurrence: body.recurrence ?? "none",
-      recurrenceParentId: null,
-      parentTodoId: body.parentTodoId ?? null,
+      recurrence: body.recurrence,
+      parentTodoId: body.parentTodoId,
+      // No Member wrote this, so a session reads it as a request and not as an
+      // instruction, and words from a tainted turn taint what replays them.
+      untrustedText: true,
+      tainted: isTokenTainted(req.mcpToken!),
+      aiChainDepth: await nextAiChainDepth(req),
     });
-    await todoRepo.save(t);
+
+    // Where this Todo came from is the server's to say when it knows: a turn
+    // working an email files that thread as the source without the model naming
+    // it, and one in a Run links that Run.
+    const provenance: Array<{ kind: TodoLinkKind; id: string; isSource: boolean }> = [];
+    if (req.mcpMailThreadId) {
+      provenance.push({ kind: "mail_thread", id: req.mcpMailThreadId, isSource: true });
+    }
+    if (req.mcpRunId) {
+      provenance.push({ kind: "run", id: req.mcpRunId, isSource: !req.mcpMailThreadId });
+    }
+    for (const link of provenance) {
+      // The source being gone is no reason to lose the Todo it started.
+      await addTodoLink({
+        companyId: co.id,
+        todoId: t.id,
+        kind: link.kind,
+        targetId: link.id,
+        isSource: link.isSource,
+        createdByEmployeeId: self.id,
+      }).catch((err) => {
+        if (!(err instanceof TodoLinkError)) throw err;
+      });
+    }
+
     // The saved Todo remains useful follow-up work, but an event Pipeline
     // starts a separate worker that cannot inherit this turn's mail ceiling.
     if (mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode)) {
@@ -12883,7 +13044,13 @@ mcpInternalRouter.post(
           : "Unassigned.",
     );
 
-    res.json({ todo: serializeTodo(t), projectKey: project.key });
+    // Handing it to a colleague starts them on it. A Todo on your own list
+    // doesn't start a session of its own: you are already in one, and "plan the
+    // launch" shouldn't become ten. `start_todo` queues one when you want that.
+    const note =
+      assigneeId && assigneeId !== self.id ? await startHandedOverTodo(req, t, "assigned") : null;
+
+    res.json({ todo: serializeTodo(t), projectKey: project.key, ...(note ? { note } : {}) });
   },
 );
 
@@ -12922,6 +13089,7 @@ mcpInternalRouter.post(
     if (!(await hasDelegatedProjectAccess(req, project, "write"))) {
       return res.status(403).json({ error: "No access to that project" });
     }
+    const assigneeBefore = t.assigneeEmployeeId;
 
     if (body.assigneeEmployeeSlug !== undefined) {
       if (body.assigneeEmployeeSlug === null) {
@@ -12932,6 +13100,9 @@ mcpInternalRouter.post(
           slug: body.assigneeEmployeeSlug,
         });
         if (!other) return res.status(400).json({ error: "Unknown assignee" });
+        if (!(await hasProjectAccess(project, { kind: "ai", id: other.id }, "read"))) {
+          return res.status(400).json({ error: `${other.name} can't open this project` });
+        }
         t.assigneeEmployeeId = other.id;
         t.assigneeUserId = null;
       }
@@ -12945,6 +13116,9 @@ mcpInternalRouter.post(
           slug: body.reviewerEmployeeSlug,
         });
         if (!rv) return res.status(400).json({ error: "Unknown reviewer" });
+        if (!(await hasProjectAccess(project, { kind: "ai", id: rv.id }, "read"))) {
+          return res.status(400).json({ error: `${rv.name} can't open this project` });
+        }
         t.reviewerEmployeeId = rv.id;
         t.reviewerUserId = null;
       }
@@ -12964,6 +13138,10 @@ mcpInternalRouter.post(
     }
     if (body.title !== undefined) t.title = body.title;
     if (body.description !== undefined) t.description = body.description;
+    // The words on it are no longer all a Member's, and a tainted turn's words
+    // taint every session that replays them.
+    if (body.title !== undefined || body.description !== undefined) t.untrustedText = true;
+    if (isTokenTainted(req.mcpToken!)) t.tainted = true;
     if (body.priority !== undefined) t.priority = body.priority;
     if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
     if (body.parentTodoId !== undefined) {
@@ -12978,17 +13156,30 @@ mcpInternalRouter.post(
       t.parentTodoId = body.parentTodoId;
     }
     let justEnteredReview = false;
+    let justCompleted = false;
     const statusBefore = t.status;
     if (body.status !== undefined) {
       const prev = t.status;
       t.status = body.status;
-      if (body.status === "done" && prev !== "done") t.completedAt = new Date();
+      if (body.status === "done" && prev !== "done") {
+        t.completedAt = new Date();
+        justCompleted = true;
+      }
       if (body.status !== "done" && prev === "done") t.completedAt = null;
       if (body.status === "in_review" && prev !== "in_review") {
         justEnteredReview = true;
       }
     }
+    const handedOver =
+      t.assigneeEmployeeId && t.assigneeEmployeeId !== assigneeBefore && t.assigneeEmployeeId !== self.id;
+    if (handedOver) t.aiChainDepth = Math.max(t.aiChainDepth, await nextAiChainDepth(req));
     await todoRepo.save(t);
+
+    // Finishing a recurring Todo puts the next one on the list, whoever
+    // finished it. A later occurrence stands on its own and starts no work.
+    if (justCompleted && t.recurrence !== "none") {
+      await spawnNextRecurrence(project, t);
+    }
 
     // The reviewer may have been set while the project was still open, or had
     // their access removed since. Notifying them anyway would push the todo's
@@ -13012,14 +13203,13 @@ mcpInternalRouter.post(
     }
     // An AI reviewer gets a session, not a bell — brief it to review the work
     // now and move the card itself. Guards (self-review, pass cap, no model)
-    // live in the service.
-    if (
-      justEnteredReview &&
-      t.reviewerEmployeeId &&
-      t.reviewerEmployeeId !== self.id &&
-      mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode)
-    ) {
-      void kickoffTodoReview({ companyId: co.id, todoId: t.id }).catch((e) => {
+    // live in the service, and it inherits what this turn is held to.
+    if (justEnteredReview && t.reviewerEmployeeId && t.reviewerEmployeeId !== self.id) {
+      void kickoffTodoReview({
+        companyId: co.id,
+        todoId: t.id,
+        ceiling: pickupCeilingOf(req),
+      }).catch((e) => {
         // eslint-disable-next-line no-console
         console.error("[mcpInternal] review kickoff failed:", e);
       });
@@ -13046,7 +13236,246 @@ mcpInternalRouter.post(
         status: t.status,
       },
     });
-    res.json({ todo: serializeTodo(t) });
+    // Handing it to a colleague starts them on it, after this session ends.
+    const note = handedOver ? await startHandedOverTodo(req, t, "assigned") : null;
+    res.json({ todo: serializeTodo(t), ...(note ? { note } : {}) });
+  },
+);
+
+const waitOnTodoSchema = z
+  .object({
+    todoId: z.string().uuid(),
+    on: z.enum(["customer", "member", "date"]),
+    threadId: z.string().uuid().optional(),
+    reason: z.string().trim().min(1).max(2_000),
+    checkAt: z.string().datetime(),
+  })
+  .strict();
+
+// The employee says what its Todo is waiting on, and when to check back. A reply
+// on the thread or a Member's comment ends it sooner.
+mcpInternalRouter.post(
+  "/tools/wait_on_todo",
+  validateBody(waitOnTodoSchema),
+  async (req: McpRequest, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof waitOnTodoSchema>;
+      const co = req.mcpCompany!;
+      const self = req.mcpEmployee!;
+      const found = await loadEditableTodo(req, res, body.todoId);
+      if (!found) return;
+      if (found.todo.assigneeEmployeeId !== self.id) {
+        return res.status(403).json({ error: "Only the Todo's assignee can say it is waiting." });
+      }
+      const authority = pickupAuthorityOf(req);
+      if (!authority) return res.status(403).json({ error: "This turn can't start later work." });
+
+      let refId: string | null = null;
+      if (body.on === "customer") {
+        refId = body.threadId ?? req.mcpMailThreadId ?? null;
+        if (!refId) {
+          return res.status(400).json({ error: "Name the email thread you are waiting on." });
+        }
+        if (found.todo.followUpCount >= MAX_TODO_FOLLOW_UPS) {
+          return res.status(400).json({
+            error: `You have checked back ${found.todo.followUpCount} times with no reply. Close this Todo, or say what a person should decide.`,
+          });
+        }
+        const refused = await employeeLinkAccessError(
+          co.id,
+          {
+            kind: "employee",
+            employeeId: self.id,
+            financeAccessLimit: delegatedMemberFinanceAccess(req),
+          },
+          "mail_thread",
+          refId,
+        );
+        if (refused) return res.status(403).json({ error: refused });
+        await addTodoLink({
+          companyId: co.id,
+          todoId: found.todo.id,
+          kind: "mail_thread",
+          targetId: refId,
+          createdByEmployeeId: self.id,
+        });
+      }
+      await waitOnTodo({
+        companyId: co.id,
+        todo: found.todo,
+        on: body.on,
+        refId,
+        reason: body.reason,
+        checkAt: new Date(body.checkAt),
+        authority,
+        ceiling: pickupCeilingOf(req),
+      });
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "todo.wait",
+        targetType: "todo",
+        targetId: found.todo.id,
+        targetLabel: `${found.project.key}-${found.todo.number}: ${found.todo.title}`,
+        metadata: { via: "mcp", on: body.on },
+      });
+      res.json({
+        waiting: { on: body.on, checkAt: body.checkAt },
+        note: "Waiting. End this session now: this Todo wakes you when the answer arrives or the check-back comes.",
+      });
+    } catch (error) {
+      if (error instanceof TodoWaitError) return res.status(400).json({ error: error.message });
+      if (error instanceof TodoLinkError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      next(error);
+    }
+  },
+);
+
+const startTodoSchema = z.object({ todoId: z.string().uuid() }).strict();
+
+// Queue a session on a Todo assigned to an AI Employee, yourself included. Your
+// own Todos don't start on their own, because you are usually already working.
+mcpInternalRouter.post(
+  "/tools/start_todo",
+  validateBody(startTodoSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof startTodoSchema>;
+    const found = await loadEditableTodo(req, res, body.todoId);
+    if (!found) return;
+    if (!found.todo.assigneeEmployeeId) {
+      return res.status(400).json({ error: "Assign an AI Employee first." });
+    }
+    if (found.todo.assigneeEmployeeId === req.mcpEmployee!.id && req.mcpTodoPickupId) {
+      const pickup = await AppDataSource.getRepository(TodoPickup).findOne({
+        where: { id: req.mcpTodoPickupId },
+        select: { id: true, todoId: true },
+      });
+      if (pickup?.todoId === found.todo.id) {
+        return res.status(400).json({ error: "You are already working on this Todo." });
+      }
+    }
+    const note = await startHandedOverTodo(req, found.todo, "start_now");
+    await recordAudit({
+      companyId: req.mcpCompany!.id,
+      actorEmployeeId: req.mcpEmployee!.id,
+      action: "todo.pickup.start",
+      targetType: "todo",
+      targetId: found.todo.id,
+      targetLabel: `${found.project.key}-${found.todo.number}: ${found.todo.title}`,
+      metadata: { via: "mcp" },
+    });
+    res.json({ queued: note === null, ...(note ? { note } : {}) });
+  },
+);
+
+const todoLinkToolSchema = z
+  .object({
+    todoId: z.string().uuid(),
+    kind: z.enum(TODO_LINK_KINDS),
+    id: z.string().uuid(),
+    isSource: z.boolean().optional(),
+  })
+  .strict();
+
+// The Todo a link tool acts on, once the turn may edit its Project.
+async function loadEditableTodo(
+  req: McpRequest,
+  res: Response,
+  todoId: string,
+): Promise<{ todo: Todo; project: Project } | null> {
+  const todo = await AppDataSource.getRepository(Todo).findOneBy({ id: todoId });
+  const project = todo
+    ? await AppDataSource.getRepository(Project).findOneBy({
+        id: todo.projectId,
+        companyId: req.mcpCompany!.id,
+      })
+    : null;
+  if (!todo || !project) {
+    res.status(404).json({ error: "Todo not found" });
+    return null;
+  }
+  if (!(await hasDelegatedProjectAccess(req, project, "write"))) {
+    res.status(403).json({ error: "No access to that project" });
+    return null;
+  }
+  return { todo, project };
+}
+
+mcpInternalRouter.post(
+  "/tools/link_todo",
+  validateBody(todoLinkToolSchema),
+  async (req: McpRequest, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof todoLinkToolSchema>;
+      const co = req.mcpCompany!;
+      const self = req.mcpEmployee!;
+      const found = await loadEditableTodo(req, res, body.todoId);
+      if (!found) return;
+      const reader = {
+        kind: "employee" as const,
+        employeeId: self.id,
+        financeAccessLimit: delegatedMemberFinanceAccess(req),
+      };
+      const refused = await employeeLinkAccessError(co.id, reader, body.kind, body.id);
+      if (refused) return res.status(403).json({ error: refused });
+      const link = await addTodoLink({
+        companyId: co.id,
+        todoId: found.todo.id,
+        kind: body.kind,
+        targetId: body.id,
+        isSource: body.isSource,
+        createdByEmployeeId: self.id,
+      });
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "todo.link",
+        targetType: "todo",
+        targetId: found.todo.id,
+        targetLabel: `${found.project.key}-${found.todo.number}: ${found.todo.title}`,
+        metadata: { via: "mcp", kind: link.kind, label: link.label },
+      });
+      res.json({ link: { kind: link.kind, id: link.targetId, isSource: link.isSource } });
+    } catch (error) {
+      if (error instanceof TodoLinkError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      next(error);
+    }
+  },
+);
+
+const todoUnlinkToolSchema = z
+  .object({ todoId: z.string().uuid(), kind: z.enum(TODO_LINK_KINDS), id: z.string().uuid() })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/unlink_todo",
+  validateBody(todoUnlinkToolSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof todoUnlinkToolSchema>;
+    const co = req.mcpCompany!;
+    const found = await loadEditableTodo(req, res, body.todoId);
+    if (!found) return;
+    const removed = await removeTodoLink({
+      companyId: co.id,
+      todoId: found.todo.id,
+      kind: body.kind,
+      targetId: body.id,
+    });
+    if (!removed) return res.status(404).json({ error: "That link is not on this Todo" });
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: req.mcpEmployee!.id,
+      action: "todo.unlink",
+      targetType: "todo",
+      targetId: found.todo.id,
+      targetLabel: `${found.project.key}-${found.todo.number}: ${found.todo.title}`,
+      metadata: { via: "mcp", kind: body.kind },
+    });
+    res.json({ ok: true });
   },
 );
 
@@ -15660,6 +16089,9 @@ mcpInternalRouter.post(
           selfReviewOnly: req.mcpSelfReviewOnly,
         },
       });
+      if (approval.status === "pending") {
+        await waitOnThisPickupsTodo(req, "work_review", approval.id, body.title);
+      }
       return res.json({
         approvalId: approval.id,
         status: approval.status,
@@ -15808,8 +16240,12 @@ mcpInternalRouter.post(
         runId: req.mcpRunId ?? null,
         conversationId: req.mcpConversationId ?? null,
         mailThreadId: req.mcpMailThreadId ?? null,
+        // An answer to a question raised from a pickup carries on in that Todo,
+        // so it starts no separate session of its own.
         automaticContinuation:
-          !req.mcpProactiveReview && mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode),
+          !req.mcpTodoPickupId &&
+          !req.mcpProactiveReview &&
+          mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode),
       });
       if (raised.outcome === "stack_off") {
         return res.status(403).json({ error: DECISION_STACK_OFF_MESSAGE });
@@ -15858,6 +16294,7 @@ mcpInternalRouter.post(
         `Asked for a decision: ${decision.title}`,
         `Options: ${options.map((o) => o.label).join(" · ")}`,
       );
+      await waitOnThisPickupsTodo(req, "decision", decision.id, decision.title);
       // M53: a DecisionPolicy rule may have routed the question to an AI
       // decider. The kickoff session is fired here, by the boundary that
       // created the row — the same rule the human answer's pickup follows.
@@ -15871,7 +16308,9 @@ mcpInternalRouter.post(
         decisionId: decision.id,
         status: decision.status,
         options: options.map((o) => ({ id: o.id, label: o.label })),
-        note: req.mcpProactiveReview
+        note: req.mcpTodoPickupId
+          ? "Stacked for a human, and this Todo now waits on the answer. End this session: it carries on here when someone answers."
+          : req.mcpProactiveReview
           ? "Stacked for a human. Finish this line of review. The answer is saved for list_decisions to read on a later review; answering does not start work or expand this turn’s authority. Continue only permitted preparation; a consequential action outside that scope needs its own human approval."
           : decision.pickupStatus === "skipped"
             ? "Stacked for a human. Record the Decision id and remaining work in your Workstream, then finish this line of work. The answer is saved in the Decision and your journal; list_decisions reads it back. Answering does not start another AI session. An approved standing Routine or a Member can continue."
@@ -22377,9 +22816,26 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof getMailThreadSchema>;
     const found = await loadGrantedMailThread(req, res, body.threadId, "read");
     if (!found) return;
+    // The work this email already started, so it isn't started twice. Limited
+    // to Projects this turn can open, and capped: Tasks pages through the rest.
+    const linked = await pageLinkedTodos(
+      req.mcpCompany!.id,
+      mcpProjectActors(req),
+      "mail_thread",
+      found.thread.id,
+      { limit: 10 },
+    );
     res.json({
       thread: serializeMailThreadForAgent(found.thread),
       account: { accountId: found.account.id, address: found.account.address },
+      linkedTodos: linked.rows.map((todo) => ({
+        id: todo.id,
+        key: todo.key,
+        title: todo.title,
+        status: todo.status,
+        isSource: todo.isSource,
+        projectSlug: todo.project.slug,
+      })),
       ...(await readMailThreadForAgent(found.thread, body)),
     });
   },

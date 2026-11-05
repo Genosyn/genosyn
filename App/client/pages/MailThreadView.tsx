@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Forward,
   Image as ImageIcon,
+  ListPlus,
   Mail,
   MoreHorizontal,
   Paperclip,
@@ -34,6 +35,8 @@ import {
   shortMailDate,
 } from "../lib/mail";
 import { MailAnalysisCard } from "./MailAnalysisCard";
+import { CreateTaskModal } from "../components/mail/CreateTaskModal";
+import { LinkedTodosCard } from "../components/todos/TodoLinks";
 import { MailOutletCtx } from "./MailLayout";
 import { ReplyComposer, type ReplyComposerHandle } from "./MailReplyComposer";
 import { ScheduleMeetingModal, type ScheduleMeetingPrefill } from "./MailScheduleMeeting";
@@ -202,6 +205,8 @@ export default function MailThreadView() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [handOpen, setHandOpen] = React.useState(false);
+  const [taskOpen, setTaskOpen] = React.useState(false);
+  const [tasksKey, setTasksKey] = React.useState(0);
   const [retrying, setRetrying] = React.useState(false);
   const [scheduling, setScheduling] = React.useState<{
     prefill: ScheduleMeetingPrefill | null;
@@ -269,6 +274,7 @@ export default function MailThreadView() {
     setReviewTimeline(null);
     setHandoverDetailsOpen(false);
     setHandOpen(false);
+    setTaskOpen(false);
     setScheduling(null);
     scrolledToHandover.current = null;
     keptUnread.current = null;
@@ -541,6 +547,16 @@ export default function MailThreadView() {
                   <span className="hidden sm:inline">Schedule</span>
                 </Button>
               )}
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setTaskOpen(true)}
+                title="Create a task linked to this email"
+                aria-label="Create task"
+              >
+                <ListPlus size={14} className="xl:mr-1.5" />
+                <span className="hidden xl:inline">Create task</span>
+              </Button>
               <Button size="sm" variant="secondary" onClick={() => setHandOpen(true)}>
                 <Bot size={14} className="mr-1.5" /> Hand to AI
               </Button>
@@ -591,6 +607,16 @@ export default function MailThreadView() {
             companySlug={company.slug}
             error={reviewTimeline ? null : "The timeline is unavailable. Refresh to try again."}
             onRetry={() => void load()}
+          />
+
+          {/* The work this email started, in Tasks. */}
+          <LinkedTodosCard
+            className="mb-4"
+            companyId={company.id}
+            companySlug={company.slug}
+            kind="mail_thread"
+            targetId={thread.id}
+            reloadKey={tasksKey}
           />
 
           {/* What the AI made of the newest inbound message. Only the latest
@@ -724,6 +750,16 @@ export default function MailThreadView() {
             defaultAttendees={meetingGuests}
             prefill={scheduling?.prefill ?? null}
             onAddToReply={(text) => replyRef.current?.insertText(text)}
+          />
+
+          <CreateTaskModal
+            open={taskOpen}
+            onClose={() => setTaskOpen(false)}
+            companyId={company.id}
+            companySlug={company.slug}
+            threadId={thread.id}
+            subject={thread.subject}
+            onCreated={() => setTasksKey((key) => key + 1)}
           />
 
           <HandToAiModal

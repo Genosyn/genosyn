@@ -141,6 +141,7 @@ const REGISTRY: Record<string, Mapping> = {
   // what a board filters by (projectId), so it emits an empty scope that
   // matches every "todo" listener rather than a scope none of them would.
   TodoComment: { kind: "todo", company: { fk: "todoId", parent: "Todo" } },
+  TodoLink: { kind: "todo", company: "direct" },
 
   // ── Approvals & audit ────────────────────────────────────────────────────
   Approval: { kind: "approval", company: "direct" },

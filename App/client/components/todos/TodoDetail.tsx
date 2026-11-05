@@ -13,6 +13,7 @@ import {
   CornerDownRight,
   CornerUpLeft,
   ListTree,
+  Mail,
   MessageSquare,
   Plus,
   RefreshCw,
@@ -25,6 +26,10 @@ import {
 
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { RecordHistory } from "@/components/RecordHistory";
+import { TodoLinksList } from "@/components/todos/TodoLinks";
+import { TodoPickupPanel } from "@/components/todos/TodoPickupPanel";
+import { useLiveRefetch } from "@/components/CompanySocket";
+import { shouldShowTurnSummary, TurnWorkSummary } from "@/components/chat/TurnActivity";
 import {
   ChatResourceReference,
   insertResourceReference,
@@ -151,6 +156,12 @@ export function TodoDetailBody({
           <span className="max-w-[14rem] truncate">· {parent.title}</span>
         </button>
       )}
+      <TodoLinksList
+        todo={todo}
+        companyId={companyId}
+        companySlug={companySlug}
+        canEdit={canEdit}
+      />
       <input
         value={title}
         readOnly={!canEdit}
@@ -296,6 +307,13 @@ export function TodoDetailBody({
           />
         </div>
       </div>
+
+      <TodoPickupPanel
+        todo={todo}
+        companyId={companyId}
+        companySlug={companySlug}
+        canEdit={canEdit}
+      />
 
       {todo.status === "in_review" && (
         <ReviewPanel
@@ -712,6 +730,9 @@ export function CommentThread({
     load();
   }, [todo.id, load]);
 
+  // An AI Employee's report lands here when its session ends.
+  useLiveRefetch("todo", () => void load());
+
   // Poll while an AI reply is outstanding — the server fills the pending row
   // in place once the CLI returns. Stop polling as soon as nothing's pending.
   const hasPending = (comments ?? []).some((c) => c.pending);
@@ -894,6 +915,7 @@ export function CommentThread({
               key={c.id}
               comment={c}
               companyId={companyId}
+              companySlug={companySlug}
               todoId={todo.id}
               canEdit={canEdit}
               onDelete={remove}
@@ -1035,6 +1057,7 @@ export function CommentThread({
 
 function CommentRow({
   companyId,
+  companySlug,
   todoId,
   comment,
   canEdit,
@@ -1042,6 +1065,7 @@ function CommentRow({
 }: {
   comment: TodoComment;
   companyId: string;
+  companySlug: string;
   todoId: string;
   canEdit: boolean;
   onDelete: (c: TodoComment) => void;
@@ -1051,6 +1075,17 @@ function CommentRow({
   const name = optimistic ? "You" : (author?.name ?? "Unknown");
   const isAi = author?.kind === "ai";
   const when = formatWhen(comment.createdAt);
+
+  // A line from the server: a new email arrived, not anyone saying anything.
+  if (comment.systemNote) {
+    return (
+      <div className="flex items-center gap-2 pl-9 text-xs text-slate-500 dark:text-slate-400">
+        <Mail size={12} aria-hidden className="shrink-0" />
+        <span className="min-w-0 break-words">{comment.body}</span>
+        <span className="shrink-0 text-slate-400 dark:text-slate-500">· {when}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="group flex gap-2.5">
@@ -1091,6 +1126,19 @@ function CommentRow({
           </div>
         ) : (
           <div className="mt-0.5 break-words text-sm text-slate-800 dark:text-slate-100">
+            {comment.pickup && shouldShowTurnSummary(comment.pickup.activity) && comment.pickup.activity && (
+              <TurnWorkSummary
+                summary={comment.pickup.activity}
+                activityUrl={`/api/companies/${companyId}/todos/${todoId}/pickups/${comment.pickup.id}/activity`}
+                messageId={comment.pickup.id}
+                companySlug={companySlug}
+                note={
+                  comment.pickup.access === "steps"
+                    ? "You see its steps but not what they read, because it worked with another Member's access."
+                    : null
+                }
+              />
+            )}
             <ChatMarkdown content={comment.body} />
             <ChatAttachments
               attachments={comment.attachments ?? []}

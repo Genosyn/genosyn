@@ -59,6 +59,7 @@ import { bootAuthFlowStateSweeper, stopAuthFlowStateSweeper } from "./services/a
 import { bootConnectedAppSweeper, stopConnectedAppSweeper } from "./services/mcpOauth/sweeper.js";
 import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
 import { bootChannelTurnRecovery } from "./services/channelTurns.js";
+import { bootTodoPickups } from "./services/todoPickups.js";
 import { bootGroupDiscussions } from "./services/groupDiscussions.js";
 import { bootSignatureExpirySweeper } from "./services/signing.js";
 import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
@@ -156,6 +157,7 @@ async function main() {
   // Workspace replies a previous process was running, or that wait for an AI
   // Model, are picked up again; discussion turns it was driving are closed.
   await bootChannelTurnRecovery();
+  await bootTodoPickups();
   // Group discussions a previous process was driving end as interrupted;
   // writing in the chat again picks the discussion up.
   await bootGroupDiscussions();

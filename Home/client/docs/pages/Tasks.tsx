@@ -71,6 +71,35 @@ export function Tasks() {
         <LI>Deleting a parent deletes its subtasks with it.</LI>
       </UL>
 
+      <H2 id="links">Where a todo came from</H2>
+      <P>
+        A todo can be linked to the record it came from or is about: an email thread, a{" "}
+        <DocLink to="/docs/customers">Customer</DocLink>, a Contact or Deal in{" "}
+        <DocLink to="/docs/revenue">Revenue</DocLink>, a{" "}
+        <DocLink to="/docs/decisions">Decision</DocLink>, a Meeting, or a Routine Run. It reads both
+        ways: the todo&apos;s panel says <Strong>From email</Strong> with a link to the thread, and
+        the thread lists the todo under <Strong>Tasks</Strong>. Customer, Contact and Deal pages
+        show the same <Strong>Tasks</Strong> card when something is linked to them.
+      </P>
+      <P>
+        To make one from an email, open the thread and choose <Strong>Create task</Strong>. The title
+        starts as the subject, and you pick the Project and who it goes to. See{" "}
+        <DocLink to="/docs/email#create-task">Email</DocLink>.
+      </P>
+      <UL>
+        <LI>
+          A link grants nothing. On a todo, a link to a record you can&apos;t open shows only that
+          one exists, and a record lists only the todos in Projects you can open.
+        </LI>
+        <LI>
+          A todo keeps the name of what it was linked to, so it still says which email it came from
+          after that thread is gone from Genosyn. The name just stops being a link.
+        </LI>
+        <LI>
+          Hover a link in the panel and press its <Strong>×</Strong> to remove it.
+        </LI>
+      </UL>
+
       <H2 id="access">Who has access</H2>
       <P>
         A project is <Strong>open</Strong> by default: every Member and every{" "}
@@ -124,13 +153,19 @@ export function Tasks() {
       <P>
         AI Employees manage tasks through the built-in <Code>genosyn</Code> MCP server —{" "}
         <Code>list_projects</Code>, <Code>create_project</Code>, <Code>list_todos</Code>,{" "}
-        <Code>create_todo</Code>, <Code>update_todo</Code>, and <Code>add_todo_comment</Code> —
+        <Code>create_todo</Code>, <Code>update_todo</Code>, <Code>add_todo_comment</Code>,{" "}
+        <Code>start_todo</Code>, <Code>wait_on_todo</Code>, <Code>link_todo</Code>, and{" "}
+        <Code>unlink_todo</Code> —
         subject to each project&apos;s{" "}
         <DocLink to="/docs/tasks#access">access settings</DocLink>: <Code>list_projects</Code> only
         returns the projects an employee can reach, and the writes require{" "}
         <Strong>&quot;Can edit&quot;</Strong>. <Code>list_todos</Code> reads a project a page at a
         time in the board&apos;s order, with description previews (<Code>get_todo</Code> reads one in
-        full), and narrows to open work or to the employee&apos;s own Todos. An employee can hand a todo to a person as well as
+        full), and narrows to open work or to the employee&apos;s own Todos. A todo an employee
+        creates while working an email links that thread by itself, and{" "}
+        <Code>get_mail_thread</Code> shows the work a thread already started, so it isn&apos;t
+        started twice; <Code>link_todo</Code> and <Code>unlink_todo</Code> manage the rest, for
+        records its own Grants let it read. An employee can hand a todo to a person as well as
         to a teammate — <Code>list_members</Code> gives it each Member&apos;s user id — and that
         person must be able to open the project. When an employee
         creates a todo it assigns itself by default, and it can pass <Code>parentTodoId</Code> to
@@ -140,26 +175,96 @@ export function Tasks() {
 
       <H2 id="auto-start">Assign it, and it starts</H2>
       <P>
-        Assigning a todo to an AI Employee — when you create it, or by changing the assignee later —
-        starts the work immediately. The todo moves to <Code>in_progress</Code>, the employee works
-        within both your current access and its Grants, and posts its report as a comment on the
-        todo&apos;s thread. Coding, browser, Connections, and configured MCP servers remain
-        owner/admin-only on an interactive assignment. When it finishes, it moves the todo to{" "}
-        <Code>done</Code> itself — or to <Code>in_review</Code> when a reviewer is set, so the work
+        Assigning a todo to an AI Employee, when you create it or by changing the assignee later,
+        puts it on that employee&apos;s work queue. Each employee works one todo at a time, highest
+        priority first, so a busy morning is a queue and not twenty sessions at once. The todo moves
+        to <Code>in_progress</Code>, the panel shows the employee working step by step with a{" "}
+        <Strong>Stop</Strong> button, and its report lands as a comment on the thread, with the steps
+        behind a <Strong>Worked for…</Strong> line. When it finishes, it moves the todo to{" "}
+        <Code>done</Code> itself, or to <Code>in_review</Code> when a reviewer is set, so the work
         lands in the reviewer&apos;s queue instead of completing silently. If the brief is too vague
-        to act on, the employee moves the todo back to <Code>todo</Code> and asks for what it needs
-        on the thread.
+        to act on, it moves the todo back to <Code>todo</Code> and asks for what it needs.
       </P>
+      <UL>
+        <LI>
+          <Strong>Who it works for.</Strong> When you assign it, the employee works within both your
+          current access and its Grants. Coding, browser, Connections, and configured MCP servers
+          remain owner/admin-only on an interactive assignment.
+        </LI>
+        <LI>
+          <Strong>AI Employees hand work to each other.</Strong> A todo one employee assigns to
+          another starts by itself, with what the first one&apos;s turn was allowed. If that turn
+          could only prepare, or read a web page, the colleague&apos;s session is held to the same
+          limit, so handing work over can&apos;t shed one. A todo an employee puts on its own list
+          doesn&apos;t start a separate session unless it asks with <Code>start_todo</Code>.
+        </LI>
+        <LI>
+          <Strong>It waits rather than fails.</Strong> During a{" "}
+          <DocLink to="/docs/standdowns">Standdown</DocLink> or while its{" "}
+          <DocLink to="/docs/models">AI Model</DocLink> is unavailable, the todo stays queued, says
+          why in its panel, and starts by itself afterwards. A restart hands the work to the next
+          worker, told what the first attempt already changed. A real error tries again after 5
+          minutes, 30 minutes and 2 hours, then says so on the thread and tells a person.
+        </LI>
+        <LI>
+          <Strong>It can&apos;t loop.</Strong> A session that ends with the todo still open gets one
+          more try, then a person is asked to look. A todo gets at most 10 automatic sessions in a
+          day, and work passing through more than 5 AI hand-offs waits for a Member.
+        </LI>
+        <LI>
+          <Strong>Start now</Strong> in the panel sends the assignee back to a todo that sat, under
+          your access. Nothing already assigned starts by itself when you upgrade; only a new
+          assignment or Start now does.
+        </LI>
+      </UL>
+      <H2 id="waiting">Waiting on someone</H2>
+      <P>
+        When an AI Employee can&apos;t finish without an answer, it asks and then says what it is
+        waiting on. The todo stays <Code>in_progress</Code> with a <Strong>Waiting on
+        customer</Strong> chip on its card, and a banner in its panel gives the reason, since when,
+        and when it checks back. The session ends, so waiting costs nothing, and the same todo picks
+        up when the answer arrives:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "A customer replies",
+            def: "A new email on the linked thread wakes the todo at once, with the reply as data. It can prepare and put an exact reply in the Decision stack; it doesn't get more than that from an email, whoever started the work. An out-of-office or a bounce doesn't count as a reply.",
+          },
+          {
+            term: "Nobody replies",
+            def: "It checks back when it said it would, at most 30 days out. After three checks with no reply it must close the todo or ask a person.",
+          },
+          {
+            term: "A person answers",
+            def: "If it asked on the thread, your comment wakes it, working under your access.",
+          },
+          {
+            term: "A Decision or a review",
+            def: "Raising a Decision, or proposing an email or work for review, makes the todo wait on it. When you answer, send, discard or decline, the same todo carries on and reports on its own thread. A sent email moves it on to waiting for the reply.",
+          },
+        ]}
+      />
+      <P>
+        Press <Strong>Stop waiting</Strong> in the panel to send the employee back now, under your
+        access. A finished todo stays finished when mail arrives on its thread, so a
+        &quot;thanks!&quot; doesn&apos;t reopen it, and a Member assigned to a todo hears about new
+        mail on its thread in their bell.
+      </P>
+
       <Callout kind="warn" title="AI assignment requires a browser session.">
         Starting an AI Employee is an interactive delegation, so creating or changing an AI assignee
         requires a logged-in browser session. Personal API keys can still automate ordinary todo
-        fields, but cannot launch an AI Employee by assigning one.
+        fields and can press Stop, but cannot launch an AI Employee by assigning one.
       </Callout>
       <Callout kind="info" title="Needs a connected model.">
-        Auto-start only fires for employees with an <DocLink to="/docs/models">AI Model</DocLink>
-        {" "}
-        connected. Assigning to an employee without one just records the assignee, exactly as
-        before.
+        Assigning to an employee without a connected <DocLink to="/docs/models">AI Model</DocLink>{" "}
+        just records the assignee, exactly as before. Connecting a model later doesn&apos;t start a
+        backlog of old assignments; press Start now on the ones you want.
+      </Callout>
+      <Callout kind="info" title="A todo no Member wrote is a request, not an instruction.">
+        A todo an AI Employee or a Pipeline wrote reaches the session that works it as data. It says
+        what was asked for and can&apos;t change that employee&apos;s Soul, Grants or limits.
       </Callout>
 
       <Callout kind="info" title="Reviews close the loop.">
@@ -176,7 +281,8 @@ export function Tasks() {
       </Callout>
       <P>
         The reviewer can be an AI Employee too. A todo entering <Code>in_review</Code> with an AI
-        reviewer starts a review session instead of a bell: the reviewer reads the thread, verifies
+        reviewer queues a review session instead of ringing a bell, which starts once the
+        assignee&apos;s report is written: the reviewer reads the thread, verifies
         what the report claims with its own tools, and moves the card itself — <Code>done</Code>
         {" "}
         when the work holds up, back to <Code>in_progress</Code> with what&apos;s missing when it

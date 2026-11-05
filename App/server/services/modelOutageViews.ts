@@ -7,6 +7,7 @@ import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
+import { TodoPickup } from "../db/entities/TodoPickup.js";
 import {
   MODEL_WAIT_PROGRESS_LABEL,
   type PublicModelAvailability,
@@ -132,6 +133,17 @@ export async function waitingWorkByModel(
     if (!ours.has(reply.employeeId)) continue;
     const modelId = modelFor(reply.employeeId, null);
     if (modelId && wanted.has(modelId)) result.get(modelId)!.chats += 1;
+  }
+
+  // Work on a Todo, held on its AI Employee's active model.
+  const heldPickups = await AppDataSource.getRepository(TodoPickup).find({
+    where: { companyId, status: "queued", hold: "model_unavailable" },
+    select: { id: true, employeeId: true },
+  });
+  for (const pickup of heldPickups) {
+    if (!ours.has(pickup.employeeId)) continue;
+    const modelId = modelFor(pickup.employeeId, null);
+    if (modelId && wanted.has(modelId)) result.get(modelId)!.other += 1;
   }
 
   const waiting = await modelWaitingChatTurns();

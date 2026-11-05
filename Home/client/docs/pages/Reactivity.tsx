@@ -56,8 +56,8 @@ export function Reactivity() {
         Proactive Routines, automatic email handovers and Routines started by a Trigger or webhook
         inspect the available evidence and can complete bounded, reversible preparation. Within
         existing Grants, this includes factual Contact details, Deal descriptions and next steps,
-        Activity notes, ordinary Follow-ups, the employee&apos;s own Workstream tracking, and
-        marking, starring or archiving email. Research, duplicate checks and reply preparation do
+        Activity notes, ordinary Follow-ups, the employee&apos;s own Workstream tracking, its own{" "}
+        <DocLink to="/docs/tasks#waiting">todos</DocLink>, and marking, starring or archiving email. Research, duplicate checks and reply preparation do
         not need a separate work review. Major work needs a concrete reason for human judgement or
         authority before it reaches the <DocLink to="/docs/decisions">Decision stack</DocLink>.
         Preparation cannot change ownership, Deal value or Deal Stage, consent or access, spend
@@ -92,7 +92,7 @@ export function Reactivity() {
         rows={[
           {
             term: "Projects and Todos",
-            def: "Find assigned work and reviews that need attention, prioritizing urgency and due dates. Read existing comments and status before proposing work so immediate assignment work is not duplicated.",
+            def: "Find assigned work and reviews that need attention, prioritizing urgency and due dates. A todo handed to an employee is on its work queue already and starts by itself, and one waiting on someone wakes itself, so read existing comments and status before proposing work and don't duplicate it.",
           },
           {
             term: "Handoffs and Decisions",

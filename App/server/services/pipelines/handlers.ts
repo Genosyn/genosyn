@@ -17,6 +17,8 @@ import { safeFetchBuffer } from "../../lib/outboundUrl.js";
 import { assertSafeIntegrationConfig } from "../integrationOutboundConfig.js";
 import { chatWithEmployee } from "../chat.js";
 import { recordAudit } from "../audit.js";
+import { addTodoLink } from "../todoLinks.js";
+import { insertTodo } from "../todos.js";
 import { toSlug } from "../../lib/slug.js";
 import { decryptConnectionConfig, persistConnectionConfigIfCurrent } from "../integrations.js";
 import { assertIntegrationAllowed, getProvider } from "../../integrations/index.js";
@@ -124,34 +126,33 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       slug: projectSlug,
     });
     if (!project) throw new Error(`Project "${projectSlug}" not found`);
-    project.todoCounter += 1;
-    await AppDataSource.getRepository(Project).save(project);
-    const last = await AppDataSource.getRepository(Todo).findOne({
-      where: { projectId: project.id, status: "todo" },
-      order: { sortOrder: "DESC" },
-    });
-    const sortOrder = (last?.sortOrder ?? 0) + 1000;
     const priority = String(ctx.config.priority ?? "none") as Todo["priority"];
     const description = String(ctx.config.description ?? "");
-    const todo = AppDataSource.getRepository(Todo).create({
-      projectId: project.id,
-      number: project.todoCounter,
+    // A template can pull in anything, an email's body included, so no Member
+    // wrote this.
+    const todo = await insertTodo({
+      project,
       title,
       description,
       status: "todo",
       priority,
-      assigneeEmployeeId: null,
-      assigneeUserId: null,
-      reviewerEmployeeId: null,
-      reviewerUserId: null,
-      createdById: null,
-      dueAt: null,
-      sortOrder,
-      completedAt: null,
-      recurrence: "none",
-      recurrenceParentId: null,
+      untrustedText: true,
     });
-    await AppDataSource.getRepository(Todo).save(todo);
+    // A step can say where the Todo came from, usually the email that started
+    // the Pipeline: `{{trigger.message.threadId}}`. A value that names nothing
+    // in this company links nothing; the Todo still stands.
+    const linkMailThreadId = String(ctx.config.linkMailThreadId ?? "").trim();
+    if (linkMailThreadId) {
+      await addTodoLink({
+        companyId: ctx.companyId,
+        todoId: todo.id,
+        kind: "mail_thread",
+        targetId: linkMailThreadId,
+        isSource: true,
+      }).catch((err) => {
+        ctx.log(`could not link the email thread: ${err instanceof Error ? err.message : err}`);
+      });
+    }
     void import("./events.js")
       .then(({ dispatchTodoCreated }) =>
         dispatchTodoCreated(ctx.companyId, todo.id, {

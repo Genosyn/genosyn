@@ -1054,9 +1054,10 @@ export async function settleQueuedProactiveRoutineRun(runId: string): Promise<vo
   }
 }
 
-function approvedWorkBrief(payload: ProactiveWorkPayload): string {
+function approvedWorkBrief(payload: ProactiveWorkPayload, todoId: string | null = null): string {
   return [
     "A company owner or admin reviewed and approved this specific proposed work.",
+    todoId ? `This work belongs to Todo ${todoId}. Your report goes on its thread.` : "",
     `Work: ${payload.title}`,
     `Why it was proposed:\n${payload.context}`,
     `Approved scope:\n${payload.plan}`,
@@ -1160,10 +1161,12 @@ export async function executeProactiveWorkApproval(
     if (result.errorMessage) throw new Error(result.errorMessage);
     return;
   }
+  const { todoWaitingOn, resumeTodoAfterApprovedWork } = await import("../todoWaits.js");
+  const waitingTodo = await todoWaitingOn("work_review", approval.id);
   const result = await runChat(
     approval.companyId,
     approval.employeeId,
-    approvedWorkBrief(payload),
+    approvedWorkBrief(payload, waitingTodo?.id ?? null),
     [],
     {
       requesterUserId: user.id,
@@ -1193,6 +1196,15 @@ export async function executeProactiveWorkApproval(
       resultJson: JSON.stringify({ summary }),
     },
   );
+  await resumeTodoAfterApprovedWork({
+    approval,
+    summary,
+    failed: result.status !== "ok" || result.stopReason === "max_steps",
+  }).catch((error) => {
+    // The work ran. A Todo that didn't hear is worth a log, not a failed approval.
+    // eslint-disable-next-line no-console
+    console.error(`[work-review] could not report on the Todo for ${approval.id}:`, error);
+  });
   if (result.status !== "ok")
     throw new Error(result.reply || "The approved work could not finish.");
   if (result.stopReason === "max_steps" || result.stopReason === "aborted")

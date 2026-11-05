@@ -40,6 +40,14 @@ export class TodoComment {
   @Column({ type: "boolean", default: false })
   pending!: boolean;
 
+  /** The server wrote this, and it names no author: "New email on the linked thread." */
+  @Column({ type: "boolean", default: false })
+  systemNote!: boolean;
+
+  /** The session this comment reports, when it is a pickup's report. */
+  @Column({ type: "varchar", nullable: true })
+  pickupId!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

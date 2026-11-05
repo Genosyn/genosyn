@@ -63,8 +63,11 @@ export async function getCommitmentOpportunities(
             "todo.reviewerEmployeeId",
             "todo.dueAt",
             "todo.updatedAt",
+            "todo.waitingOn",
           ])
           .where("todo.projectId IN (:...projectIds)", { projectIds })
+          // Waiting on someone is being looked after: it wakes itself.
+          .andWhere("todo.waitingOn IS NULL")
           .andWhere(
             "((todo.assigneeEmployeeId = :employeeId AND todo.status IN (:...statuses)) OR (todo.reviewerEmployeeId = :employeeId AND todo.status = :review))",
             {

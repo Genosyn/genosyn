@@ -21,6 +21,7 @@
  */
 
 import { BASE_FILTER_OPERATORS } from "../../shared/baseFilters.js";
+import { TODO_LINK_KINDS } from "../../shared/todoLinks.js";
 import {
   BASE_CHART_AGGREGATES,
   BASE_CHART_DATE_BUCKETS,
@@ -1899,6 +1900,64 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["projectSlug", "title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "wait_on_todo",
+    description:
+      "Say a Todo assigned to you is waiting on something, and end your session. `customer`: a reply on an email thread (name it with threadId; it is linked to the Todo). `member`: a person answering on the Todo's thread; ask your question there first. `date`: nothing until checkAt. A reply or an answer wakes you sooner, in a new session; otherwise you are woken at checkAt (at most 30 days out). After 3 checks with no customer reply, close the Todo or ask a person. For a consequential choice use request_decision, which waits by itself, as request_mail_review does.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        todoId: { type: "string" },
+        on: { type: "string", enum: ["customer", "member", "date"] },
+        threadId: { type: "string", description: "The email thread a customer will reply on." },
+        reason: { type: "string", description: "What you are waiting for, in a sentence." },
+        checkAt: { type: "string", description: "When to check back, as an ISO-8601 timestamp." },
+      },
+      required: ["todoId", "on", "reason", "checkAt"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "start_todo",
+    description:
+      "Queue a work session on a Todo assigned to an AI Employee, yourself included. Handing a Todo to a colleague starts them already; your own Todos don't start a session on their own. It runs when its assignee is free, with what your current turn is allowed. Needs write access to the Todo's project.",
+    inputSchema: {
+      type: "object",
+      properties: { todoId: { type: "string" } },
+      required: ["todoId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "link_todo",
+    description:
+      "Link a Todo to a record you can read, so each shows the other: the email thread it came from (`mail_thread`), or the Customer, Contact, Deal, Decision, Meeting or Run it is about. A Todo created while working an email already links that thread. Needs write access to the Todo's project. Pass `isSource` when this is where the Todo came from.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        todoId: { type: "string" },
+        kind: { type: "string", enum: [...TODO_LINK_KINDS] },
+        id: { type: "string", description: "The record's UUID." },
+        isSource: { type: "boolean" },
+      },
+      required: ["todoId", "kind", "id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "unlink_todo",
+    description: "Remove a link from a Todo. Needs write access to the Todo's project.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        todoId: { type: "string" },
+        kind: { type: "string", enum: [...TODO_LINK_KINDS] },
+        id: { type: "string", description: "The record's UUID." },
+      },
+      required: ["todoId", "kind", "id"],
       additionalProperties: false,
     },
   },

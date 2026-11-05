@@ -222,6 +222,11 @@ export function Revenue() {
         <DocLink to="/docs/soul">Soul</DocLink> worth trusting first.
       </Callout>
 
+      <P>
+        A Contact or Deal with <DocLink to="/docs/tasks#links">linked tasks</DocLink> lists them on
+        its page under <Strong>Tasks</Strong>.
+      </P>
+
       <H2 id="stages">Deal stages</H2>
       <P>
         Your sales process is a flat, ordered list of <Strong>deal stages</Strong>, managed from{" "}

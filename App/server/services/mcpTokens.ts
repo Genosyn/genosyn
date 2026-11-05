@@ -53,6 +53,8 @@ export type McpTokenInfo = {
    * not sent to work on.
    */
   repositoryWorkSessionId: string | null;
+  /** The pickup this turn is running, when it is one: provenance for what it files. */
+  todoPickupId: string | null;
   /**
    * Set when the turn is one AI Employee talking to colleagues — a turn in a
    * group discussion, or an answer to `ask_colleague`. Like
@@ -163,6 +165,7 @@ export function issueMcpToken(
     proactiveReview?: boolean;
     mailHandoverId?: string | null;
     repositoryWorkSessionId?: string | null;
+    todoPickupId?: string | null;
     collaboration?: CollaborationTurn | null;
     /**
      * Start the turn already tainted: it replays a message that a tainted turn
@@ -208,6 +211,7 @@ export function issueMcpToken(
     proactiveReview: origin.proactiveReview ?? false,
     mailHandoverId: origin.mailHandoverId ?? null,
     repositoryWorkSessionId: origin.repositoryWorkSessionId ?? null,
+    todoPickupId: origin.todoPickupId ?? null,
     collaboration: origin.collaboration ?? null,
     authority,
     requesterUserId,

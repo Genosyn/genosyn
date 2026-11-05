@@ -726,6 +726,17 @@ export function Email() {
         it to work on.
       </P>
 
+      <H2 id="create-task">Creating a task from an email</H2>
+      <P>
+        Open any thread and click <Strong>Create task</Strong>. Pick a{" "}
+        <DocLink to="/docs/tasks">Project</DocLink>, adjust the title (it starts as the subject) and
+        choose who it goes to. The thread then lists the todo under <Strong>Tasks</Strong>, and the
+        todo says <Strong>From email</Strong> with a link back. Assigning an AI Employee starts it
+        straight away within your access and its Grants; it needs Mail access to this mailbox to read
+        the email itself. A todo an AI Employee files while working a thread is linked the same way,
+        without anyone having to ask.
+      </P>
+
       <H2 id="hand-to-ai">Handing a thread to an AI Employee</H2>
       <P>
         Open any thread and click <Strong>Hand to AI</Strong>. Pick an employee — the dialog starts

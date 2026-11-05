@@ -252,6 +252,10 @@ code, UI copy, commits, and docs.
 | **Work session** (one request to an AI Employee to do work in a Repository — `RepositoryWorkSession`) | Job, Task, Agent run |
 | **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
+| **Pickup** (one session an AI Employee spends on one Todo — `TodoPickup`) | Run (a Routine's), Work session (a Repository's), Job, Attempt, Kickoff |
+| **Waiting** (an `in_progress` Todo paused for a customer's reply, a person, a Decision, a review or a date — `Todo.waitingOn`; never a Todo status of its own) | Blocked, Snoozed, Paused, On hold |
+| **Work queue** (an AI Employee's queued Runs and Pickups; for Pickups, the `todo_pickups` table itself, which the scheduler's heartbeat starts) | Backlog (a Todo status), Inbox, Scheduler |
+| **Todo link** (a Todo's link to the record it came from or is about — an email thread, Customer, Contact, Deal, Decision, Meeting or Run; `TodoLink`, one of which may be its **source**) | Relation, Reference, Attachment |
 | **Goal** (a measurable objective — `Goal`, linked from `Routine.goalId`) | Objective, OKR, KPI, Target (as a noun) |
 | **Lesson** (a graded Run's structured takeaway — `RunLesson`) | Learning (Resources' old name), Insight, Retro |
 | **Letter** (the monthly letter to the board — `BoardLetter`; owners and admins read it) | Report, Digest, Newsletter, Recap (a TLDR is the recap) |
@@ -278,6 +282,57 @@ code, UI copy, commits, and docs.
 
 **"Tasks" is reserved** for the task-manager feature (Projects + Todos), which
 has shipped. Do not use "Task" for scheduled AI work, ever.
+
+**A Todo link grants nothing.** It records that a Todo and a record belong
+together and reads both ways (`services/todoLinks.ts`). Every read asks the
+reader's own bar on the record: an AI Employee reads a link's name only with the
+Grant that record's tools ask for, a Member a Customer's only with Finance
+access, and a record lists only Todos in Projects its reader can open, filtered
+inside the query. A link keeps a copy of the record's name, so a Todo still says
+which email it came from once that thread is gone; for an email that name is
+words a stranger wrote, and it reaches a model only as data. Where the server
+knows a Todo's provenance it writes the link itself: a Todo created in a turn
+working an email links that thread as its source, so the model never names it.
+
+**A Pickup carries what it may do, and handing work over can't shed it.** Handing
+a Todo to an AI Employee queues a `TodoPickup` (`services/todoPickups.ts`), built
+like a `ChannelTurn`: claimed with a renewed lease, handed on after a restart, its
+steps the shared activity feed keyed by its id and scoped to the Todo. A person's
+assignment runs under that person (browser session only, as ever). An AI
+Employee's runs with what its own turn had: Member-delegated stays that Member,
+employee stays employee, and `mailDeliveryMode`, `proactiveReview`, `mailThreadId`
+and taint are copied onto the row, so a restricted or tainted turn can't widen
+itself by assigning a colleague. A request can only narrow a queued Pickup, except
+a person's own, which is theirs to make. The heartbeat is a query, one Pickup per
+employee at a time: nothing due costs no model turn, which is why this is not a
+Routine. A Standdown and an unavailable AI Model hold it queued and record no
+failure. No AI Model means no Pickup at all, so connecting a model later never
+starts a backlog, and no existing Todo starts on upgrade. Chains stop at
+`MAX_TODO_CHAIN_DEPTH` and each Todo has `MAX_AUTOMATIC_PICKUPS_PER_DAY`; a person
+pressing Start now passes both. Only a Member's words are instructions:
+`Todo.untrustedText` marks a Todo an AI Employee or a Pipeline wrote, and its title
+and description reach the session as bounded JSON, called data
+(`services/todoPickupBrief.ts`). `Todo.tainted` keeps a tainted turn's words on the
+thread from losing their taint. Do not start a Todo outside `requestTodoPickup`,
+run its session without a row, let an event widen a Pickup, or read
+`untrustedText` content as a brief.
+
+**A Todo waits, and an email can't lend the session it wakes any authority.**
+`services/todoWaits.ts` holds what a Todo waits on and what ends the wait. A wait
+is a state of `in_progress`, and its check-back is a queued Pickup with a future
+`notBeforeAt`, so the work queue stays the only scheduler. A new inbound email on
+a linked thread sends the AI assignee back, in preparation scope with review-only
+replies whoever started the work, because a stranger wrote it; its words reach the
+session as bounded JSON, and the note on the Todo's thread names only the sender's
+address. An auto-responder doesn't count. A finished Todo stays finished. A Member
+answering on the thread runs under that Member, from a browser only. A question
+raised from a Pickup (`request_decision`, `request_mail_review`,
+`request_work_review`) makes its Todo wait, starts no separate session, and comes
+back to that Todo with the ceiling it had, because answering authorizes nothing.
+Three checks with no reply and the employee must close the Todo or ask a person.
+Do not add a Todo status for waiting, wake a session above preparation on an
+inbound email without an owner having asked for it in advance, or schedule a
+check-back any way but a Pickup.
 
 **"Connection" stays reserved** for one authenticated account inside an
 Integration. An app a Member approved through OAuth to use the Genosyn MCP
@@ -478,7 +533,8 @@ never the Member-level Decision-answer route. Proactive starter Routines,
 event-triggered work, and automatic email handovers can do bounded, reversible
 preparation within current Grants: maintain their own Workstreams, factual
 Contact details and ordinary Follow-ups, update Deal descriptions and next
-steps, add Activity notes, and mark, star or archive email. Routine research,
+steps, add Activity notes, file and update their own Todos, and mark, star or
+archive email. Routine research,
 preparation and housekeeping do not need a work Approval. A major work proposal
 must explain the concrete need for human judgement or authority. The server-owned
 preparation scope still excludes protected business fields, spending, security

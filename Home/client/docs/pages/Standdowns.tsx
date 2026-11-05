@@ -104,6 +104,11 @@ export function Standdowns() {
           attempt you may still want.
         </LI>
         <LI>
+          <Strong>Work on todos waits too.</Strong> A{" "}
+          <DocLink to="/docs/tasks#auto-start">todo on an AI Employee&apos;s work queue</DocLink>{" "}
+          stays queued, says it is stood down in its panel, and starts by itself after the lift.
+        </LI>
+        <LI>
           <Strong>Skipped scheduled slots still advance the schedule.</Strong> A slot that arrives
           during a Standdown is declined and the next occurrence is computed as usual, so lifting a
           month-old Standdown produces no catch-up storm — the same ceiling{" "}

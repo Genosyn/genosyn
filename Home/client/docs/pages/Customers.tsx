@@ -195,8 +195,9 @@ export function Customers() {
           balance, lifetime billed, open pipeline), an <Strong>action-needed</Strong> queue that
           surfaces overdue and unpaid invoices, estimates awaiting a response, and recurring
           invoice runs that are retrying or couldn&apos;t email their invoice, then the latest
-          emails, activity, and open deals, every account detail, the people at the account, and
-          custom fields.
+          emails, activity, and open deals, any{" "}
+          <DocLink to="/docs/tasks#links">linked tasks</DocLink>, every account detail, the people at
+          the account, and custom fields.
         </LI>
         <LI>
           <Strong>Emails</Strong> — every conversation in your connected mailboxes with the
