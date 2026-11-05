@@ -52,6 +52,7 @@ import {
 } from "../lib/subpages";
 import { canOpenSection, listedGroups } from "../lib/sectionVisibility";
 import { type Command, searchCommands, useCommandSnapshot } from "./CommandRegistry";
+import { anotherDialogIsOpen } from "../lib/keyboard";
 import { useNavigationGuard } from "./NavigationGuard";
 import { clsx } from "./ui/clsx";
 
@@ -270,7 +271,9 @@ export function CommandPaletteProvider({
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         if (isOpen) close();
-        else open();
+        // Every modal sits above the palette, so opening under one would only take
+        // the cursor out of its form and into a search box nobody can see.
+        else if (!anotherDialogIsOpen()) open();
       }
     };
     window.addEventListener("keydown", onKey);

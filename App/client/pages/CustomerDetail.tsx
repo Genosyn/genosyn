@@ -49,6 +49,7 @@ import {
   parseCustomerTab,
   type CustomerTab,
 } from "../lib/customerOverview";
+import { ACCOUNT_STATUS_LABEL } from "../lib/customerLabel";
 import { meetingsApi, type Meeting } from "../lib/meetings";
 import { newRecurringInvoicePath } from "../lib/recurringInvoiceForm";
 import { newInvoicePath } from "../lib/invoiceKind";
@@ -74,6 +75,7 @@ import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { CustomerContractsPanel } from "./CustomerContractsPanel";
 import { CustomerMailList } from "./CustomerMailPanel";
+import { CustomerNotesPanel } from "./CustomerNotesPanel";
 import {
   CustomerDealsTable,
   CustomerMeetingsList,
@@ -92,6 +94,8 @@ const MAIL_MAX_PAGE = 100;
 const ACTIVITY_PAGE = 50;
 /** The server's page ceiling for activities. */
 const ACTIVITY_MAX_PAGE = 200;
+/** Notes the overview shows above its link to the rest. */
+const NOTE_PREVIEW = 3;
 /** Contacts, deals and meetings are listed whole, up to the list endpoints' cap. */
 const LIST_LIMIT = 200;
 
@@ -112,12 +116,6 @@ function websiteHref(customer: Customer): string | null {
   }
 }
 
-const ACCOUNT_STATUS_LABEL: Record<Customer["accountStatus"], string> = {
-  prospect: "Prospect",
-  customer: "Customer",
-  former: "Former customer",
-};
-
 const CREDIT_KIND_LABEL: Record<CustomerCredit["kind"], string> = {
   credit_memo: "Credit memo",
   deposit: "Deposit",
@@ -134,7 +132,7 @@ type ActionItem = {
   to: string;
 };
 
-type RelationshipList = "contacts" | "deals" | "activities" | "meetings" | "envelopes";
+type RelationshipList = "contacts" | "deals" | "activities" | "notes" | "meetings" | "envelopes";
 
 /** Everything the account carries on the Revenue side, plus its signature requests. */
 type Relationship = {
@@ -142,6 +140,8 @@ type Relationship = {
   deals: Deal[];
   activities: RevenueActivity[];
   activityTotal: number;
+  notes: RevenueActivity[];
+  noteTotal: number;
   meetings: Meeting[];
   envelopes: SignatureEnvelope[];
   /** A list that failed to load renders empty, with its error where it would be. */
@@ -160,10 +160,11 @@ function failure(result: PromiseSettledResult<unknown>): string | undefined {
  * keeps the headline numbers and the "action needed" queue (overdue and
  * unpaid invoices, estimates awaiting a response, recurring runs that are
  * retrying or could not email their invoice); the tabs hold the full
- * record: every email exchanged with the customer's people, the activity
- * timeline, deals, contacts, meetings, billing documents, and contracts,
- * signature requests and files. Records are edited on their own pages
- * (Finance, Revenue, Mail, Meetings, Signatures), so rows deep-link there.
+ * record: the notes people keep on the account, every email exchanged with the
+ * customer's people, the activity timeline, deals, contacts, meetings, billing
+ * documents, and contracts, signature requests and files. Notes are written
+ * here; other records are edited on their own pages (Finance, Revenue, Mail,
+ * Meetings, Signatures), so rows deep-link there.
  *
  * The finance routes write the customer and its billing documents, so a
  * read-only Member gets the page without Edit or the billing tab's New links;
@@ -203,6 +204,7 @@ function CustomerOverview({ company }: { company: Company }) {
 
   const [relationship, setRelationship] = React.useState<Relationship | null>(null);
   const [loadingMoreActivity, setLoadingMoreActivity] = React.useState(false);
+  const [loadingMoreNotes, setLoadingMoreNotes] = React.useState(false);
   const [mail, setMail] = React.useState<CustomerMailPage | null>(null);
   const [mailError, setMailError] = React.useState<string | null>(null);
   const [loadingMoreMail, setLoadingMoreMail] = React.useState(false);
@@ -212,6 +214,7 @@ function CustomerOverview({ company }: { company: Company }) {
   // How far the person has paged, so a live refresh keeps their place.
   const mailShown = React.useRef(MAIL_PAGE);
   const activityShown = React.useRef(ACTIVITY_PAGE);
+  const notesShown = React.useRef(ACTIVITY_PAGE);
   const tabList = React.useRef<HTMLDivElement>(null);
 
   const reload = React.useCallback(async () => {
@@ -260,13 +263,17 @@ function CustomerOverview({ company }: { company: Company }) {
     if (!customerId) return;
     const base = `/api/companies/${company.id}`;
     const activityLimit = Math.min(ACTIVITY_MAX_PAGE, activityShown.current);
-    const [contacts, deals, activities, meetings, envelopes] = await Promise.allSettled([
+    const noteLimit = Math.min(ACTIVITY_MAX_PAGE, notesShown.current);
+    const [contacts, deals, activities, notes, meetings, envelopes] = await Promise.allSettled([
       api.get<Page<RevenueContact>>(
         `${base}/revenue/contacts?customerId=${customerId}&limit=${LIST_LIMIT}`,
       ),
       api.get<Page<Deal>>(`${base}/revenue/deals?customerId=${customerId}&limit=${LIST_LIMIT}`),
       api.get<Page<RevenueActivity>>(
         `${base}/revenue/activities?customerId=${customerId}&includeRelatedRecords=true&limit=${activityLimit}`,
+      ),
+      api.get<Page<RevenueActivity>>(
+        `${base}/revenue/activities?customerId=${customerId}&includeRelatedRecords=true&kinds=note&limit=${noteLimit}`,
       ),
       meetingsApi.meetings(company.id, { customerId, limit: LIST_LIMIT }),
       api.get<unknown>(`${base}/signature-envelopes?customerId=${customerId}`),
@@ -276,6 +283,7 @@ function CustomerOverview({ company }: { company: Company }) {
       ["contacts", contacts],
       ["deals", deals],
       ["activities", activities],
+      ["notes", notes],
       ["meetings", meetings],
       ["envelopes", envelopes],
     ];
@@ -288,6 +296,8 @@ function CustomerOverview({ company }: { company: Company }) {
       deals: deals.status === "fulfilled" ? deals.value.rows : [],
       activities: activities.status === "fulfilled" ? activities.value.rows : [],
       activityTotal: activities.status === "fulfilled" ? activities.value.total : 0,
+      notes: notes.status === "fulfilled" ? notes.value.rows : [],
+      noteTotal: notes.status === "fulfilled" ? notes.value.total : 0,
       meetings: meetings.status === "fulfilled" ? meetings.value.meetings : [],
       envelopes: envelopes.status === "fulfilled" ? normalizeEnvelopeList(envelopes.value) : [],
       errors,
@@ -380,6 +390,32 @@ function CustomerOverview({ company }: { company: Company }) {
       });
     } finally {
       setLoadingMoreActivity(false);
+    }
+  }
+
+  async function loadMoreNotes() {
+    if (!relationship || !customerId) return;
+    setLoadingMoreNotes(true);
+    try {
+      const next = await api.get<Page<RevenueActivity>>(
+        `/api/companies/${company.id}/revenue/activities?customerId=${customerId}&includeRelatedRecords=true&kinds=note&limit=${ACTIVITY_PAGE}&offset=${relationship.notes.length}`,
+      );
+      const seen = new Set(relationship.notes.map((note) => note.id));
+      const notes = [...relationship.notes, ...next.rows.filter((note) => !seen.has(note.id))];
+      notesShown.current = notes.length;
+      setRelationship({
+        ...relationship,
+        notes,
+        noteTotal: next.total,
+        errors: { ...relationship.errors, notes: undefined },
+      });
+    } catch (err) {
+      setRelationship({
+        ...relationship,
+        errors: { ...relationship.errors, notes: (err as Error).message },
+      });
+    } finally {
+      setLoadingMoreNotes(false);
     }
   }
 
@@ -642,6 +678,16 @@ function CustomerOverview({ company }: { company: Company }) {
       ),
     [deals, company.slug],
   );
+  const contactLinks = React.useMemo(
+    () =>
+      Object.fromEntries(
+        (relationship?.contacts ?? []).map((contact) => [
+          contact.id,
+          { title: contact.name, to: `/c/${company.slug}/revenue/contacts/${contact.id}` },
+        ]),
+      ),
+    [relationship?.contacts, company.slug],
+  );
 
   if (!ready) {
     return (
@@ -672,6 +718,7 @@ function CustomerOverview({ company }: { company: Company }) {
   const owner = ownerLabel(customer, members, employees);
   const people = (relationship?.contacts.length ?? 0) + customer.contacts.length;
   const counts: Partial<Record<CustomerTab, number>> = {
+    notes: relationship?.noteTotal,
     emails: mail?.total,
     activity: relationship?.activityTotal,
     deals: relationship?.deals.length,
@@ -951,6 +998,37 @@ function CustomerOverview({ company }: { company: Company }) {
             <div className="min-w-0 space-y-8 lg:col-span-2">
               <section>
                 <SectionHeading
+                  title="Notes"
+                  count={relationship?.noteTotal}
+                  action={
+                    (relationship?.noteTotal ?? 0) > 0 ? (
+                      <TabLink onClick={() => setTab("notes")}>All notes</TabLink>
+                    ) : undefined
+                  }
+                />
+                {relationship ? (
+                  <>
+                    <FormError message={relationship.errors.notes} className="mb-3" />
+                    <CustomerNotesPanel
+                      companyId={company.id}
+                      customerId={customer.id}
+                      notes={relationship.notes}
+                      total={relationship.noteTotal}
+                      members={members}
+                      employees={employees}
+                      contactLinks={contactLinks}
+                      dealLinks={dealLinks}
+                      preview={NOTE_PREVIEW}
+                      onChanged={reloadRelationship}
+                    />
+                  </>
+                ) : (
+                  <SectionSpinner />
+                )}
+              </section>
+
+              <section>
+                <SectionHeading
                   title="Recent emails"
                   count={mail?.total}
                   action={<TabLink onClick={() => setTab("emails")}>All emails</TabLink>}
@@ -1061,6 +1139,41 @@ function CustomerOverview({ company }: { company: Company }) {
             </div>
           </div>
         </>
+      )}
+
+      {tab === "notes" && (
+        <section>
+          {relationship ? (
+            <>
+              <FormError message={relationship.errors.notes} className="mb-3" />
+              <CustomerNotesPanel
+                companyId={company.id}
+                customerId={customer.id}
+                notes={relationship.notes}
+                total={relationship.noteTotal}
+                members={members}
+                employees={employees}
+                contactLinks={contactLinks}
+                dealLinks={dealLinks}
+                onChanged={reloadRelationship}
+              />
+              {relationship.notes.length < relationship.noteTotal && (
+                <div className="mt-3 flex justify-center">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void loadMoreNotes()}
+                    loading={loadingMoreNotes}
+                  >
+                    Show older notes
+                  </Button>
+                </div>
+              )}
+            </>
+          ) : (
+            <SectionSpinner />
+          )}
+        </section>
       )}
 
       {tab === "emails" && (
@@ -1479,7 +1592,7 @@ function DetailsCard({
         <Detail label="Default currency" value={customer.currency} />
         <Detail label="Billing address" value={customer.billingAddress} multiline />
         <Detail label="Shipping address" value={customer.shippingAddress} multiline />
-        <Detail label="Notes" value={customer.notes} multiline />
+        <Detail label="Account notes" value={customer.notes} multiline />
         <Detail label="Added" value={fmtDate(customer.createdAt)} />
       </dl>
     </div>

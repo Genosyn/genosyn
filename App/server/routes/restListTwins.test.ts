@@ -852,6 +852,47 @@ describe("GET /projects/:pSlug/todos", () => {
       "another company's project is not found",
     );
   });
+
+  test("the Projects list says what each reader may do with each Project", async () => {
+    await insert(Project, {
+      companyId: company.id,
+      name: "Ops",
+      slug: "ops",
+      description: "",
+      key: "OP",
+      createdById: null,
+      todoCounter: 0,
+      accessMode: "open",
+    });
+    const levels = async (token: string) => {
+      const list = await get("/projects", token);
+      assert.equal(list.status, 200, list.body.error);
+      const rows = list.body as unknown as Array<{ slug: string; myAccessLevel: string }>;
+      return Object.fromEntries(rows.map((row) => [row.slug, row.myAccessLevel]));
+    };
+    assert.deepEqual(await levels(ownerKey), { launch: "write", ops: "write" });
+
+    const member = await createMemberOfNewCompany("owner");
+    await AppDataSource.getRepository(Membership).insert({
+      companyId: company.id,
+      userId: member.user.id,
+      role: "member",
+    });
+    const memberKey = (await mintTestApiKey(member.user.id, company.id)).token;
+    assert.deepEqual(await levels(memberKey), { ops: "write" }, "a restricted Project stays out");
+
+    const row = await insert(ProjectMember, {
+      projectId: project.id,
+      memberKind: "user",
+      userId: member.user.id,
+      employeeId: null,
+      accessLevel: "read",
+    });
+    assert.deepEqual(await levels(memberKey), { launch: "read", ops: "write" });
+
+    await AppDataSource.getRepository(ProjectMember).update(row.id, { accessLevel: "write" });
+    assert.deepEqual(await levels(memberKey), { launch: "write", ops: "write" });
+  });
 });
 
 // ───────────────────────────── Meetings ─────────────────────────────

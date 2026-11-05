@@ -380,6 +380,26 @@ describe("the browser a session opens", () => {
     assert.equal(row.todoPickupId, second.pickup.id, "the video sits with the report that finished it");
   });
 
+  test("keeps the page if the answer came while the session was still ending", async (t) => {
+    const todo = await todoFor(ada);
+    const pickup = await ask(todo, ada);
+    let sessionId = "";
+    t.mock.method(
+      agentRuntime,
+      "run",
+      answers("Queued the approval.", async () => {
+        sessionId = (await opensBrowser(todo, ada, pickup.id)).id;
+        // The person approved before this session finished: the wait is already over,
+        // and the next session is stored to run after it.
+        await ask(todo, ada, { trigger: "review_outcome", note: "Approved." });
+      }),
+    );
+    await executeTodoPickup(pickup.id);
+    (agentRuntime.run as unknown as { mock: { restore: () => void } }).mock.restore();
+    const row = await sessions().findOneByOrFail({ id: sessionId });
+    assert.equal(row.status, "pending", "the next session fires on this page");
+  });
+
   test("a different employee gets a page of their own", async () => {
     const todo = await todoFor(ada);
     const adas = await opensBrowser(todo, ada, "pickup-a");
@@ -451,6 +471,19 @@ describe("what a session may do is decided when it starts", () => {
     assert.equal(row.proactiveReview, false);
     assert.equal(row.tainted, true);
     assert.doesNotMatch(params.system, /This is proactive preparation/);
+  });
+
+  test("a work session ending carries on even if the last session's Member signed out", async (t) => {
+    const todo = await todoFor(ada, { status: "in_progress" });
+    const woken = await ask(todo, ada, {
+      trigger: "work_session_ended",
+      authority: { kind: "member", userId: ruth.id, sessionVersion: 99 },
+    });
+    const given = await ranWith(t, woken);
+    const row = await pickups().findOneByOrFail({ id: woken.id });
+    assert.equal(row.authority, "employee");
+    assert.equal(row.proactiveReview, true, "falling back to the employee, it can only prepare");
+    assert.match(given.system, /This is proactive preparation/);
   });
 
   test("anything automatic merged into it ends the lend", async () => {

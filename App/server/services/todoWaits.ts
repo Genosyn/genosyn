@@ -311,6 +311,52 @@ function replyNote(message: MailMessage, wasWaiting: boolean): string {
 }
 
 /**
+ * What's new on a thread linked to open Todos is outside words a session there can read,
+ * whoever wrote them and whatever the mail server or a block list made of them. So what's
+ * lent or trusted for what came before stops here, whether or not anything wakes. Only
+ * what this mailbox really sent isn't outside words: `From:` alone is free text.
+ */
+export async function holdTodosForNewMail(
+  account: MailAccount,
+  message: MailMessage,
+  dependencies: Pick<InboundWakeDependencies, "ceilingFor"> = {},
+): Promise<{ rows: Todo[]; ceilings: Map<string, TodoPickupCeiling> }> {
+  const ceilings = new Map<string, TodoPickupCeiling>();
+  const ours =
+    message.companyId !== account.companyId ||
+    message.accountId !== account.id ||
+    Boolean(message.gmailDraftId) ||
+    columnHasLabel(message.labelIds, "DRAFT") ||
+    columnHasLabel(message.labelIds, "SENT") ||
+    Boolean(message.createdByEmployeeId) ||
+    Boolean(message.createdByUserId);
+  if (ours) return { rows: [], ceilings };
+  const links = await AppDataSource.getRepository(TodoLink).find({
+    where: { companyId: account.companyId, kind: "mail_thread", targetId: message.threadId },
+    select: { id: true, todoId: true },
+  });
+  if (links.length === 0) return { rows: [], ceilings };
+  const rows = await todos().findBy({
+    id: In(links.map((link) => link.todoId)),
+    status: In<TodoStatus>(["backlog", "todo", "in_progress", "in_review"]),
+  });
+  const narrowest: TodoPickupCeiling = {
+    proactiveReview: true,
+    mailDeliveryMode: "review",
+    mailThreadId: message.threadId,
+    trustedSender: false,
+  };
+  for (const todo of rows) {
+    // Not being able to read who this is from reads as no.
+    const ceiling =
+      (await dependencies.ceilingFor?.(todo, message, account).catch(() => narrowest)) ?? narrowest;
+    ceilings.set(todo.id, ceiling);
+    await holdTodoToTurn(todo, ceiling);
+  }
+  return { rows, ceilings };
+}
+
+/**
  * New inbound mail on a thread linked to a Todo. An AI assignee is sent back to
  * it. A Member assignee hears about it. Finished Todos stay finished: "thanks!"
  * shouldn't reopen anything, and a new request is intake's to file.
@@ -320,18 +366,10 @@ export async function wakeTodosForInboundMail(
   message: MailMessage,
   dependencies: InboundWakeDependencies = {},
 ): Promise<void> {
+  const { rows, ceilings } = await holdTodosForNewMail(account, message, dependencies);
   if (!isInboundReviewMessage(message, account)) return;
   // The mail server already judged these, as the read does.
   if (columnHasLabel(message.labelIds, "SPAM") || columnHasLabel(message.labelIds, "TRASH")) return;
-  const links = await AppDataSource.getRepository(TodoLink).find({
-    where: { companyId: account.companyId, kind: "mail_thread", targetId: message.threadId },
-    select: { id: true, todoId: true },
-  });
-  if (links.length === 0) return;
-  const rows = await todos().findBy({
-    id: In(links.map((link) => link.todoId)),
-    status: In<TodoStatus>(["backlog", "todo", "in_progress", "in_review"]),
-  });
   if (rows.length === 0) return;
 
   const readHeaders =
@@ -341,21 +379,6 @@ export async function wakeTodosForInboundMail(
       return mailbox.getMessageHeaders(row.gmailMessageId) as Promise<Headers>;
     });
   const headers = await readHeaders(account, message).catch(() => [] as Headers);
-  const ceilingFor = async (todo: Todo): Promise<TodoPickupCeiling> =>
-    (await dependencies.ceilingFor?.(todo, message, account)) ?? {
-      proactiveReview: true,
-      mailDeliveryMode: "review",
-      mailThreadId: message.threadId,
-      trustedSender: false,
-    };
-  // New outside words are on these threads, whether or not they wake anyone: a session
-  // can read them. So what's lent or trusted for what came before stops here.
-  const ceilings = new Map<string, TodoPickupCeiling>();
-  for (const todo of rows) {
-    const ceiling = await ceilingFor(todo);
-    ceilings.set(todo.id, ceiling);
-    await holdTodoToTurn(todo, ceiling);
-  }
   if (isAutomatedReply(message, headers)) return;
 
   // `From:` is free text, and this line replays in later sessions, so only an
@@ -536,7 +559,14 @@ export async function wakeTodoForWorkSession(session: RepositoryWorkSession): Pr
   if (session.status === "running") return;
   const todo = await todoWaitingOn("work_session", session.id);
   if (!todo) return;
-  const last = await lastPickup(todo.id);
+  // A chat or a Routine that filed its own Todo has no ended session on it. Its check-back
+  // has what that turn had, and the Todo's limits still apply over it.
+  const last =
+    (await lastPickup(todo.id)) ??
+    (await AppDataSource.getRepository(TodoPickup).findOne({
+      where: { todoId: todo.id, status: "queued", trigger: "wait_over" },
+      order: { acceptedAt: "DESC", id: "DESC" },
+    }));
   const outcome = WORK_SESSION_OUTCOME[session.status] ?? session.status;
   await wake({
     companyId: session.companyId,

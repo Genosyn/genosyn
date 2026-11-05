@@ -270,6 +270,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Customer email becomes Tickets an AI Employee triages and answers from your published Articles, with every check written on the draft.",
       },
       {
+        path: "/docs/help-center",
+        title: "Help center",
+        blurb:
+          "An opt-in public page where customers read and search your published Articles, with no sign-in.",
+      },
+      {
         path: "/docs/meetings",
         title: "Meetings",
         blurb:

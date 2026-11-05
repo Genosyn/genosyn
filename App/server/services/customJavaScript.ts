@@ -16,12 +16,21 @@ const SENSITIVE_PATH_PREFIXES = [
   "/forgot/",
   "/sign/",
   "/forms/",
+  "/help/",
   "/reset/",
   "/verify-email/",
   "/invite/",
   "/link-chat/",
 ];
-const SENSITIVE_PATHS = new Set(["/api", "/index.html", "/login", "/signup", "/forgot", "/forms"]);
+const SENSITIVE_PATHS = new Set([
+  "/api",
+  "/index.html",
+  "/login",
+  "/signup",
+  "/forgot",
+  "/forms",
+  "/help",
+]);
 const SENSITIVE_QUERY_KEYS = new Set(["invitation", "token", "code", "state", "ssolink"]);
 
 let cachedCustomJavaScript = "";

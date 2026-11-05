@@ -1,7 +1,55 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { submitFormOnModEnter, type ModEnterEvent } from "./keyboard.js";
+import {
+  isCreateTaskShortcut,
+  submitFormOnModEnter,
+  type ModEnterEvent,
+  type ShortcutKeyEvent,
+} from "./keyboard.js";
+
+describe("isCreateTaskShortcut", () => {
+  const press = (changes: Partial<ShortcutKeyEvent>): boolean =>
+    isCreateTaskShortcut({
+      key: "t",
+      code: "KeyT",
+      altKey: true,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      ...changes,
+    });
+
+  test("Alt+T on Windows and Linux", () => {
+    assert.equal(press({}), true);
+  });
+
+  test("⌥T on a Mac, which reports the character it would type", () => {
+    assert.equal(press({ key: "†" }), true);
+    assert.equal(press({ key: "Dead" }), true);
+  });
+
+  test("a layout whose T key is not a Latin letter", () => {
+    assert.equal(press({ key: "е" }), true);
+  });
+
+  test("the letter wins over the key's position on a Latin layout", () => {
+    assert.equal(press({ key: "t", code: "KeyK" }), true, "Dvorak's T");
+    assert.equal(press({ key: "y", code: "KeyT" }), false, "Dvorak's Y");
+  });
+
+  test("not T on its own, or with any other modifier", () => {
+    assert.equal(press({ altKey: false }), false);
+    assert.equal(press({ metaKey: true }), false, "⌘⌥T");
+    assert.equal(press({ ctrlKey: true }), false, "AltGr on Windows types a character");
+    assert.equal(press({ shiftKey: true }), false);
+  });
+
+  test("not another key with Alt", () => {
+    assert.equal(press({ key: "r", code: "KeyR" }), false);
+    assert.equal(press({ key: "®", code: "KeyR" }), false);
+  });
+});
 
 /**
  * ⌘/Ctrl+Enter submits the form a multi-line box sits in — a journal note, a

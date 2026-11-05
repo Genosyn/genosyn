@@ -69,6 +69,35 @@ export function Tasks() {
         its own, with an address you can share and room for a long thread.
       </P>
 
+      <H2 id="create-anywhere">Create a task from anywhere</H2>
+      <P>
+        Press <Code>⌥T</Code> on a Mac or <Code>Alt T</Code> on Windows and Linux on any page, even
+        in the middle of typing in a field, an open form or an email. <Strong>Create a task</Strong>{" "}
+        opens over what you were doing. Write a title and press Enter, and you&apos;re back where
+        you left off with your cursor where it was. On a phone, or if you forget the keys, open the
+        section pill in the top nav (<Code>⌘K</Code>, or <Code>Ctrl K</Code> on Windows and Linux)
+        and choose <Strong>Create a task</Strong>.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Project</Strong> starts on the Project you have open, or else the last one you
+          filed a task in. It lists only Projects you can edit.
+        </LI>
+        <LI>
+          <Strong>Assign to</Strong> starts on you. Choose an AI Employee and it starts as soon as
+          you create the task, within your access and its Grants.
+        </LI>
+        <LI>
+          <Strong>Advanced</Strong> holds status, priority, due date, reviewer and repeat. Its line
+          says what you changed, so nothing you set is hidden when it&apos;s closed.
+        </LI>
+        <LI>
+          <Code>⌘Enter</Code> (<Code>Ctrl Enter</Code>) creates the task from inside{" "}
+          <Strong>What needs doing</Strong>, and <Code>Esc</Code> closes the modal without creating
+          anything.
+        </LI>
+      </UL>
+
       <H2 id="subtasks">Subtasks</H2>
       <P>
         Open any todo and use <Strong>Add a subtask</Strong> in its panel to break the work into

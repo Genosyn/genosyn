@@ -214,7 +214,15 @@ export async function recordMeetingActivity(
     dealId: input.dealId ? input.dealId : IsNull(),
     customerId: input.customerId ? input.customerId : IsNull(),
   });
-  if (existing) return existing;
+  if (existing) {
+    // A re-link after the write-up is how the row gets the summary.
+    const bodyText = capBody(input.bodyText);
+    if (bodyText && bodyText !== existing.bodyText) {
+      existing.bodyText = bodyText;
+      return AppDataSource.getRepository(Activity).save(existing);
+    }
+    return existing;
+  }
   return recordActivity(companyId, input, actor);
 }
 

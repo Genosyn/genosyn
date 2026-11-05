@@ -35,6 +35,7 @@ import { useNavigationGuard } from "./NavigationGuard";
 import { useTheme, Theme } from "./Theme";
 import { ASK_AI_SHORTCUT, AskAiProvider, useAskAi } from "./askAi/AskAiProvider";
 import { AskAiPanel } from "./askAi/AskAiPanel";
+import { GlobalCreateTask } from "./todos/GlobalCreateTask";
 
 /**
  * App chrome:
@@ -107,6 +108,8 @@ export function AppShell({
         {/* Outside the palette so pages can publish contextual actions into it,
             and the palette can read them, from the same tree. */}
         <CommandRegistryProvider>
+          {/* Keyed by company: a half-written task stays in the company it was for. */}
+          <GlobalCreateTask key={current.id} company={current} me={me} />
           <CommandPaletteProvider
             companyId={current.id}
             companySlug={current.slug}

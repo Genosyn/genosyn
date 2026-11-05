@@ -5,6 +5,9 @@ import {
   Bot,
   CheckCircle2,
   Clock,
+  Copy,
+  ExternalLink,
+  Globe,
   Inbox,
   Pencil,
   Plus,
@@ -121,7 +124,7 @@ function SettingsBody() {
       <PageHeader
         breadcrumbs={crumbs}
         title="Settings"
-        description="Which mail becomes tickets, how far your AI Employee goes, and what your team promises customers."
+        description="Which mail becomes tickets, how far your AI Employee goes, what your team promises customers, and what the public can read."
       />
       <div className="max-w-3xl space-y-8">
         <InboxesSection
@@ -139,6 +142,7 @@ function SettingsBody() {
         />
         <TargetsSection settings={settings} onSaved={setSettings} />
         <AfterSection settings={settings} onSaved={setSettings} />
+        <HelpCenterSection settings={settings} onSaved={setSettings} />
       </div>
     </div>
   );
@@ -774,6 +778,84 @@ function TargetsSection({
               businessHours: hoursOn ? hours : null,
             })
           }
+        />
+      </Card>
+    </section>
+  );
+}
+
+function HelpCenterSection({
+  settings,
+  onSaved,
+}: {
+  settings: SupportSettings;
+  onSaved: (settings: SupportSettings) => void;
+}) {
+  const dialog = useDialog();
+  const [enabled, setEnabled] = React.useState(settings.helpCenterEnabled);
+  const [copied, setCopied] = React.useState(false);
+  const { busy, error, saved, save } = useSaver(onSaved);
+
+  async function copy() {
+    setCopied(false);
+    try {
+      await navigator.clipboard.writeText(settings.helpCenterUrl);
+      setCopied(true);
+    } catch (err) {
+      void dialog.error(err, {
+        title: "Couldn’t copy the address",
+        message: "Select the address and copy it yourself.",
+      });
+    }
+  }
+
+  return (
+    <section>
+      <SectionHeader
+        title="Help center"
+        icon={<Globe size={15} />}
+        description="A public page where customers read and search your published Articles, with no sign-in."
+      />
+      <Card className="space-y-3 p-4">
+        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+          <Checkbox
+            label="Publish a help center"
+            checked={enabled}
+            onChange={(event) => setEnabled(event.target.checked)}
+          />
+          Publish a help center
+        </label>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Anyone with the link can read every published Article, so check what is published under
+          Knowledge first. Drafts, Tickets, notes and who wrote what stay private. Search engines
+          are asked not to list it, so link to it from your website or your replies.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="min-w-0 break-all rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+            {settings.helpCenterUrl}
+          </code>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label="Copy the help center's address"
+            onClick={() => void copy()}
+          >
+            <Copy size={13} /> {copied ? "Copied" : "Copy"}
+          </Button>
+          {settings.helpCenterEnabled && (
+            <a href={settings.helpCenterUrl} target="_blank" rel="noreferrer">
+              <Button size="sm" variant="ghost">
+                <ExternalLink size={13} /> Open
+              </Button>
+            </a>
+          )}
+        </div>
+        <SaveRow
+          dirty={enabled !== settings.helpCenterEnabled}
+          busy={busy}
+          error={error}
+          saved={saved}
+          onSave={() => void save({ helpCenterEnabled: enabled })}
         />
       </Card>
     </section>

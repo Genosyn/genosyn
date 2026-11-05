@@ -7,6 +7,7 @@
 
 export const CUSTOMER_TABS = [
   ["overview", "Overview"],
+  ["notes", "Notes"],
   ["emails", "Emails"],
   ["activity", "Activity"],
   ["deals", "Deals"],

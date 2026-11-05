@@ -19,6 +19,7 @@ export type AccountMergeCounts = {
   estimates: number;
   recurringInvoices: number;
   credits: number;
+  meetings: number;
   customValuesCopied: number;
   customValueConflicts: number;
 };
@@ -54,6 +55,7 @@ const COUNT_LABELS: Array<[keyof AccountMergeCounts, string]> = [
   ["estimates", "Estimates"],
   ["recurringInvoices", "Recurring invoices"],
   ["credits", "Credits"],
+  ["meetings", "Meetings"],
   ["customValuesCopied", "Custom values copied"],
 ];
 

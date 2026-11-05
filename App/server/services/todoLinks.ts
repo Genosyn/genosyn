@@ -275,7 +275,7 @@ async function employeeReadableKeys(
     const [sessions, grants] = await Promise.all([
       AppDataSource.getRepository(RepositoryWorkSession).find({
         where: { id: In(idsOf("work_session")), companyId },
-        select: { id: true, repositoryId: true },
+        select: { id: true, repositoryId: true, employeeId: true },
       }),
       AppDataSource.getRepository(EmployeeRepositoryGrant).find({
         where: { employeeId: reader.employeeId },
@@ -283,8 +283,11 @@ async function employeeReadableKeys(
       }),
     ]);
     const granted = new Set(grants.map((grant) => grant.repositoryId));
+    // As `get_repository_work_session` has it: an employee reads its own sessions.
     for (const session of sessions) {
-      if (granted.has(session.repositoryId)) readable.add(`work_session:${session.id}`);
+      if (session.employeeId === reader.employeeId && granted.has(session.repositoryId)) {
+        readable.add(`work_session:${session.id}`);
+      }
     }
   }
   // Any AI Employee in the company may read a Run's report (`get_run_report`).

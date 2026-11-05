@@ -117,6 +117,27 @@ function onKeyDown(event: KeyboardEvent) {
   }
 }
 
+/**
+ * Where the caret is in `element`, when that is a rich-text editor. Focus is not
+ * enough to get back to one: an input remembers its caret, but a contenteditable
+ * loses it when focus moves away and comes back at its first character.
+ */
+function caretWithin(element: HTMLElement | null): Range | null {
+  if (!element?.isContentEditable) return null;
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  return element.contains(range.commonAncestorContainer) ? range.cloneRange() : null;
+}
+
+/** Put the caret back, unless the editor re-rendered the text it was in. */
+function restoreCaret(caret: Range | null) {
+  if (!caret?.startContainer.isConnected || !caret.endContainer.isConnected) return;
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(caret);
+}
+
 /* ── Page scroll lock ─────────────────────────────────────────────────────
  *
  * Refcounted, because a Dialog routinely opens on top of a Modal and the
@@ -189,10 +210,12 @@ export function useModalChrome({
   // every Dialog took its own button or input for the opener, found it gone on
   // close, and sent focus to <main> even when the opener was still right there.
   const openedFrom = React.useRef<HTMLElement | null | undefined>(undefined);
+  const openedCaret = React.useRef<Range | null>(null);
   if (!open) openedFrom.current = undefined;
   else if (openedFrom.current === undefined) {
     openedFrom.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    openedCaret.current = caretWithin(openedFrom.current);
   }
 
   React.useEffect(() => {
@@ -209,6 +232,7 @@ export function useModalChrome({
 
     const mountedPanel = panelRef.current;
     const restoreFocusTo = openedFrom.current ?? null;
+    const restoreCaretTo = openedCaret.current;
 
     const frame = window.requestAnimationFrame(() => {
       const panel = panelRef.current;
@@ -235,9 +259,13 @@ export function useModalChrome({
       // genuinely gone — the Home row you opened and then resolved is the
       // everyday case — fall back to the main region the skip link already
       // targets, so focus lands somewhere real.
+      // Already back means whoever closed it put the cursor where it belongs.
+      const alreadyBack = document.activeElement === restoreFocusTo;
       if (restoreFocusTo?.isConnected) restoreFocusTo.focus({ preventScroll: true });
       if (!restoreFocusTo || document.activeElement !== restoreFocusTo) {
         document.getElementById("main-content")?.focus({ preventScroll: true });
+      } else if (!alreadyBack) {
+        restoreCaret(restoreCaretTo);
       }
     };
   }, [open]);

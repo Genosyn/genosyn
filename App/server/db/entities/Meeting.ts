@@ -67,6 +67,8 @@ export type MeetingTranscriptState = "none" | "queued" | "running" | "ready" | "
  * customer's meetings must be one indexed query. `linkedAt` records that the
  * attendee→Contact pass has run, so a re-run is a no-op rather than a second
  * set of timeline rows; `Activity.meetingId` is the actual idempotency key.
+ * `customerId` is worked out from the attendees as soon as the meeting has any
+ * (`services/meetings/customerLink.ts`), until a Member chooses otherwise.
  *
  * `summaryText` and `actionItemsJson` are what the AI Employee produced, kept
  * beside the transcript rather than only as Activity rows so the meeting page
@@ -171,6 +173,13 @@ export class Meeting {
 
   @Column({ type: "varchar", nullable: true })
   customerId!: string | null;
+
+  /**
+   * A Member chose this customer, or chose none. The automatic passes leave
+   * `customerId` alone from then on, so a removed link stays removed.
+   */
+  @Column({ type: "boolean", default: false })
+  customerChosen!: boolean;
 
   @Column({ type: "varchar", nullable: true })
   dealId!: string | null;

@@ -170,7 +170,8 @@ describe("server enforced mail delivery ceiling", () => {
       assert.equal(todo.description, "Review the saved draft with the customer context.");
       // Fire-and-forget dispatch performs a few database reads first.
       await new Promise<void>((resolve) => setImmediate(resolve));
-      assert.equal(pipelineReads.mock.callCount(), mode === "reply" || mode === null ? 1 : 0);
+      // A worker has no limits, so any restricted turn's Todo starts none, `reply` included.
+      assert.equal(pipelineReads.mock.callCount(), mode === null ? 1 : 0);
     });
 
     test(`${mode ?? "ordinary"} turns retain review status and hold the reviewer to the same limit`, async () => {

@@ -253,9 +253,14 @@ export function Introduction() {
         Routines. A few pages use a symbol instead; master admins open Admin with <Code>G =</Code>.
         Pressing <Code>G</Code>
         shows the complete destination map, so you never have to guess. Press <Code>?</Code>{" "}
-        anywhere outside an editor to open the full shortcut guide. Genosyn pauses global shortcuts
-        while you type, and ordinary <Code>Tab</Code> navigation has clear, context-appropriate
-        focus styling plus a skip-to-main link.
+        anywhere outside an editor to open the full shortcut guide. Genosyn pauses single-key
+        shortcuts while you type, and ordinary <Code>Tab</Code> navigation has clear,
+        context-appropriate focus styling plus a skip-to-main link.
+      </P>
+      <P>
+        When a task comes to mind, press <Code>⌥T</Code> (<Code>Alt T</Code> on Windows and Linux)
+        to <DocLink to="/docs/tasks#create-anywhere">create it</DocLink> on the spot, even
+        mid-sentence, and carry on where you were.
       </P>
       <P>
         Dropdown fields are searchable throughout Genosyn. Open one and start typing to narrow its

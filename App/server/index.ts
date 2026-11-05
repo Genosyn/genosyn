@@ -36,6 +36,7 @@ import { finalizeInterruptedAskAiTurns } from "./services/askAi/assistant.js";
 import { bootRoutineTriggers } from "./services/routineTriggers.js";
 import { bootPhone } from "./services/phone/sync.js";
 import { appShellFallback, careersPagesRouter } from "./routes/careersSite.js";
+import { helpCenterPagesRouter } from "./routes/publicHelpCenter.js";
 import { bootCareersHosts } from "./services/recruiting/domains.js";
 import { bootScreeningQueue } from "./services/recruiting/screeningQueue.js";
 import { bootDataRoomQueue } from "./services/dataRooms/queue.js";
@@ -277,6 +278,20 @@ async function main() {
         }
         careersTemplate ??= await fs.promises.readFile(careersTemplatePath, "utf8");
         return careersTemplate;
+      },
+    }),
+  );
+
+  // The help center's pages are the App's own shell, answered here so that one
+  // that is off or never existed is a real 404 rather than the shell's 200.
+  const shellPath = path.join(clientDir, "index.html");
+  let shell: string | null = null;
+  app.use(
+    helpCenterPagesRouter({
+      loadTemplate: async (url) => {
+        if (vite) return vite.transformIndexHtml(url, await fs.promises.readFile(shellPath, "utf8"));
+        shell ??= await fs.promises.readFile(shellPath, "utf8");
+        return shell;
       },
     }),
   );

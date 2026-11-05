@@ -106,8 +106,22 @@ export type Meeting = {
   linkedAt: string | null;
   summarisedAt: string | null;
   customerId: string | null;
+  /** A Member chose this customer, or chose none, so linking leaves it alone. */
+  customerChosen: boolean;
+  /** On a list row: its customer, when the reader may open Customers. */
+  customer?: MeetingCustomer | null;
   dealId: string | null;
   createdAt: string;
+};
+
+/** A meeting's customer: its name and where to go, never a billing detail. */
+export type MeetingCustomer = {
+  id: string;
+  name: string;
+  slug: string;
+  domain: string;
+  accountStatus: "prospect" | "customer" | "former";
+  archived: boolean;
 };
 
 export type MeetingParticipant = {
@@ -131,6 +145,9 @@ export type MeetingTranscriptSegment = {
 
 export type MeetingDetail = {
   meeting: Meeting;
+  customer: MeetingCustomer | null;
+  /** It has a customer this reader's Finance access doesn't let them open. */
+  customerWithheld: boolean;
   participants: MeetingParticipant[];
   transcript: MeetingTranscriptSegment[];
 };
@@ -248,7 +265,15 @@ export const meetingsApi = {
     api.post<{ meeting: Meeting | null }>(`${base(companyId)}/${id}/process`),
 
   link: (companyId: string, id: string) =>
-    api.post<{ result: { matched: number; activities: number } }>(`${base(companyId)}/${id}/link`),
+    api.post<{ result: { matched: number; activities: number; customerId: string | null } }>(
+      `${base(companyId)}/${id}/link`,
+    ),
+
+  setCustomer: (companyId: string, id: string, customerId: string | null) =>
+    api.put<{ meeting: Meeting; customer: MeetingCustomer | null }>(
+      `${base(companyId)}/${id}/customer`,
+      { customerId },
+    ),
 
   startNotetaker: (companyId: string, id: string) =>
     api.post<{ meeting: Meeting | null }>(`${base(companyId)}/${id}/notetaker`),

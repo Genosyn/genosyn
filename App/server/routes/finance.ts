@@ -10,6 +10,7 @@ import { BankTransaction } from "../db/entities/BankTransaction.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Contact } from "../db/entities/Contact.js";
 import { Deal } from "../db/entities/Deal.js";
+import { Meeting } from "../db/entities/Meeting.js";
 import { Partnership } from "../db/entities/Partnership.js";
 import { RevenueDocument } from "../db/entities/RevenueDocument.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
@@ -779,6 +780,7 @@ financeRouter.delete("/customers/:slug", async (req, res) => {
     contractCount,
     signatureEnvelopeCount,
     customerChannelCount,
+    meetingCount,
   ] = await Promise.all([
     AppDataSource.getRepository(Invoice).count({ where: { companyId: cid, customerId: c.id } }),
     AppDataSource.getRepository(Contact).count({ where: { companyId: cid, customerId: c.id } }),
@@ -796,6 +798,7 @@ financeRouter.delete("/customers/:slug", async (req, res) => {
       where: { companyId: cid, customerId: c.id },
     }),
     countCustomerChannelsForCustomer(cid, c.id),
+    AppDataSource.getRepository(Meeting).count({ where: { companyId: cid, customerId: c.id } }),
   ]);
   if (
     invoiceCount +
@@ -805,7 +808,8 @@ financeRouter.delete("/customers/:slug", async (req, res) => {
       documentCount +
       contractCount +
       signatureEnvelopeCount +
-      customerChannelCount >
+      customerChannelCount +
+      meetingCount >
     0
   ) {
     return res.status(409).json({

@@ -516,6 +516,53 @@ await app.check(
   },
 );
 
+await app.check("Create task starts from the subject and links the email", async () => {
+  const s = store();
+  const view = await app.open({
+    path: "/c/acme/mail/t/t-renewal",
+    routes: [
+      ...mailRoutes(s),
+      ["GET", `${API}/projects`, () => [{ id: "eng", slug: "engineering", name: "Engineering" }]],
+      ["GET", `${API}/members`, () => []],
+      ["POST", `${API}/projects/engineering/todos`, () => ({ id: "todo" })],
+    ],
+  });
+  const { page } = view;
+  await threadHeading(page, "Acme renewal").waitFor();
+  await view.click(page.getByRole("button", { name: "Create task" }));
+  const dialog = page.getByRole("dialog", { name: "Create a task from this email" });
+  assert.equal(await dialog.getByLabel("Title", { exact: true }).inputValue(), "Acme renewal");
+  await view.click(dialog.getByRole("button", { name: "Create task" }));
+  const write = await view.waitForWrite((w) => w.method === "POST");
+  assert.deepEqual(write.body, {
+    title: "Acme renewal",
+    assigneeEmployeeId: null,
+    assigneeUserId: null,
+    links: [{ kind: "mail_thread", targetId: "t-renewal", isSource: true }],
+  });
+  await dialog.waitFor({ state: "detached" });
+  assert.equal(view.clicks(), 2);
+  await page.close();
+});
+
+await app.check("⌘K leads with Email's own actions; Create a task follows them", async () => {
+  const s = store();
+  const view = await app.open({ path: "/c/acme/mail", routes: mailRoutes(s) });
+  const { page } = view;
+  await inboxReady(page);
+  await page.keyboard.press("Control+KeyK");
+  const options = page.getByRole("dialog", { name: "Search" }).getByRole("option");
+  await options.first().waitFor();
+  const labels = await options.allTextContents();
+  assert.match(labels[0], /Compose email/);
+  assert.ok(
+    labels.findIndex((label) => label.includes("Create a task")) >
+      labels.findIndex((label) => label.includes("Sync mailbox now")),
+    labels.join(" | "),
+  );
+  await page.close();
+});
+
 await app.check("phone width: the thread header's actions fit", async () => {
   const s = store();
   const view = await app.open({

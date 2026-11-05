@@ -2541,8 +2541,8 @@ export type Project = {
   todoCounter: number;
   createdAt: string;
   /**
-   * The level the current viewer was served with. Present on the single-project
-   * and todos endpoints; absent on the list endpoint.
+   * The level the current viewer was served with. Present on the list,
+   * single-project and todos endpoints; absent on what a create or an edit answers.
    */
   myAccessLevel?: ProjectAccessLevel;
   totalTodos?: number;

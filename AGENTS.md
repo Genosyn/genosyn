@@ -273,6 +273,7 @@ code, UI copy, commits, and docs.
 | **Ticket** (one customer's request to the company, handled in Support — `SupportTicket`; the customer who wrote is its **requester**) | Case, Issue, Conversation, Inquiry; never "Task" |
 | **Support inbox** (a mailbox and the addresses on it that count as support — `SupportInbox`, holding no credential of its own) | Queue, Channel, Connection, Shared inbox |
 | **Article** (one piece of what the company knows, written for answering customers; published ones are the only company knowledge an AI reply reads — `SupportArticle`) | Doc, FAQ, KB entry, Resource |
+| **Help center** (a company's published Articles, readable by anyone at `/help/<company-slug>` once an owner or admin turns it on — `SupportSettings.helpCenterEnabled`) | Knowledge base, KB, FAQ site, Docs site, Portal |
 | **Saved reply** (a reply a Member writes once and inserts into the composer, with blanks — `SupportSavedReply`) | Macro, Canned response, Template, Snippet |
 | **Topic** (what a Ticket is about, and what follows from that: who holds it, whether a reply may go out on its own — a `SupportTopic` in Support's settings) | Category, Tag, Label, Queue |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
@@ -362,8 +363,9 @@ stays held when a trusted sender writes on its thread. A Member's comment, assig
 @-mention or Stop waiting isn't a grant, and stays within it too. The only way past it
 is **Use my access** on the Todo's panel (`overLimits`): one session, tainted, asked
 first (`TodoPickup.overLimits`). What a session may do is decided when it starts, because
-a row can sit queued for a month. New outside words end a lend that hasn't started,
-wake or no wake. A turn working a particular email holds any Todo it comments on or edits
+a row can sit queued for a month. New outside words end a lend for any session that
+hasn't started, wake or no wake, and that includes spam, a blocked sender and mail forging
+this mailbox's own address, because a session can read them all (`holdTodosForNewMail`). A turn working a particular email holds any Todo it comments on or edits
 (`holdTodoToTurn`), since its words replay there, and an unlimited session that reads a
 held Todo becomes tainted. A Routine that could only prepare doesn't hold a person's Todo
 by posting a status: its comment just replays as information (`fromLimitedTurn`). A
@@ -388,8 +390,9 @@ invoice, bill, Customer, Contact, Deal or ticket started in a Pickup, or in a tu
 has filed itself a Todo or moved one to in progress, links to that Todo with no argument
 naming the link (`workingTodoIdOf`, `linkToWorkingTodo`, one call in each creator). The
 model doesn't get a way to say which Todo. Reading a Finance link takes Finance access,
-for a Member and an AI Employee alike (`FINANCE_KINDS`). The Todo can wait on a Work
-session (`work_session`), and its turn ending wakes the Todo through
+for a Member and an AI Employee alike (`FINANCE_KINDS`). An employee links and waits on its own Work sessions only, as `get_repository_work_session`
+reads them, and a tainted turn can't start or revise one without an Approval. The Todo can
+wait on a Work session (`work_session`), and its turn ending wakes the Todo through
 `runRepositoryWorkSession`, with the report as data, under what the last session had. A
 check-back after a day is there for a session lost to a restart. A person's **Start
 work session** runs under that person and is refused for a Todo with outside words on it, since
@@ -442,6 +445,21 @@ restricted turn, under the same limits, once the model is back. Do not add a pat
 treats a caller as a Member, give those turns company tools, or hang texting
 tools off the Twilio Connection. Texting and calling are delivery: they sit
 beside `send_mail` in the taint sinks and the mail-delivery send ceiling.
+
+**A meeting can create a Customer; nothing creates a Contact on its own.** As soon
+as a meeting has someone from outside the company on it, `services/meetings/customerLink.ts`
+links it to one Customer, the account most of those attendees belong to, and creates
+a `prospect` when nobody is known: one row, for the largest group. A Contact stays
+something a person, an import or a Signal makes (`revenue/mailLink.ts` rule 1). The
+company itself never becomes a Customer, and neither do machines. Anyone can put an
+address on a calendar invite, so a new Customer's name comes from the domain, or the
+address for free mail, never from an event title or display name. Archiving an account
+is how a Member stops the next meeting recreating it, so a meeting links to an archived
+row rather than starting another. `Meeting.customerChosen` makes a Member's choice
+final, a removed link included. The link grants nothing: a Member reads a meeting's
+Customer only with Finance access. Do not create a Contact from an attendee, name a
+Customer from anything a stranger wrote, let an automatic pass change a chosen link,
+or backfill old meetings on upgrade.
 
 **A customer channel is read for the customer and answered for the
 customer.** Linking a Slack channel to a Customer (`services/customerChannels/`)
@@ -825,6 +843,26 @@ Trigger on `support_ticket` fires when a customer writes, never on the updates a
 Routine's own work makes. Keep those boundaries: do not show a reply turn anything
 it could not safely repeat to whoever wrote the email, give it a tool, let a model
 decide a send, retry a send on a guess, or create a Contact from an email.
+
+**A help center shows what was published, to anyone, and nothing else.** It is off
+until an owner or admin turns it on, from Support → Settings and by no AI tool, and
+off answers exactly like a company that never existed: a draft, another company's
+Article and a malformed slug or id all give the one 404 (`routes/publicHelpCenter.ts`),
+counted against the address. Everything reads through `published()`
+(`services/support/helpCenter.ts`) and answers field by field, so an Article's source
+Ticket, authors and citation counts cannot reach a stranger, and a Topic shows only
+its name, only once it has a published Article. A public request writes nothing to a
+company: not `getSupportSettings`, which makes the row. A read leaves no throttle row
+either. A paging cursor is not signed, so one is checked before it reaches a query:
+on Postgres a non-uuid id raises 22P02 and a NUL raises 22021, each a 500 anyone could
+ask for, and SQLite shows neither, so `scripts/testSaasPostgres.ts` runs them for real.
+Search is throttled by address and answers no `total`. Its pages are `noindex` and
+never cached on purpose: search engines keep a copy after the switch goes off or an
+Article is taken back, so indexing would be its own switch with its own server-rendered
+pages. Because publishing now reaches the public, a turn that read a Ticket has its
+publish held as an Approval (`CONDITIONAL_TAINT_SINK_TOOLS`, decided in the tool since
+a draft reaches nobody). Do not read an Article's other columns into an answer, drop
+the `noindex`, cache a page, or start AI work from one.
 
 **A group discussion talks; it does not act.** Several AI Employees take turns
 on one Member's question in a Workspace channel — in a group chat every Member

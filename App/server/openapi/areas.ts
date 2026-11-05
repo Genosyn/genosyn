@@ -69,6 +69,7 @@ import { publicDataRoomsRouter } from "../routes/publicDataRooms.js";
 import { dataRoomsRouter } from "../routes/dataRooms.js";
 import { supportRouter } from "../routes/support.js";
 import { publicSupportRouter } from "../routes/publicSupport.js";
+import { publicHelpCenterRouter } from "../routes/publicHelpCenter.js";
 import { pushRouter } from "../routes/push.js";
 import { reactivityRouter } from "../routes/reactivity.js";
 import { recordHistoryRouter } from "../routes/recordHistory.js";
@@ -297,6 +298,11 @@ export const AREAS: readonly Area[] = [
     name: "Customer feedback",
     description: "The page a customer rates a ticket on, authenticated by the link they were sent.",
   },
+  {
+    name: "Help center",
+    description:
+      "A company's published Articles, readable by anyone once its owners turn the help center on.",
+  },
   { name: "Careers site", description: "The public careers site: Openings and applications." },
   {
     name: "Inbound webhooks",
@@ -430,6 +436,7 @@ function areaRules(): AreaRule[] {
     { router: publicFormsRouter, area: "Public forms" },
     { router: publicDataRoomsRouter, area: "Guest data rooms" },
     { router: publicSupportRouter, area: "Customer feedback" },
+    { router: publicHelpCenterRouter, area: "Help center" },
     { router: careersRouter, area: "Careers site" },
     { router: webhooksRouter, area: "Inbound webhooks" },
   ];

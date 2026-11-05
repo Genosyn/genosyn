@@ -70,6 +70,7 @@ import {
   findProjectAccess,
   hasProjectAccess,
   listAccessibleProjectIds,
+  listProjectAccessLevels,
   listProjectMembers,
   restrictProject,
   upsertProjectMember,
@@ -182,10 +183,10 @@ projectsRouter.get("/reviews", async (req, res) => {
 
 projectsRouter.get("/projects", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const accessible = await listAccessibleProjectIds(cid, actorOf(req));
-  if (accessible.size === 0) return res.json([]);
+  const levels = await listProjectAccessLevels(cid, actorOf(req));
+  if (levels.size === 0) return res.json([]);
   const projects = await AppDataSource.getRepository(Project).find({
-    where: { companyId: cid, id: In([...accessible]) },
+    where: { companyId: cid, id: In([...levels.keys()]) },
     order: { createdAt: "ASC" },
   });
   // Attach todo counts so the sidebar can render lightweight badges without a
@@ -207,6 +208,8 @@ projectsRouter.get("/projects", async (req, res) => {
   res.json(
     projects.map((p) => ({
       ...p,
+      // So a picker can leave out a Project this reader can only view.
+      myAccessLevel: levels.get(p.id),
       totalTodos: counts.get(p.id)?.total ?? 0,
       openTodos: counts.get(p.id)?.open ?? 0,
       reviewTodos: counts.get(p.id)?.review ?? 0,
@@ -1398,7 +1401,8 @@ projectsRouter.post(
         targetType: "todo",
         targetId: found.todo.id,
         targetLabel: todoLabel(found.project, found.todo),
-        metadata: { kind: link.kind, label: link.label },
+        // Not the label: History shows this to anyone who can open the Project.
+        metadata: { kind: link.kind, targetId: link.targetId },
       });
       const views = await presentTodoLinks(cid, [found.todo.id], memberLinkReader(req));
       res.json({ links: views.get(found.todo.id) ?? [] });

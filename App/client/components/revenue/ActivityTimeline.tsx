@@ -65,6 +65,8 @@ export type RevenueActivity = {
   customerId: string | null;
   mailThreadId: string | null;
   mailMessageId: string | null;
+  /** The meeting this row is about, on rows the meeting linker wrote. */
+  meetingId?: string | null;
   actorUserId: string | null;
   actorEmployeeId: string | null;
   metaJson: string | null;
@@ -316,6 +318,9 @@ function TimelineRow({
   const threadTo = activity.mailThreadId
     ? `/c/${companySlug}/mail/t/${activity.mailThreadId}`
     : null;
+  const meetingTo = activity.meetingId
+    ? `/c/${companySlug}/meetings/${activity.meetingId}`
+    : null;
   const lostReason = metaString(detail, "lostReason");
   const signalName = metaString(detail, "signalName");
   const sequenceName = metaString(detail, "sequenceName");
@@ -339,9 +344,11 @@ function TimelineRow({
           <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
             {activity.subject || meta.label}
           </span>
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            {meta.label}
-          </span>
+          {activity.subject && (
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              {meta.label}
+            </span>
+          )}
         </div>
         {activity.bodyText && (
           <p className="mt-1 line-clamp-2 whitespace-pre-line text-xs leading-relaxed text-slate-500 dark:text-slate-400">
@@ -371,6 +378,15 @@ function TimelineRow({
             >
               <ExternalLink size={11} />
               Open thread
+            </Link>
+          )}
+          {meetingTo && (
+            <Link
+              to={meetingTo}
+              className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              <ExternalLink size={11} />
+              Open meeting
             </Link>
           )}
         </div>

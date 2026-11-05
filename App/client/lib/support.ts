@@ -263,6 +263,9 @@ export type SupportSettings = {
   slaEnabled: boolean;
   businessHours: SupportBusinessHours | null;
   ratingsEnabled: boolean;
+  /** Whether anyone can read the published Articles at `helpCenterUrl`. */
+  helpCenterEnabled: boolean;
+  helpCenterUrl: string;
   autoCloseDays: number;
   autoSolveDays: number;
   insights: SupportInsights | null;
@@ -515,6 +518,42 @@ export const feedbackApi = {
       score,
       ...(comment.trim() ? { comment: comment.trim() } : {}),
     }),
+};
+
+// ── The public help center ──────────────────────────────────────────────────
+
+export type HelpCenterCard = {
+  id: string;
+  title: string;
+  topic: { key: string; name: string } | null;
+};
+
+export type HelpCenterMatch = HelpCenterCard & { excerpt: string };
+
+type HelpCenterPage<Row> = { hasMore: boolean; nextCursor: string | null; rows: Row[] };
+
+export type HelpCenterHome = {
+  companyName: string;
+  topics: Array<{ key: string; name: string; articleCount: number }>;
+  articles: HelpCenterPage<HelpCenterCard> & { total: number };
+};
+
+export type HelpCenterArticle = HelpCenterCard & { body: string; updatedAt: string };
+
+export const helpCenterApi = {
+  home: (slug: string) => api.get<HelpCenterHome>(`/api/help/${encodeURIComponent(slug)}`),
+  articles: (slug: string, cursor: string) =>
+    api.get<HelpCenterPage<HelpCenterCard>>(
+      `/api/help/${encodeURIComponent(slug)}/articles${query({ cursor })}`,
+    ),
+  article: (slug: string, articleId: string) =>
+    api.get<{ companyName: string; article: HelpCenterArticle }>(
+      `/api/help/${encodeURIComponent(slug)}/articles/${encodeURIComponent(articleId)}`,
+    ),
+  search: (slug: string, q: string, cursor?: string) =>
+    api.get<HelpCenterPage<HelpCenterMatch> & { companyName: string }>(
+      `/api/help/${encodeURIComponent(slug)}/search${query({ q, cursor })}`,
+    ),
 };
 
 // ── Small decisions every screen makes the same way ─────────────────────────

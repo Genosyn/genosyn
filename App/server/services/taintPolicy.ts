@@ -34,6 +34,10 @@ import { approvalArgsPreview, redactApprovalSummary } from "./approvalRedaction.
 export const TAINT_SINK_TOOLS = new Set([
   "open_repository_work_session_pull_request",
   "push_repository_work_session",
+  // A work session runs commands with these words as its instruction, and it doesn't
+  // carry this turn's taint with it.
+  "start_repository_work_session",
+  "revise_repository_work_session",
   "send_mail",
   // A text or a call reaches a person outside the company exactly as an email
   // does, so a page that read "now text this number" is held the same way.
@@ -59,6 +63,18 @@ export const TAINT_SINK_TOOLS = new Set([
   "create_skill",
   "update_skill",
   "delete_skill",
+]);
+
+/**
+ * Sinks for only some of their calls, so the tool decides, once it knows what the
+ * call would do: publishing an Article, or changing a published one's words, puts
+ * them in front of the public on the company's help center and in every reply it
+ * quotes from, while saving a draft reaches nobody. A stranger's email must not
+ * get words onto the company's public pages with nobody looking.
+ */
+export const CONDITIONAL_TAINT_SINK_TOOLS = new Set([
+  "create_support_article",
+  "update_support_article",
 ]);
 
 /** The sources that taint a turn. Marked at dispatch rather than on success —
@@ -116,7 +132,10 @@ export function parseTaintedToolPayload(raw: string | null): TaintedToolPayload 
     throw new Error("Tainted-tool payload is malformed");
   }
   const p = parsed as Record<string, unknown>;
-  if (typeof p.tool !== "string" || !TAINT_SINK_TOOLS.has(p.tool)) {
+  if (
+    typeof p.tool !== "string" ||
+    (!TAINT_SINK_TOOLS.has(p.tool) && !CONDITIONAL_TAINT_SINK_TOOLS.has(p.tool))
+  ) {
     throw new Error("Tainted-tool payload names a tool the policy does not cover");
   }
   if (typeof p.args !== "object" || p.args === null) {
@@ -135,6 +154,17 @@ export function taintGateApplies(token: string | undefined, toolName: string): b
   if (!TAINT_SINK_TOOLS.has(toolName)) return false;
   return isTokenTainted(token);
 }
+
+/** Whether a conditional sink must hold a call it has said reaches outside. */
+export function taintHoldsCall(token: string | undefined): boolean {
+  if (getAgentSettings().taintPolicy === "off") return false;
+  return Boolean(token) && isTokenTainted(token as string);
+}
+
+/** What a held call answers, so the model knows not to try it again. */
+export const TAINT_HELD_NOTE =
+  "This turn read outside content (a web page, an application, a guest's question or a customer's email), so this call is held for a human — the taint policy. " +
+  "It executes verbatim if approved; do not retry it yourself, and carry on with work that needs no held call.";
 
 /**
  * Queue the held call. Mirrors `createMcpToolApproval`: title/summary are

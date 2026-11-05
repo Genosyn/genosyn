@@ -105,6 +105,7 @@ export function serializeMeeting(row: Meeting) {
     linkedAt: row.linkedAt ? row.linkedAt.toISOString() : null,
     summarisedAt: row.summarisedAt ? row.summarisedAt.toISOString() : null,
     customerId: row.customerId,
+    customerChosen: row.customerChosen,
     dealId: row.dealId,
     createdAt: row.createdAt.toISOString(),
   };

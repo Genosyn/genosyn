@@ -23,6 +23,8 @@ export type Command = {
   hint?: string;
   icon?: LucideIcon;
   group?: string;
+  /** Offered on every page, not published by the one on screen. Follows that page's own. */
+  everywhere?: boolean;
   run: () => void;
 };
 
@@ -45,7 +47,13 @@ export function CommandRegistryProvider({ children }: { children: React.ReactNod
       unregister: (key) => {
         store.current.delete(key);
       },
-      snapshot: () => [...store.current.values()].flat(),
+      snapshot: () => {
+        const commands = [...store.current.values()].flat();
+        return [
+          ...commands.filter((command) => !command.everywhere),
+          ...commands.filter((command) => command.everywhere),
+        ];
+      },
     }),
     [],
   );

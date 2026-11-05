@@ -136,6 +136,7 @@ const CONTINUATIONS: readonly TodoPickupTrigger[] = [
   "email_intake",
   "decision_answered",
   "review_outcome",
+  "work_session_ended",
 ];
 /** The statuses a Todo can be picked up from, by its assignee. */
 const WORKABLE: readonly TodoStatus[] = ["backlog", "todo", "in_progress"];
@@ -301,21 +302,25 @@ export async function holdTodoToTurn(todo: Todo, ceiling: TodoPickupCeiling): Pr
   await dropLiftsOn(todo.id);
 }
 
-/** Whatever was lent on this Todo and hasn't started goes back within its limits. */
+/**
+ * Whatever was lent on this Todo goes back within its limits the next time a session
+ * starts: a queued row, a retry of the one running, and any rerun they carry.
+ */
 export async function dropLiftsOn(todoId: string): Promise<void> {
-  await repo().update({ todoId, status: "queued", overLimits: true }, { overLimits: false });
-  const running = await repo().find({
-    where: { todoId, status: "running" },
-    select: { id: true, rerunJson: true },
+  const active = await repo().find({
+    where: { todoId, status: In(["queued", "running"]) },
+    select: { id: true, overLimits: true, rerunJson: true },
   });
-  for (const row of running) {
-    if (!row.rerunJson) continue;
-    const stored = JSON.parse(row.rerunJson) as StoredRerun;
-    if (!stored.overLimits) continue;
-    await repo().update(
-      { id: row.id, status: "running" },
-      { rerunJson: JSON.stringify({ ...stored, overLimits: false }) },
-    );
+  for (const row of active) {
+    const changes: { overLimits?: boolean; rerunJson?: string } = {};
+    if (row.overLimits) changes.overLimits = false;
+    if (row.rerunJson) {
+      const stored = JSON.parse(row.rerunJson) as StoredRerun;
+      if (stored.overLimits) {
+        changes.rerunJson = JSON.stringify({ ...stored, overLimits: false });
+      }
+    }
+    if (Object.keys(changes).length > 0) await repo().update({ id: row.id }, changes);
   }
 }
 
@@ -1363,11 +1368,13 @@ async function postReport(
  * asked for while this one ran.
  */
 /**
- * Close this Todo's browser and finish its recording when the session ends, unless
- * it's waiting on a browser approval, which fires on that page. Its video then ends
- * when the page does, and covers the submit. It never fails the session it follows.
+ * Close this Todo's browser and finish its recording when the session ends, unless the
+ * next turn is about to need that page: it's waiting on a browser approval, which fires
+ * there, or the answer already came and the next session is on its way. Its video then
+ * ends when the page does, and covers the submit. It never fails the session it follows.
  */
-async function finishTodoBrowserWork(todoId: string): Promise<void> {
+async function finishTodoBrowserWork(pickup: TodoPickup): Promise<void> {
+  const { todoId } = pickup;
   try {
     if (!(await AppDataSource.getRepository(BrowserSession).existsBy({ todoId }))) return;
     const todo = await AppDataSource.getRepository(Todo).findOne({
@@ -1375,6 +1382,14 @@ async function finishTodoBrowserWork(todoId: string): Promise<void> {
       select: { id: true, waitingOn: true },
     });
     if (todo?.waitingOn === "browser_approval") return;
+    const ending = await repo().findOne({
+      where: { id: pickup.id },
+      select: { id: true, rerunJson: true },
+    });
+    if (ending?.rerunJson) return;
+    if (await repo().existsBy({ todoId, status: "queued", notBeforeAt: LessThanOrEqual(new Date()) })) {
+      return;
+    }
     const { closeBrowserSessionsForTodo } = await import("./browserSessions.js");
     await closeBrowserSessionsForTodo(todoId);
   } catch (error) {
@@ -1449,7 +1464,7 @@ async function finishPickup(args: {
   if (recorder && summary) await recorder.finish(summary);
   await releaseChatWorkloadLeaseByOwner(pickup.id).catch(() => undefined);
   if (outcome.status !== "skipped") await auditPickup(pickup, outcome.status);
-  await finishTodoBrowserWork(pickup.todoId);
+  await finishTodoBrowserWork(pickup);
 
   if (outcome.tainted === true) await markTodoTainted(pickup.todoId);
   if (outcome.status === "done") {

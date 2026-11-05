@@ -257,6 +257,7 @@ export const SUPPORT_LIMITS = {
   citationsPerDraft: 8,
   quoteChars: 500,
   ratingCommentChars: 2_000,
+  helpCenterQueryChars: 200,
   assistInstructionChars: 500,
   bulkTickets: 100,
 } as const;
