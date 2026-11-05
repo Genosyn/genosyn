@@ -121,6 +121,8 @@ export const OPERATION_ID_OVERRIDES: Record<string, string> = {
   "GET /api/sign/{token}/completed": "getCompletedSigningDocument",
   "GET /api/forms/{token}": "getPublicForm",
   "POST /api/forms/{token}/responses": "submitPublicFormResponse",
+  "GET /api/feedback/{token}": "getTicketRatingPage",
+  "POST /api/feedback/{token}": "rateTicket",
   "GET /api/room/{token}": "getGuestDataRoom",
   "POST /api/room/{token}/visit": "recordGuestDataRoomVisit",
   "POST /api/room/{token}/terms": "acceptGuestDataRoomTerms",

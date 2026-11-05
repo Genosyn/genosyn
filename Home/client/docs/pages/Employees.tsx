@@ -372,7 +372,8 @@ export function Employees() {
         <Strong>Charts and dashboards</Strong>, <Strong>Resources</Strong> (the library-wide level
         and each Resource), <Strong>Vault items</Strong>, <Strong>Member browsers</Strong>,{" "}
         <Strong>Routines</Strong>, and the <Strong>Company sections</Strong>: Finance, Revenue,
-        Marketing, Recruiting and Document signing. Kinds the company has none of yet share one line
+        Marketing, Recruiting, Document signing, Data rooms and Support. Kinds the company has none
+        of yet share one line
         at the end, linking to where to add them. Every row links to the thing itself and says what
         the employee holds:
       </P>

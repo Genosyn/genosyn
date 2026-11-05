@@ -58,6 +58,7 @@ const PRODUCT_NAME_DEPT: Record<string, Dept> = {
   Revenue: "revenue",
   Customers: "revenue",
   Email: "email",
+  Support: "email",
   Finance: "finance",
   Repositories: "repositories",
   "Paid Marketing": "marketing",

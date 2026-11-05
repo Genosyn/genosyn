@@ -111,6 +111,19 @@ trusted-origin check, is in `App/server/index.ts`.
      as untrusted data (the room's restricted answer turn in
      `App/server/services/dataRooms/ai.ts`, shown only the documents that guest
      can open, and `list_data_room_questions`, a taint source).
+   - **Customer ratings**: `/feedback/<token>` and `/api/feedback/<token>`
+     (`App/server/routes/publicSupport.ts`, `App/server/services/support/ratings.ts`).
+     The token in the link a customer was emailed is their only credential, kept
+     only as a hash; it reaches one ticket's subject and a rating box, and no
+     conversation. Guessing is throttled by source address.
+   - **Email to a Support inbox** (`App/server/services/support/`). Anyone can
+     write to a support address, and From is spoofable, so a customer's email is
+     untrusted input to the company's AI: it reaches an AI Employee only as bounded
+     JSON in the user turn of a restricted one-tool turn
+     (`App/server/services/support/ai.ts`), shown nothing but that ticket's
+     conversation and the published Articles, or through `list_support_tickets`
+     and `get_support_ticket`, both taint sources. Its HTML is sanitized and its
+     remote images blocked when a Member opens it. Attachments always download.
    - OAuth callbacks for Integrations, and the return page Genosyn Connect
      sends the browser back to: `App/server/routes/integrationsOauth.ts`,
      `App/server/services/hostedOauth.ts`.
@@ -289,6 +302,15 @@ trusted-origin check, is in `App/server/index.ts`.
   shown on a screen can be captured. Reaching another guest's folders or
   questions, another room, or a room's documents without a link is a finding.
   Data rooms are owners' and admins' alone; a Member reading one is a finding.
+- **A reply on a Ticket can go out with nobody looking**, when owners set an inbox
+  to reply on its own and every server-side check holds
+  (`App/server/services/support/holds.ts`). A customer's email changing which
+  checks pass, reaching beyond its own conversation and the published Articles, or
+  getting a reply sent to anyone but its own requester and the people they copied
+  is a finding. An answer from a published Article is not. Any Member may read and
+  answer tickets; owners and admins alone change Support inboxes, how far the AI
+  goes, and AI access. A rating link is a bearer credential by design; reaching
+  anything beyond its ticket's subject and rating box is a finding.
 - **Answering a Decision has no side effect**, so any Member may answer one.
   Decision screening fails open by design (`AGENTS.md` §3). Approvals, which
   replay a held action, are admin-gated.

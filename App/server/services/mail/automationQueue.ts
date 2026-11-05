@@ -11,6 +11,7 @@ import { applyAutomaticAnalysisActions } from "./analysisAutomation.js";
 import { hasBlockedSender } from "./blockedSenders.js";
 import { runRulesForNewMessage } from "./rules.js";
 import { reconcileProactiveDefaults } from "../proactive/defaults.js";
+import { messageBelongsToSupport, noteInboundMail } from "../support/intake.js";
 import { eventCeilingForTodo, fileIntakeProposal } from "../todoIntake.js";
 import { wakeTodosForInboundMail } from "../todoWaits.js";
 
@@ -49,6 +50,7 @@ type MailDefaultEffectsDependencies = {
   applyInstructions?: typeof applyAutomaticAnalysisActions;
   applyRules?: typeof runRulesForNewMessage;
   dispatchReceived?: typeof dispatchEmailReceived;
+  isSupportMail?: typeof messageBelongsToSupport;
   wakeTodos?: typeof wakeTodosForInboundMail;
   fileIntake?: typeof fileIntakeProposal;
 };
@@ -95,22 +97,32 @@ export async function runDefaultMailEffects(
   // Going first also means the buttons a human wants are ready before a rule's
   // handover or a Pipeline that may run for hours.
   await assertRunnable();
-  const analysis = await (dependencies.analyzeInbound ?? analyzeInboundMessage)(
+  // A customer's email to a Support inbox is read once, by Support's own turn,
+  // not twice. With no reading here it cannot be filed as a Project's Todo either,
+  // so one email never becomes both. Mail to anything else on the mailbox is read
+  // here as ever, and rules and Pipelines below run for both.
+  const isSupportMail = await (dependencies.isSupportMail ?? messageBelongsToSupport)(
     account,
     message,
-    {},
-    // This is the arrival: the one read allowed to record steps for the
-    // mailbox's instructions. A person's "read again" never is.
-    { arrival: true },
-  ).catch((error) => {
-    // Triage is an enrichment. A mailbox whose model fails still gets its
-    // rules and its Pipelines; the analysis row already recorded the failure.
-    // (A model that is unavailable is not a failure: the read waits, as this
-    // arrival, and is carried on — instructions and all — when it is back.)
-    // eslint-disable-next-line no-console
-    console.error(`[mail] AI analysis for message ${message.id} failed:`, error);
-    return null;
-  });
+  ).catch(() => false);
+  const analysis = isSupportMail
+    ? null
+    : await (dependencies.analyzeInbound ?? analyzeInboundMessage)(
+        account,
+        message,
+        {},
+        // This is the arrival: the one read allowed to record steps for the
+        // mailbox's instructions. A person's "read again" never is.
+        { arrival: true },
+      ).catch((error) => {
+        // Triage is an enrichment. A mailbox whose model fails still gets its
+        // rules and its Pipelines; the analysis row already recorded the failure.
+        // (A model that is unavailable is not a failure: the read waits, as this
+        // arrival, and is carried on — instructions and all — when it is back.)
+        // eslint-disable-next-line no-console
+        console.error(`[mail] AI analysis for message ${message.id} failed:`, error);
+        return null;
+      });
 
   // The steps the mailbox's instructions asked for are real effects on the
   // mailbox — and, for an unsubscribe, on the sender — so unlike the read
@@ -372,6 +384,12 @@ export async function enqueueInboundAutomation(
   message: MailMessage,
   options: MailAutomationRunOptions = {},
 ): Promise<void> {
+  // Support reads the same arrivals. Its own queue, so a ticket never waits behind
+  // a Pipeline running here; and a failure there never costs this mail its rules.
+  await noteInboundMail(message).catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error(`[support] could not take message ${message.id}:`, error);
+  });
   const id = crypto.randomUUID();
   await AppDataSource.getRepository(MailInboundAutomation)
     .createQueryBuilder()

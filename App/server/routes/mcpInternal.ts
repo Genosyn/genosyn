@@ -211,6 +211,29 @@ import {
   DATA_ROOM_STATUSES,
   type DataRoomAccessLevel,
 } from "../../shared/dataRooms.js";
+import {
+  SUPPORT_ARTICLE_STATUSES,
+  SUPPORT_LIMITS,
+  SUPPORT_PRIORITIES,
+  SUPPORT_TICKET_STATUSES,
+  SUPPORT_VIEWS,
+  type SupportAccessLevel,
+} from "../../shared/support.js";
+import { type SupportActor, requireTicket as requireSupportTicket } from "../services/support/access.js";
+import { aiTicketDetail, aiTicketRow, SUPPORT_UNTRUSTED_NOTE } from "../services/support/aiViews.js";
+import { supportAnalytics } from "../services/support/analytics.js";
+import { isSupportError, SupportConflictError as SupportToolConflictError } from "../services/support/errors.js";
+import { getSupportGrant, supportAccessAtLeast } from "../services/support/grants.js";
+import {
+  createArticle as createSupportArticle,
+  listArticles as listSupportArticles,
+  requireArticle as requireSupportArticle,
+  updateArticle as updateSupportArticle,
+} from "../services/support/knowledge.js";
+import { addTicketNote, draftReplyAsEmployee, sendTicketReply } from "../services/support/replies.js";
+import { serializeArticle as serializeSupportArticle } from "../services/support/serialize.js";
+import { listTickets as listSupportTickets, updateTicket as updateSupportTicket } from "../services/support/tickets.js";
+import { SupportTicket } from "../db/entities/SupportTicket.js";
 import { type DataRoomActor, requireRoom as requireDataRoom } from "../services/dataRooms/access.js";
 import {
   aiActivity,
@@ -19480,6 +19503,340 @@ mcpInternalRouter.post(
       if (!respondToSigningError(res, error)) throw error;
     }
   },
+);
+
+// ----- Support -----
+
+/**
+ * Every Support tool answers to one `EmployeeSupportGrant` per employee (Support →
+ * AI access). Writes the 403 itself and returns null, like `requireDataRoomAccess`.
+ */
+async function requireSupportAccess(
+  req: McpRequest,
+  res: Response,
+  required: SupportAccessLevel,
+): Promise<SupportAccessLevel | null> {
+  const level = await supportAccessAtLeast(req.mcpCompany!.id, req.mcpEmployee!.id, required);
+  if (level) return level;
+  const grant = await getSupportGrant(req.mcpEmployee!.id);
+  res.status(403).json({
+    error:
+      grant && grant.companyId === req.mcpCompany!.id
+        ? `No grant: this needs "${required}" Support access; yours is "${grant.accessLevel}". Ask an owner or admin to raise it under Support → AI access.`
+        : "No grant: you do not have access to Support. Ask an owner or admin to grant it under Support → AI access.",
+  });
+  return null;
+}
+
+function supportTool(fn: (req: McpRequest, res: Response) => Promise<unknown>): RequestHandler {
+  return (req, res, next) => {
+    fn(req as McpRequest, res).catch((error: unknown) => {
+      if (isSupportError(error)) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      if (error instanceof ListQueryError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      next(error);
+    });
+  };
+}
+
+function supportActor(req: McpRequest): SupportActor {
+  return { kind: "ai", employeeId: req.mcpEmployee!.id };
+}
+
+const listSupportTicketsSchema = z
+  .object({
+    view: z.enum(SUPPORT_VIEWS).optional(),
+    status: z.enum(SUPPORT_TICKET_STATUSES).optional(),
+    priority: z.enum(SUPPORT_PRIORITIES).optional(),
+    topicKey: z.string().max(64).optional(),
+    requesterEmail: z.string().max(SUPPORT_LIMITS.addressChars).optional(),
+    q: z.string().max(200).optional(),
+    ...pageBodyShape,
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_support_tickets",
+  validateBody(listSupportTicketsSchema),
+  supportTool(async (req, res) => {
+    const accessLevel = await requireSupportAccess(req, res, "read");
+    if (!accessLevel) return;
+    const { limit, cursor, ...filters } = req.body as z.infer<typeof listSupportTicketsSchema>;
+    const companyId = req.mcpCompany!.id;
+    const page = await listSupportTickets({
+      companyId,
+      // An AI Employee's "mine" is what it holds, read through the assignee filter.
+      viewerUserId: null,
+      filters:
+        filters.view === "mine"
+          ? { ...filters, view: undefined, assigneeEmployeeId: req.mcpEmployee!.id }
+          : filters,
+      page: { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+    });
+    const rows = await AppDataSource.getRepository(SupportTicket).find({
+      where: { id: In(page.rows.map((row) => row.id)), companyId },
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    res.json({
+      accessLevel,
+      total: page.total,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
+      ...(page.note ? { note: page.note } : {}),
+      untrusted: SUPPORT_UNTRUSTED_NOTE,
+      tickets: page.rows.flatMap((row) => {
+        const ticket = byId.get(row.id);
+        return ticket ? [aiTicketRow(ticket)] : [];
+      }),
+    });
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/get_support_ticket",
+  validateBody(z.object({ ticketId: z.string().uuid() }).strict()),
+  supportTool(async (req, res) => {
+    const accessLevel = await requireSupportAccess(req, res, "read");
+    if (!accessLevel) return;
+    res.json({ accessLevel, ...(await aiTicketDetail(req.mcpCompany!.id, req.body.ticketId)) });
+  }),
+);
+
+const searchSupportArticlesSchema = z
+  .object({
+    q: z.string().max(200).optional(),
+    status: z.enum(SUPPORT_ARTICLE_STATUSES).optional(),
+    topicKey: z.string().max(64).optional(),
+    ...pageBodyShape,
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/search_support_articles",
+  validateBody(searchSupportArticlesSchema),
+  supportTool(async (req, res) => {
+    if (!(await requireSupportAccess(req, res, "read"))) return;
+    const { limit, cursor, status, ...filters } = req.body as z.infer<
+      typeof searchSupportArticlesSchema
+    >;
+    res.json(
+      await listSupportArticles({
+        companyId: req.mcpCompany!.id,
+        ...filters,
+        status: status ?? "published",
+        page: { limit, cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
+      }),
+    );
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/get_support_article",
+  validateBody(z.object({ articleId: z.string().uuid() }).strict()),
+  supportTool(async (req, res) => {
+    if (!(await requireSupportAccess(req, res, "read"))) return;
+    res.json({
+      article: serializeSupportArticle(
+        await requireSupportArticle(req.mcpCompany!.id, req.body.articleId),
+      ),
+    });
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/get_support_overview",
+  validateBody(z.object({ days: z.number().int().min(1).max(365).optional() }).strict()),
+  supportTool(async (req, res) => {
+    if (!(await requireSupportAccess(req, res, "read"))) return;
+    res.json(await supportAnalytics(req.mcpCompany!.id, req.body.days ?? 30));
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/add_support_note",
+  validateBody(
+    z
+      .object({
+        ticketId: z.string().uuid(),
+        body: z.string().trim().min(1).max(SUPPORT_LIMITS.noteChars),
+      })
+      .strict(),
+  ),
+  supportTool(async (req, res) => {
+    if (!(await requireSupportAccess(req, res, "prepare"))) return;
+    const message = await addTicketNote({
+      companyId: req.mcpCompany!.id,
+      ticketId: req.body.ticketId,
+      body: req.body.body,
+      actor: supportActor(req),
+    });
+    res.json({ messageId: message.id, note: "Added. Only the company's people see it." });
+  }),
+);
+
+const updateSupportTicketSchema = z
+  .object({
+    ticketId: z.string().uuid(),
+    status: z.enum(["open", "waiting", "snoozed", "solved", "closed", "spam"]).optional(),
+    snoozedUntil: z.string().datetime({ offset: true }).optional(),
+    priority: z.enum(SUPPORT_PRIORITIES).optional(),
+    topicKey: z.string().max(64).optional(),
+    tags: z.array(z.string().max(SUPPORT_LIMITS.tagChars)).max(SUPPORT_LIMITS.tagsPerTicket).optional(),
+    subject: z.string().trim().min(1).max(SUPPORT_LIMITS.subjectChars).optional(),
+    assigneeUserId: z.string().uuid().nullable().optional(),
+    assigneeEmployeeId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_support_ticket",
+  validateBody(updateSupportTicketSchema),
+  supportTool(async (req, res) => {
+    if (!(await requireSupportAccess(req, res, "prepare"))) return;
+    const { ticketId, snoozedUntil, ...patch } = req.body as z.infer<
+      typeof updateSupportTicketSchema
+    >;
+    const ticket = await updateSupportTicket({
+      companyId: req.mcpCompany!.id,
+      ticketId,
+      patch: { ...patch, ...(snoozedUntil ? { snoozedUntil: new Date(snoozedUntil) } : {}) },
+      actor: supportActor(req),
+    });
+    res.json({ ticket: aiTicketRow(ticket) });
+  }),
+);
+
+const draftSupportReplySchema = z
+  .object({
+    ticketId: z.string().uuid(),
+    body: z.string().trim().min(1).max(SUPPORT_LIMITS.replyChars),
+    citations: z
+      .array(
+        z
+          .object({
+            articleId: z.string().uuid(),
+            quote: z.string().trim().min(1).max(SUPPORT_LIMITS.quoteChars),
+          })
+          .strict(),
+      )
+      .max(SUPPORT_LIMITS.citationsPerDraft)
+      .optional(),
+    note: z.string().trim().max(600).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/draft_support_reply",
+  validateBody(draftSupportReplySchema),
+  supportTool(async (req, res) => {
+    if (!(await requireSupportAccess(req, res, "prepare"))) return;
+    const body = req.body as z.infer<typeof draftSupportReplySchema>;
+    const result = await draftReplyAsEmployee({
+      companyId: req.mcpCompany!.id,
+      employeeId: req.mcpEmployee!.id,
+      ...body,
+    });
+    res.json({
+      draftId: result.draft.id,
+      droppedQuotes: result.dropped,
+      note:
+        result.dropped > 0
+          ? `Saved for a Member to send. ${result.dropped} quote(s) were not found word for word in the Article and were removed.`
+          : "Saved for a Member to send. Nobody outside the company has seen it.",
+    });
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/create_support_article",
+  validateBody(
+    z
+      .object({
+        title: z.string().trim().min(1).max(SUPPORT_LIMITS.articleTitleChars),
+        body: z.string().trim().min(1).max(SUPPORT_LIMITS.articleBodyChars),
+        topicKey: z.string().max(64).optional(),
+        publish: z.boolean().optional(),
+      })
+      .strict(),
+  ),
+  supportTool(async (req, res) => {
+    const level = await requireSupportAccess(req, res, req.body.publish ? "reply" : "prepare");
+    if (!level) return;
+    const article = await createSupportArticle({
+      companyId: req.mcpCompany!.id,
+      title: req.body.title,
+      body: req.body.body,
+      topicKey: req.body.topicKey ?? null,
+      status: req.body.publish ? "published" : "draft",
+      actor: supportActor(req),
+    });
+    res.json({ article: serializeSupportArticle(article, { body: false }) });
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/update_support_article",
+  validateBody(
+    z
+      .object({
+        articleId: z.string().uuid(),
+        title: z.string().trim().min(1).max(SUPPORT_LIMITS.articleTitleChars).optional(),
+        body: z.string().max(SUPPORT_LIMITS.articleBodyChars).optional(),
+        topicKey: z.string().max(64).optional(),
+        status: z.enum(SUPPORT_ARTICLE_STATUSES).optional(),
+      })
+      .strict(),
+  ),
+  supportTool(async (req, res) => {
+    const companyId = req.mcpCompany!.id;
+    const { articleId, ...patch } = req.body;
+    const existing = await requireSupportArticle(companyId, articleId);
+    // What a published Article says is what AI replies tell customers.
+    const reachesCustomers =
+      patch.status === "published" ||
+      (existing.status === "published" && (patch.title !== undefined || patch.body !== undefined));
+    if (!(await requireSupportAccess(req, res, reachesCustomers ? "reply" : "prepare"))) return;
+    const article = await updateSupportArticle({
+      companyId,
+      articleId,
+      patch,
+      actor: supportActor(req),
+    });
+    res.json({ article: serializeSupportArticle(article, { body: false }) });
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/reply_to_support_ticket",
+  validateBody(
+    z
+      .object({
+        ticketId: z.string().uuid(),
+        body: z.string().trim().min(1).max(SUPPORT_LIMITS.replyChars),
+        status: z.enum(["open", "waiting", "solved", "closed"]).optional(),
+      })
+      .strict(),
+  ),
+  supportTool(async (req, res) => {
+    if (!(await requireSupportAccess(req, res, "reply"))) return;
+    const blocked = await requireSupportTicket(req.mcpCompany!.id, req.body.ticketId);
+    if (blocked.status === "spam") {
+      throw new SupportToolConflictError("This ticket is in Spam. A person must take it out first.");
+    }
+    const result = await sendTicketReply({
+      companyId: req.mcpCompany!.id,
+      ticketId: req.body.ticketId,
+      body: req.body.body,
+      status: req.body.status,
+      actor: supportActor(req),
+    });
+    res.json({ messageId: result.message.id, ticket: aiTicketRow(result.ticket) });
+  }),
 );
 
 // ----- Data rooms -----

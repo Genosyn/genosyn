@@ -269,6 +269,11 @@ code, UI copy, commits, and docs.
 | **Careers site** (where a company's Openings are listed and applications taken — on the install at `/careers/<company-slug>`, on a verified custom domain, or internal to Members) | Job board, Portal, ATS (in product copy) |
 | **Data room** (a private, tracked set of documents shared with people outside the company — investors, a buyer, auditors, a partner — `DataRoom`) | Deal room, VDR, Space, Portal, Share (in product copy) |
 | **Guest** (one person outside the company invited to one Data room through their own private link — `DataRoomGuest`) | Visitor, Viewer, User, Member (Members are the company's own people) |
+| **Ticket** (one customer's request to the company, handled in Support — `SupportTicket`; the customer who wrote is its **requester**) | Case, Issue, Conversation, Inquiry; never "Task" |
+| **Support inbox** (a mailbox and the addresses on it that count as support — `SupportInbox`, holding no credential of its own) | Queue, Channel, Connection, Shared inbox |
+| **Article** (one piece of what the company knows, written for answering customers; published ones are the only company knowledge an AI reply reads — `SupportArticle`) | Doc, FAQ, KB entry, Resource |
+| **Saved reply** (a reply a Member writes once and inserts into the composer, with blanks — `SupportSavedReply`) | Macro, Canned response, Template, Snippet |
+| **Topic** (what a Ticket is about, and what follows from that: who holds it, whether a reply may go out on its own — a `SupportTopic` in Support's settings) | Category, Tag, Label, Queue |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
 | **Deal** (one revenue opportunity) | Opportunity, Pipeline item |
 | **Deal Stage** (a step in the sales process) | Pipeline stage — see the warning below |
@@ -756,6 +761,41 @@ draft. An AI Employee's own tools answer to `EmployeeDataRoomGrant`
 delivery tools, and no tool ever returns a guest's link. Keep those
 boundaries: do not let an answer read beyond its guest's folders, publish an
 unchecked quote, or hand a link to a model.
+
+**A customer is a stranger, and a reply reads only what it may repeat.** Anyone
+can email a support address and From is spoofable, so everything a customer writes
+is untrusted. A mailbox stays a `MailAccount` and keeps syncing as it always has; a
+**Support inbox** only says which mail on it counts (`services/support/`), told
+about arrivals by the mail automation outbox and about the rest of a conversation
+after each sync pass, and capturing an email once however often it is told. Bodies
+are copied onto `SupportMessage`, so a disconnected mailbox costs no ticket its
+history. The AI Employee appointed to an inbox (an appointment, not a Grant) works
+in restricted one-tool turns (`services/support/ai.ts`): no Soul, Memory, Skills,
+company tools or MCP servers. A customer's words reach it only as bounded JSON in
+the user turn, and a turn is shown only that ticket's conversation and the published
+Articles, never a note, a draft Article, another customer's ticket or their account.
+Every quote it cites is checked word for word, and whether a reply may go out with
+nobody looking is decided by the server (`autoReplyHolds`, `services/support/holds.ts`):
+an inbox set to `auto`, answerable, every quote holding, at least one, no injection,
+high confidence, a Topic that allows it, not urgent or angry, no Member holding it,
+under the per-ticket, per-customer and per-inbox limits, not automated mail, and no
+older than a day. Anything less waits as a draft with its reasons shown. Mail no
+person wrote never earns an answer (`mailSignals.ts`: bounces, auto-replies, bulk),
+which is what stops two autoresponders looping, and every automatic email carries
+RFC 3834's headers. A send is at most once: a draft is claimed before it goes, a
+crash leaves it for a person, and every reply goes through `sendMailMessage`, so the
+do-not-email list and Policies apply. A Member's choice of priority or Topic is never
+overridden, and only a stranger's first email can be filed as spam on a model's word.
+An AI Employee's own tools answer to `EmployeeSupportGrant` (`read < prepare <
+reply`); `list_support_tickets` and `get_support_ticket` are taint sources, and
+`reply_to_support_ticket` is a taint sink and delivery tool, so the restricted turn
+is the only way a reply goes out unreviewed. A rating link is a bearer credential
+whose token is kept only as a hash, it reaches one ticket's subject and a rating box,
+and a rating needs a person pressing a button, since mail scanners follow links. A
+Trigger on `support_ticket` fires when a customer writes, never on the updates a
+Routine's own work makes. Keep those boundaries: do not show a reply turn anything
+it could not safely repeat to whoever wrote the email, give it a tool, let a model
+decide a send, retry a send on a guess, or create a Contact from an email.
 
 **A group discussion talks; it does not act.** Several AI Employees take turns
 on one Member's question in a Workspace channel — in a group chat every Member

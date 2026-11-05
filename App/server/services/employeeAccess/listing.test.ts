@@ -25,6 +25,7 @@ import { EmployeeRevenueGrant } from "../../db/entities/EmployeeRevenueGrant.js"
 import { EmployeeRoutineGrant } from "../../db/entities/EmployeeRoutineGrant.js";
 import { EmployeeSigningGrant } from "../../db/entities/EmployeeSigningGrant.js";
 import { EmployeeDataRoomGrant } from "../../db/entities/EmployeeDataRoomGrant.js";
+import { EmployeeSupportGrant } from "../../db/entities/EmployeeSupportGrant.js";
 import { EmployeeVaultGrant } from "../../db/entities/EmployeeVaultGrant.js";
 import { Note } from "../../db/entities/Note.js";
 import { Notebook } from "../../db/entities/Notebook.js";
@@ -143,7 +144,7 @@ describe("listing every kind", () => {
       assert.equal(item.grant, null, `${kind} starts ungranted`);
       assert.equal(item.key, `${kind}:${id}`);
     }
-    for (const kind of ["finance", "revenue", "marketing", "recruiting", "signing", "data_room"] as const) {
+    for (const kind of ["finance", "revenue", "marketing", "recruiting", "signing", "data_room", "support"] as const) {
       assert.equal(find(listing, kind).grant, null, kind);
     }
     // Every AI Employee holds Routines and the Resources library by default.
@@ -415,6 +416,18 @@ describe("who may see and change what — each kind's own rule", () => {
     const shown = find(await list(viewer({ userId: admin.id, role: "admin" })), "data_room");
     assert.deepEqual(shown.grant, { level: "share", byDefault: false });
     assert.equal(shown.href, "/data-rooms/ai-access");
+  });
+
+  test("Support access can be seen by any Member and changed only by owners and admins", async () => {
+    await insert(EmployeeSupportGrant, { companyId: company.id, employeeId: employee.id, accessLevel: "reply" });
+    const member = find(await list(viewer({ userId: colleague.id, role: "member" })), "support");
+    assert.equal(member.hidden, false);
+    assert.deepEqual(member.grant, { level: "reply", byDefault: false });
+    assert.equal(member.canChange, false);
+    const admin = await addMember(company.id, "admin");
+    const shown = find(await list(viewer({ userId: admin.id, role: "admin" })), "support");
+    assert.equal(shown.canChange, true);
+    assert.equal(shown.href, "/support/ai-access");
   });
 
   test("Finance is hidden from a Member without Finance access, visible read-only with it", async () => {

@@ -67,6 +67,8 @@ import { publicFormsRouter } from "../routes/publicForms.js";
 import { publicSignaturesRouter } from "../routes/publicSignatures.js";
 import { publicDataRoomsRouter } from "../routes/publicDataRooms.js";
 import { dataRoomsRouter } from "../routes/dataRooms.js";
+import { supportRouter } from "../routes/support.js";
+import { publicSupportRouter } from "../routes/publicSupport.js";
 import { pushRouter } from "../routes/push.js";
 import { reactivityRouter } from "../routes/reactivity.js";
 import { recordHistoryRouter } from "../routes/recordHistory.js";
@@ -254,6 +256,11 @@ export const AREAS: readonly Area[] = [
       "Rooms of documents shared with guests outside the company, their guests, activity and questions, and the room's AI work. Owners and admins only.",
   },
   {
+    name: "Support",
+    description:
+      "Support inboxes, Tickets and their conversations, the AI Employee who works them, Articles, saved replies and figures.",
+  },
+  {
     name: "Customers",
     description: "Customer accounts, their contacts, statements and contracts.",
   },
@@ -285,6 +292,10 @@ export const AREAS: readonly Area[] = [
     name: "Guest data rooms",
     description:
       "The data room a guest reads and asks questions in, authenticated by their private link.",
+  },
+  {
+    name: "Customer feedback",
+    description: "The page a customer rates a ticket on, authenticated by the link they were sent.",
   },
   { name: "Careers site", description: "The public careers site: Openings and applications." },
   {
@@ -384,6 +395,7 @@ function areaRules(): AreaRule[] {
     { router: marketingRouter, area: "Marketing" },
     { router: recruitingRouter, area: "Recruiting" },
     { router: dataRoomsRouter, area: "Data rooms" },
+    { router: supportRouter, area: "Support" },
     { router: customerMergeRouter, area: "Customers" },
     { router: contractsRouter, area: "Customers" },
     { router: subsidiariesRouter, area: "Finance" },
@@ -417,6 +429,7 @@ function areaRules(): AreaRule[] {
     { router: publicSignaturesRouter, area: "Public signing" },
     { router: publicFormsRouter, area: "Public forms" },
     { router: publicDataRoomsRouter, area: "Guest data rooms" },
+    { router: publicSupportRouter, area: "Customer feedback" },
     { router: careersRouter, area: "Careers site" },
     { router: webhooksRouter, area: "Inbound webhooks" },
   ];

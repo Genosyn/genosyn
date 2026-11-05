@@ -25,6 +25,9 @@ const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   board_letter_ready: "push",
   recruiting_strong_match: "push",
   data_room_question: "push",
+  support_ticket_assigned: "push",
+  support_customer_replied: "push",
+  support_sla_breached: "push",
   group_discussion: "push",
   model_unavailable: "push",
   finance_review_ready: "bell",
@@ -39,6 +42,7 @@ const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   initiative_pending: "bell",
   recruiting_application: "bell",
   data_room_visit: "bell",
+  support_low_rating: "bell",
   model_available: "bell",
 };
 

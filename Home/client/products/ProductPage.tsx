@@ -108,6 +108,13 @@ const PAGES: Record<string, PageCopy> = {
     crop: "panel",
     stop: { kind: "approval", line: "Three replies are drafted and none have sent." },
   },
+  support: {
+    does: "Four settings decide how far one inbox goes.",
+    staff: "Pax answered three of the night's four Tickets.",
+    caption: "A Ticket at 02:40, its draft held for a Member.",
+    crop: "screen",
+    stop: { kind: "approval", line: "A reply on Billing waits for a Member, and the draft says why." },
+  },
   customers: {
     does: "Contracts upload to 25 MB each.",
     staff: "Northstar moved to Watch with two reasons.",

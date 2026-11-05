@@ -28,6 +28,7 @@ import {
 } from "./store.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
 import { linkAccountMessagesSafely } from "../revenue/mailLink.js";
+import { noteMirroredMail } from "../support/intake.js";
 import { withDraftSendDisconnectFence } from "./draftSendQueue.js";
 import { enqueueInboundAutomation, waitForMailAutomation } from "./automationQueue.js";
 import { listFolders, withImap } from "./imapClient.js";
@@ -434,6 +435,7 @@ async function executeAccountSync(accountId: string, attemptId: string): Promise
         // read-before-insert activity dedupe after back-to-back sync passes.
         await assertWritable();
         if (changed) await linkAccountMessagesSafely(account, passStartedAt);
+        if (changed) await noteMirroredMail(account, passStartedAt);
         await assertWritable();
         await finishSyncAttempt(account, attemptId, { state: "succeeded", changed });
       } catch (error) {
@@ -452,6 +454,7 @@ async function executeAccountSync(accountId: string, attemptId: string): Promise
         // later retry's newer timestamp cannot strand those messages outside
         // Revenue timelines.
         if (changed) await linkAccountMessagesSafely(account, passStartedAt);
+        if (changed) await noteMirroredMail(account, passStartedAt);
         await finishSyncAttempt(account, attemptId, {
           state: "failed",
           changed,

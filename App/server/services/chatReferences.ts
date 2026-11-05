@@ -211,6 +211,14 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     toolHints: ["list_openings", "list_applications", "get_application", "score_application"],
   },
   {
+    key: "support",
+    label: "Support",
+    path: "/support",
+    description: "Customer tickets, Articles and saved replies",
+    keywords: ["support", "ticket", "tickets", "helpdesk", "customer question", "knowledge base", "sla", "csat"],
+    toolHints: ["list_support_tickets", "get_support_ticket", "search_support_articles", "get_support_overview"],
+  },
+  {
     key: "finance",
     label: "Finance",
     path: "/finance",

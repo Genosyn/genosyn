@@ -1235,6 +1235,120 @@ export const PRODUCTS: ProductDef[] = [
     ],
   },
 
+  // ───────────────────────────────── Support ─────────────────────────────────
+  {
+    slug: "support",
+    name: "Support",
+    category: "Operations",
+    icon: "lifeBuoy",
+    accent: "bg-blue-50 text-blue-700 ring-blue-200",
+    tagline: "Every customer email becomes a Ticket with a reply drafted from your Articles.",
+    taglineAccent:
+      "Every quote is checked word for word, and what it cannot answer waits for a person, with the reason on the draft.",
+    summary:
+      "Email to support@ becomes Tickets an AI Employee triages and answers from your published Articles, quoting them. The rest waits for a Member.",
+    seoTitle: "Support: AI ticketing on your own mailbox · Genosyn",
+    description:
+      "Turn email to support@ into Tickets. An AI Employee triages each one and drafts a reply from your Articles, with every quote checked. You decide what it sends.",
+    intro:
+      "Connect the mailbox your customers already write to and say which addresses count: support@, help@, an alias, a Google Group, or the whole mailbox. Every email to them becomes a Ticket. An AI Employee summarizes it, sets its Topic and priority, and drafts a reply from your published Articles, in a restricted turn that reads that Ticket and those Articles and nothing else. A Member sends the reply. Turn on Reply on its own and the AI Employee sends the ones that pass every check, on the Topics you allow.",
+    checks: [
+      "Watches support@ or any address you name",
+      "Off, Triage only, Draft replies, or Reply on its own",
+      "Every quote checked against an Article",
+      "Response targets, ratings and Insights",
+    ],
+    features: [
+      {
+        icon: "inbox",
+        title: "Watch support@ and leave the rest of the mailbox alone",
+        body: "Connect a mailbox and name the addresses that count, as many as you need, including aliases, Google Groups and forwarding addresses, or take everything sent to it. Mail to anything else stays in Email. Bring in the last 7, 30 or 90 days when you set it up, and nothing imported goes out on its own.",
+      },
+      {
+        icon: "shieldCheck",
+        title: "One Ticket and your published Articles, and nothing else",
+        body: "The AI Employee works in a restricted turn with one tool to submit its result, and no Soul, Memory, Skills, internal notes or other customers' Tickets. Each fact cites a passage copied word for word, and Genosyn removes any quote it cannot find. A customer's words are data, never instructions.",
+      },
+      {
+        icon: "listChecks",
+        title: "The server decides what goes out, and writes down why",
+        body: "On Reply on its own, a reply goes out only when every check holds. Money, refunds, a legal threat, a security incident, an angry customer, a Topic you have not cleared, two replies already sent, or any doubt holds it for a Member, with each reason on the draft. Replies it sends on its own say an AI Employee wrote them.",
+      },
+      {
+        icon: "bookOpenCheck",
+        title: "What no Article answers becomes the next Article",
+        body: "Knowledge lists what customers asked in the last 30 days that no Article answers, most-asked first, with Write it beside each. From a Ticket, Write an Article from this has the AI Employee write a draft for a Member to publish. Saved replies, with blanks for names and numbers, cover what your team writes by hand.",
+      },
+      {
+        icon: "clock",
+        title: "Targets per priority, counted in your working hours",
+        body: "Set hours to the first reply and to solved for each priority, around the clock or only in your working hours and time zone. Tickets close to a target show under SLA at risk. A Topic can send its Tickets to a Member or an AI Employee when nobody holds them, and a person's priority or Topic stands over the AI Employee's.",
+      },
+      {
+        icon: "pieChart",
+        title: "Figures counted by Genosyn, themes read by the AI Employee",
+        body: "Insights counts first reply, time to solve, targets met, how much the AI solved, drafts sent untouched, customer ratings and frustrated customers, per day and per Topic. What customers are running into is the AI Employee's weekly reading of recent Tickets, and the Ticket counts beside each theme come from the server.",
+      },
+    ],
+    employees: {
+      heading: "The one working the inbox, and the ones you give access",
+      body: "The AI Employee working an inbox needs no Grant, because the server starts each turn and it can only submit a result. For work with tools, in chat or in a Routine, Support → AI access sets Read only, Prepare replies or Reply to customers per AI Employee, through 11 tools from list_support_tickets to reply_to_support_ticket.",
+      bullets: [
+        {
+          title: "Hand over what needs real work",
+          body: "When an answer means looking something up, such as a subscription in Stripe, hand the Ticket to an AI Employee with access to the mailbox. It works with its Soul, Skills and tools, then brings the reply it wants to send to your Decision stack for a person.",
+        },
+        {
+          title: "Reading a Ticket holds the reply",
+          body: "A Ticket holds a stranger's words, so listing or reading one marks the turn as having read outside content, and a reply sent in that turn waits as an Approval. Replies that go out on their own come only from the inbox's restricted turn.",
+        },
+        {
+          title: "Work starts when a customer writes",
+          body: "Give a Routine a Trigger on support_ticket and it runs when a customer's message arrives, not on the replies, notes and updates its own work makes.",
+        },
+      ],
+    },
+    faqs: [
+      {
+        q: "How do I stop it inventing an answer?",
+        a: "A reply can only go out on its own if it quotes a published Article, every quote is checked word for word, and the AI Employee reports high confidence that the Articles fully answer the question. Anything less waits for a Member. Start on Draft replies, where nothing is sent, and each draft tells you whether it would have passed.",
+      },
+      {
+        q: "Can I keep my existing support@ address?",
+        a: "Yes. Connect the mailbox it lands in and list the address, whether it is an alias, a Google Group or a forwarding address. Replies go out through that mailbox, from the address the customer wrote to by default. On Gmail, an alias must be set up under Send mail as, and an SMTP server may refuse an address it does not know.",
+      },
+      {
+        q: "What about several addresses or several products?",
+        a: "Put several addresses on one Support inbox, or make one inbox per product, each with its own reply address, signature, instructions and AI Employee. Two inboxes on one mailbox cannot take the same mail.",
+      },
+      {
+        q: "When does it reply with no person looking?",
+        a: "Only on an inbox set to Reply on its own, on a Topic you allow, when every check holds. To start with, How-to question and Feedback or feature request may reply on their own, and Billing, Account access, Bug or problem and Something else wait for a person. It stops at two replies on a Ticket, five a day to one customer, and 100 a day from an inbox unless you change that. Every such reply says an AI Employee wrote it.",
+      },
+      {
+        q: "Is there a public help center or a chat widget?",
+        a: "No. Support works email today. Articles are not published on a site of their own: they are what your team and the AI Employee answer from, and a customer sees them through the replies that quote them.",
+      },
+      {
+        q: "What happens when the AI Model is down?",
+        a: "Tickets keep arriving and your team can keep replying. AI work waits without spending its attempts and resumes when the model answers again. A message more than 24 hours old by then gets a draft for a person rather than an automatic reply. A Standdown holds AI work the same way, and it is checked again at the moment of sending.",
+      },
+    ],
+    docsPath: "/docs/support",
+    keywords: [
+      "AI customer support software",
+      "AI ticketing system",
+      "AI help desk",
+      "email ticketing system",
+      "shared inbox for support",
+      "open source help desk",
+      "self-hosted help desk",
+      "open source Zendesk alternative",
+      "AI ticket triage",
+      "knowledge base answers with citations",
+    ],
+  },
+
   // ──────────────────────────────── Customers ────────────────────────────────
   {
     slug: "customers",

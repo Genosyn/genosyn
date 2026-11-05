@@ -24,6 +24,7 @@ import { EmployeeRevenueGrant } from "../../db/entities/EmployeeRevenueGrant.js"
 import { EmployeeRoutineGrant } from "../../db/entities/EmployeeRoutineGrant.js";
 import { EmployeeSigningGrant } from "../../db/entities/EmployeeSigningGrant.js";
 import { EmployeeDataRoomGrant } from "../../db/entities/EmployeeDataRoomGrant.js";
+import { EmployeeSupportGrant } from "../../db/entities/EmployeeSupportGrant.js";
 import { EmployeeVaultGrant } from "../../db/entities/EmployeeVaultGrant.js";
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
@@ -844,4 +845,5 @@ const LOADERS: Record<AccessKind, (ctx: Context) => Promise<KindListing>> = {
     sectionRow(ctx, "recruiting", EmployeeRecruitingGrant, "/recruiting/ai-access"),
   signing: (ctx) => sectionRow(ctx, "signing", EmployeeSigningGrant, "/signatures/ai-access"),
   data_room: (ctx) => sectionRow(ctx, "data_room", EmployeeDataRoomGrant, "/data-rooms/ai-access"),
+  support: (ctx) => sectionRow(ctx, "support", EmployeeSupportGrant, "/support/ai-access"),
 };
