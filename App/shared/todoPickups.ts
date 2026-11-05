@@ -107,6 +107,8 @@ export type TodoPickupView = {
   requester: { id: string; name: string } | null;
   /** It can't send mail, use the browser or start other work on its own. */
   preparationOnly: boolean;
+  /** Preparing, plus the browser: an owner trusts the sender of the email behind it. */
+  withBrowser?: boolean;
   attempt: number;
   /** When it was asked for, ISO with milliseconds. */
   startedAt: string;

@@ -11,6 +11,7 @@ import {
 } from "../services/humanDecisionGuidance.js";
 import { proactivePreparationError } from "../services/proactive/preparationScope.js";
 import {
+  BROWSER_APPROVAL_PATH,
   preparationMayReply,
   proactiveReviewToolError,
 } from "../services/proactive/workReviewPolicy.js";
@@ -92,6 +93,7 @@ import {
 import { insertTodo, spawnNextRecurrence } from "../services/todos.js";
 import { pageMyTodos } from "../services/todoWorkQueue.js";
 import {
+  ceilingJsonFor,
   markTodoTainted,
   requestTodoPickup,
   type TodoPickupAuthority,
@@ -1089,6 +1091,7 @@ type McpRequest = Request & {
   /** The Repository work session this turn may act on, if any. */
   mcpRepositoryWorkSessionId?: string | null;
   mcpTodoPickupId?: string | null;
+  mcpTrustedSender?: boolean;
   mcpAuthority?: "employee" | "member" | "untrusted";
   mcpRequesterUserId?: string | null;
   /**
@@ -1139,6 +1142,7 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpMailHandoverId = info.mailHandoverId;
   req.mcpRepositoryWorkSessionId = info.repositoryWorkSessionId;
   req.mcpTodoPickupId = info.todoPickupId;
+  req.mcpTrustedSender = info.trustedSender;
   req.mcpAuthority = info.authority;
   req.mcpRequesterUserId = info.requesterUserId;
   req.mcpRequesterSessionVersion = info.requesterSessionVersion;
@@ -1276,19 +1280,19 @@ mcpInternalRouter.use(requireDelegatedToolAuthority);
 mcpInternalRouter.use(async (req: McpRequest, res, next) => {
   if (!req.mcpProactiveReview || req.path === "/manifest") return next();
   if (req.path === "/integrations/_list") return res.json({ tools: [] });
+  // The browser's own server holding a submit for a person, or firing an approved one.
+  if (req.mcpTrustedSender && BROWSER_APPROVAL_PATH.test(req.path)) return next();
   const name = /^\/tools\/([^/]+)$/.exec(req.path)?.[1];
   const error = name
-    ? proactiveReviewToolError(
-        true,
-        name,
-        req.body ?? {},
-        preparationMayReply({
+    ? proactiveReviewToolError(true, name, req.body ?? {}, {
+        mayReply: preparationMayReply({
           proactiveReview: true,
           mailDeliveryMode: req.mcpMailDeliveryMode,
           mailThreadId: req.mcpMailThreadId,
           todoPickupId: req.mcpTodoPickupId,
         }),
-      )
+        trustedSender: req.mcpTrustedSender,
+      })
     : "Proactive review cannot use external Connections or other work surfaces.";
   if (error) return res.status(403).json({ error });
   try {
@@ -1297,6 +1301,10 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
         companyId: req.mcpCompany!.id,
         employeeId: req.mcpEmployee!.id,
         routineId: req.mcpRoutineId,
+        emailWork:
+          req.mcpTodoPickupId && req.mcpMailThreadId
+            ? { pickupId: req.mcpTodoPickupId, threadId: req.mcpMailThreadId }
+            : null,
       },
       name!,
       req.body ?? {},
@@ -1667,6 +1675,8 @@ function serializeTodo(t: Todo) {
     dueAt: t.dueAt,
     recurrence: t.recurrence,
     parentTodoId: t.parentTodoId,
+    // Nobody at the company wrote this: it says what was asked for, never what to do.
+    untrustedText: t.untrustedText,
   };
 }
 
@@ -12828,18 +12838,22 @@ function pickupCeilingOf(req: McpRequest): TodoPickupCeiling {
 
 /**
  * What this same work keeps when it comes back to the same employee: the turn's
- * ceiling, and a verified sender's trust, which a colleague it hands to doesn't get.
+ * ceiling, and a verified sender's trust. Only on the Todo that email started, by
+ * the employee it started it for. A colleague or another Todo doesn't get it.
  */
-async function ownWorkCeilingOf(req: McpRequest): Promise<TodoPickupCeiling> {
+async function ownWorkCeilingOf(req: McpRequest, todoId: string): Promise<TodoPickupCeiling> {
   const ceiling = pickupCeilingOf(req);
   if (!req.mcpTodoPickupId) return ceiling;
   const pickup = await AppDataSource.getRepository(TodoPickup).findOne({
     where: { id: req.mcpTodoPickupId },
-    select: { id: true, employeeId: true, trustedSender: true },
+    select: { id: true, employeeId: true, todoId: true, trustedSender: true },
   });
   return {
     ...ceiling,
-    trustedSender: pickup?.employeeId === req.mcpEmployee!.id && pickup.trustedSender,
+    trustedSender:
+      pickup?.todoId === todoId &&
+      pickup.employeeId === req.mcpEmployee!.id &&
+      pickup.trustedSender,
   };
 }
 
@@ -12899,7 +12913,7 @@ async function waitOnThisPickupsTodo(
       reason,
       checkAt: null,
       authority,
-      ceiling: await ownWorkCeilingOf(req),
+      ceiling: await ownWorkCeilingOf(req, todo.id),
     });
   } catch (error) {
     // eslint-disable-next-line no-console
@@ -13030,6 +13044,8 @@ mcpInternalRouter.post(
       untrustedText: true,
       tainted: isTokenTainted(req.mcpToken!),
       aiChainDepth: await nextAiChainDepth(req),
+      // What a restricted turn files stays held to its limits, wherever it goes next.
+      ceilingJson: ceilingJsonFor(pickupCeilingOf(req)),
     });
 
     // Where this Todo came from is the server's to say when it knows: a turn
@@ -13347,7 +13363,7 @@ mcpInternalRouter.post(
         reason: body.reason,
         checkAt: new Date(body.checkAt),
         authority,
-        ceiling: await ownWorkCeilingOf(req),
+        ceiling: await ownWorkCeilingOf(req, found.todo.id),
       });
       res.json({
         waiting: { on: body.on, checkAt: body.checkAt },
@@ -23079,6 +23095,7 @@ const sendMailSchema = z
 
 /** Replies a Todo pickup may send on one thread in 24 hours, a person's among them. */
 const MAX_PICKUP_REPLIES_PER_THREAD = 3;
+const repliesInFlight = new Map<string, number>();
 
 /** Why a session an email started can't send this. It may only answer that email. */
 function pickupReplyRefusal(
@@ -23131,6 +23148,7 @@ mcpInternalRouter.post(
       });
     }
 
+    let releaseReply = () => undefined as void;
     try {
       if (body.draftMessageId) {
         const draft = await AppDataSource.getRepository(MailMessage).findOneBy({
@@ -23185,11 +23203,19 @@ mcpInternalRouter.post(
       // the model, and only so many times, so a reply can't be talked into a flood.
       let replyTo: { to: string; cc: string } | null = null;
       if (pickupReply) {
-        if ((await repliesSentRecently(thread!)) >= MAX_PICKUP_REPLIES_PER_THREAD) {
+        // A model can call this in parallel, and a reply isn't counted until it's sent.
+        const reserved = repliesInFlight.get(thread!.id) ?? 0;
+        if ((await repliesSentRecently(thread!)) + reserved >= MAX_PICKUP_REPLIES_PER_THREAD) {
           return res.status(403).json({
             error: `This thread has had ${MAX_PICKUP_REPLIES_PER_THREAD} replies in the last 24 hours, which is as many as this work may send. Use request_mail_review so a person can send this one.`,
           });
         }
+        repliesInFlight.set(thread!.id, (repliesInFlight.get(thread!.id) ?? 0) + 1);
+        releaseReply = () => {
+          const left = (repliesInFlight.get(thread!.id) ?? 1) - 1;
+          if (left > 0) repliesInFlight.set(thread!.id, left);
+          else repliesInFlight.delete(thread!.id);
+        };
         replyTo = await replyAllRecipients(account, thread!);
         if (!replyTo.to) {
           return res.status(400).json({ error: "Nobody else is on this thread to reply to." });
@@ -23225,6 +23251,8 @@ mcpInternalRouter.post(
       res.json({ message: serializeMailMessageForAgent(sent) });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : "Send failed" });
+    } finally {
+      releaseReply();
     }
   },
 );

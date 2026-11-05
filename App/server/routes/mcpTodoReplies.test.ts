@@ -163,6 +163,10 @@ function tokenWith(origin: Origin): string {
   return token;
 }
 
+function tokenFor(origin: Origin): string {
+  return tokenWith(origin);
+}
+
 /** A session an email started, on a Project set to send replies without review. */
 const replying = (changes: Partial<NonNullable<Origin>> = {}) =>
   tokenWith({
@@ -328,7 +332,7 @@ describe("a verified sender's trust", () => {
       trigger: "email_intake",
       status: "running",
       authority: "employee",
-      proactiveReview: false,
+      proactiveReview: true,
       trustedSender: true,
       mailDeliveryMode: "review",
       mailThreadId: thread.id,
@@ -349,7 +353,7 @@ describe("a verified sender's trust", () => {
     const running = await trustedPickup(ada);
     await AppDataSource.getRepository(TodoPickup).update({ id: running.id }, { status: "done" });
     const answer = await tool(
-      replying({ proactiveReview: false, mailDeliveryMode: "review", todoPickupId: running.id }),
+      replying({ trustedSender: true, mailDeliveryMode: "review", todoPickupId: running.id }),
       "wait_on_todo",
       {
         todoId: running.todoId,
@@ -363,6 +367,247 @@ describe("a verified sender's trust", () => {
     assert.equal(queued.trigger, "wait_over");
     assert.equal(queued.trustedSender, true);
     setTodoPickupAutoStartForTests(true);
+  });
+});
+
+describe("how far a verified sender's session reaches", () => {
+  const trusted = () =>
+    replying({ trustedSender: true, mailDeliveryMode: "review" });
+
+  test("the browser's calls and its Vault logins, on top of preparation", async () => {
+    const list = await tool(trusted(), "list_vault_items", {});
+    assert.equal(list.status, 200, JSON.stringify(list.body));
+  });
+
+  test("without trust, neither", async () => {
+    const stranger = replying({ mailDeliveryMode: "review" });
+    assert.equal((await tool(stranger, "list_vault_items", {})).status, 403);
+    assert.equal((await tool(stranger, "queue_browser_approval", {})).status, 403);
+    const res = await fetch(`${baseUrl}/internal/mcp/tools/check_browser_approval/${thread.id}`, {
+      headers: { authorization: `Bearer ${stranger}` },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  for (const name of [
+    // Coding and standing footholds.
+    "start_repository_work_session",
+    "repository_run_command",
+    "create_skill",
+    "update_skill",
+    "add_memory",
+    "create_routine",
+    "create_pipeline",
+    "schedule_wakeup",
+    // Everything that reaches outside.
+    "send_text_message",
+    "place_phone_call",
+    "schedule_meeting",
+    "send_invoice",
+    "send_signature_envelope",
+    "invite_data_room_guest",
+    "update_data_room_document",
+    "move_application",
+    "create_mail_draft",
+    // Handing the work, and its reach, to someone else.
+    "start_todo",
+    "handoff",
+    "create_handoff",
+  ]) {
+    test(`not ${name}`, async () => {
+      const answer = await tool(trusted(), name, {});
+      assert.equal(answer.status, 403, JSON.stringify(answer.body));
+    });
+  }
+
+  test("no Connections either", async () => {
+    const res = await fetch(`${baseUrl}/internal/mcp/integrations/_list`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${trusted()}` },
+      body: "{}",
+    });
+    assert.deepEqual(await res.json(), { tools: [] });
+  });
+
+  test("a parallel burst can't pass the cap", async () => {
+    await repliedAlready(2);
+    const answers = await Promise.all([reply(replying()), reply(replying()), reply(replying())]);
+    assert.equal(answers.filter((answer) => answer.status === 200).length, 1);
+    assert.equal(sent.length, 1);
+  });
+});
+
+describe("a session an email started stays on its own work", () => {
+  let project: Project;
+  let own: Todo;
+  let elsewhere: Project;
+  let pickup: TodoPickup;
+  let token: string;
+
+  beforeEach(async () => {
+    project = await insert(Project, {
+      companyId: company.id,
+      name: "Support",
+      slug: "support",
+      key: "SUP",
+      todoCounter: 9,
+    });
+    elsewhere = await insert(Project, {
+      companyId: company.id,
+      name: "Other",
+      slug: "other",
+      key: "OTH",
+      todoCounter: 9,
+    });
+    own = await insert(Todo, {
+      projectId: project.id,
+      number: 1,
+      title: "The customer's request",
+      status: "in_progress",
+      priority: "none",
+      assigneeEmployeeId: ada.id,
+    });
+    pickup = await insert(TodoPickup, {
+      companyId: company.id,
+      todoId: own.id,
+      employeeId: ada.id,
+      trigger: "email_intake",
+      status: "running",
+      authority: "employee",
+      proactiveReview: true,
+      mailDeliveryMode: "review",
+      mailThreadId: thread.id,
+      acceptedAt: new Date(),
+    });
+    token = replying({ mailDeliveryMode: "review", todoPickupId: pickup.id });
+  });
+
+  const someoneElses = () =>
+    insert(Todo, {
+      projectId: project.id,
+      number: 2,
+      title: "Unassigned, so preparation could normally touch it",
+      status: "todo",
+      priority: "none",
+    });
+
+  test("its own Todo is fine", async () => {
+    assert.equal(
+      (await tool(token, "add_todo_comment", { todoId: own.id, body: "Looking into it." })).status,
+      200,
+    );
+  });
+
+  for (const [name, body] of [
+    ["add_todo_comment", { body: "Words from outside." }],
+    ["update_todo", { description: "Words from outside." }],
+    ["wait_on_todo", { on: "date", reason: "x", checkAt: new Date(Date.now() + 86_400_000).toISOString() }],
+  ] as const) {
+    test(`${name} can't reach another Todo`, async () => {
+      const other2 = await someoneElses();
+      const answer = await tool<{ error: string }>(token, name, { todoId: other2.id, ...body });
+      assert.equal(answer.status, 403, JSON.stringify(answer.body));
+      assert.match(answer.body.error, /its own Todo/);
+    });
+  }
+
+  test("it can't link or wait on a thread it didn't come from", async () => {
+    const linked = await tool<{ error: string }>(token, "link_todo", {
+      todoId: own.id,
+      kind: "mail_thread",
+      id: other.id,
+    });
+    assert.equal(linked.status, 403);
+    const waited = await tool<{ error: string }>(token, "wait_on_todo", {
+      todoId: own.id,
+      on: "customer",
+      threadId: other.id,
+      reason: "x",
+      checkAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    assert.equal(waited.status, 403);
+  });
+
+  test("it can't say where a Todo came from", async () => {
+    const answer = await tool(token, "link_todo", {
+      todoId: own.id,
+      kind: "mail_thread",
+      id: thread.id,
+      isSource: true,
+    });
+    assert.equal(answer.status, 403);
+  });
+
+  test("it can't file a Todo in another Project, or touch another thread", async () => {
+    assert.equal(
+      (await tool(token, "create_todo", { projectSlug: elsewhere.slug, title: "x" })).status,
+      403,
+    );
+    assert.equal(
+      (await tool(token, "update_mail_thread", { threadId: other.id, archive: true })).status,
+      403,
+    );
+  });
+
+  test("a Todo it files in its own Project is held to the same limits", async () => {
+    const made = await tool<{ todo: { id: string } }>(token, "create_todo", {
+      projectSlug: project.slug,
+      title: "A follow-up",
+    });
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+    const row = await AppDataSource.getRepository(Todo).findOneByOrFail({ id: made.body.todo.id });
+    const floor = JSON.parse(row.ceilingJson ?? "{}") as Record<string, unknown>;
+    assert.equal(floor.proactiveReview, true);
+    assert.equal(floor.mailDeliveryMode, "review");
+  });
+
+  test("trust doesn't travel to another Todo through wait_on_todo", async () => {
+    await insertEmployeeModel({
+      employeeId: ada.id,
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+      authMode: "apikey",
+      configJson: "{}",
+      isActive: true,
+    });
+    setTodoPickupAutoStartForTests(false);
+    await AppDataSource.getRepository(TodoPickup).update(
+      { id: pickup.id },
+      { trustedSender: true, status: "done" },
+    );
+    const otherTodo = await insert(Todo, {
+      projectId: project.id,
+      number: 3,
+      title: "Another Todo of mine",
+      status: "in_progress",
+      priority: "none",
+      assigneeEmployeeId: ada.id,
+    });
+    // A session that isn't confined, like a Routine's, holding this pickup's token.
+    const unconfined = tokenFor({
+      authority: "employee",
+      todoPickupId: pickup.id,
+    });
+    const answer = await tool(unconfined, "wait_on_todo", {
+      todoId: otherTodo.id,
+      on: "date",
+      reason: "Monday",
+      checkAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
+    const queued = await AppDataSource.getRepository(TodoPickup).findOneByOrFail({
+      todoId: otherTodo.id,
+    });
+    assert.equal(queued.trustedSender, false);
+    setTodoPickupAutoStartForTests(true);
+  });
+
+  test("get_todo says when nobody at the company wrote the text", async () => {
+    await AppDataSource.getRepository(Todo).update({ id: own.id }, { untrustedText: true });
+    const answer = await tool<{ todo: { untrustedText: boolean } }>(token, "get_todo", {
+      todoId: own.id,
+    });
+    assert.equal(answer.body.todo.untrustedText, true);
   });
 });
 
@@ -403,14 +648,14 @@ describe("a browser action held for a person", () => {
       trigger: "email_intake",
       status: "done",
       authority: "employee",
-      proactiveReview: false,
+      proactiveReview: true,
       trustedSender: true,
       mailDeliveryMode: "review",
       mailThreadId: thread.id,
       acceptedAt: new Date(),
     });
     const answer = await tool<{ approvalId: string }>(
-      replying({ proactiveReview: false, mailDeliveryMode: "review", todoPickupId: pickup.id }),
+      replying({ trustedSender: true, mailDeliveryMode: "review", todoPickupId: pickup.id }),
       "queue_browser_approval",
       {
         action: "submit",
@@ -459,7 +704,7 @@ describe("a browser action held for a person", () => {
     assert.equal(pickup?.trigger, "review_outcome");
     assert.match(pickup?.note ?? "", new RegExp(`browser_resume\\("${approvalId}"\\)`));
     assert.equal(pickup?.trustedSender, true, "it needs the browser to fire it");
-    assert.equal(pickup?.proactiveReview, false);
+    assert.equal(pickup?.proactiveReview, true);
     setTodoPickupAutoStartForTests(true);
   });
 
@@ -492,7 +737,7 @@ describe("only this session gets it", () => {
   });
 
   test("a trusted sender's session sends under the same limits", async () => {
-    const trusted = replying({ proactiveReview: false });
+    const trusted = replying({ trustedSender: true });
     assert.equal((await reply(trusted, { to: "attacker@evil.test" })).status, 403);
     assert.equal((await reply(trusted, { threadId: other.id })).status, 403);
     assert.equal(sent.length, 0);
@@ -501,14 +746,14 @@ describe("only this session gets it", () => {
   });
 
   test("a trusted sender's session under review doesn't send at all", async () => {
-    const trusted = replying({ proactiveReview: false, mailDeliveryMode: "review" });
+    const trusted = replying({ trustedSender: true, mailDeliveryMode: "review" });
     assert.equal((await reply(trusted)).status, 403);
     assert.equal(sent.length, 0);
   });
 
   test("the tool is only on offer to this session", () => {
     const scope = (mayReply: boolean) =>
-      proactiveReviewToolScope(true, mayReply)?.genosynTools ?? [];
+      proactiveReviewToolScope(true, { mayReply })?.genosynTools ?? [];
     assert.ok(scope(true).includes("send_mail"));
     assert.ok(!scope(false).includes("send_mail"));
     const base = {

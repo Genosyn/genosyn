@@ -55,6 +55,7 @@ async function present(
   todos: readonly Todo[],
   employeeId: string,
   now: Date,
+  projectIds: readonly string[],
 ): Promise<TodoQueueItem[]> {
   if (todos.length === 0) return [];
   const projects = await AppDataSource.getRepository(Project).findBy({
@@ -67,7 +68,7 @@ async function present(
     status: In(["queued", "running"]),
   });
   const pickupByTodo = new Map(active.map((row) => [row.todoId, row]));
-  const places = await queuePlaces(employeeId, now);
+  const places = await queuePlaces(employeeId, now, projectIds);
   return todos.flatMap((todo): TodoQueueItem[] => {
     const project = projectById.get(todo.projectId);
     if (!project) return [];
@@ -99,14 +100,23 @@ async function present(
   });
 }
 
-/** Each queued Todo's place, 1 being next up, in the order the heartbeat starts them. */
-async function queuePlaces(employeeId: string, now: Date): Promise<Map<string, number>> {
+/**
+ * Each queued Todo's place, 1 being next up, in the order the heartbeat starts them.
+ * Among what this reader can see, or a gap in the numbers would say something's hidden.
+ */
+async function queuePlaces(
+  employeeId: string,
+  now: Date,
+  projectIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (projectIds.length === 0) return new Map();
   const rows = await inDispatchOrder(
     AppDataSource.getRepository(TodoPickup)
       .createQueryBuilder("pickup")
       .innerJoin(Todo, "todo", "CAST(todo.id AS text) = pickup.todoId")
       .where("pickup.employeeId = :employeeId AND pickup.status = 'queued'", { employeeId })
-      .andWhere("pickup.notBeforeAt <= :now", { now }),
+      .andWhere("pickup.notBeforeAt <= :now", { now })
+      .andWhere("todo.projectId IN (:...projectIds)", { projectIds }),
   )
     .select(["pickup.id", "pickup.todoId"])
     .limit(QUEUE_PREVIEW_LIMIT)
@@ -176,9 +186,9 @@ export async function employeeTodoQueue(
     waiting().getCount(),
   ]);
   const [runningItems, queuedItems, waitingItems] = await Promise.all([
-    present(companyId, running, employeeId, now),
-    present(companyId, queuedRows, employeeId, now),
-    present(companyId, waitingRows, employeeId, now),
+    present(companyId, running, employeeId, now, projectIds),
+    present(companyId, queuedRows, employeeId, now, projectIds),
+    present(companyId, waitingRows, employeeId, now, projectIds),
   ]);
   return {
     running: runningItems,
@@ -224,7 +234,7 @@ export async function pageMyTodos(
     limits: MY_TODOS_PAGE,
     page,
     present: async (rows) => {
-      const items = await present(companyId, rows, employeeId, now);
+      const items = await present(companyId, rows, employeeId, now, projectIds);
       const byId = new Map(rows.map((row) => [row.id, row]));
       return items.map((item) => ({
         ...item,

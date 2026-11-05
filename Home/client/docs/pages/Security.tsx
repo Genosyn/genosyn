@@ -306,7 +306,10 @@ export function Security() {
         <Code>Authentication-Results</Code>, shows DMARC or an aligned DKIM signature passing. A
         forged header lower down isn&apos;t read, and an IMAP mailbox trusts nobody. Whatever it is
         set to, the email reaches the session as data, Grants still decide, browser host lists and
-        submit approval still apply, and the session can&apos;t start standing automation.
+        submit approval still apply, and the session can only prepare, plus the one thing you opted
+        into: replying on that thread, or the browser and Vault for a trusted sender. That limit
+        stays with the todo, so a later email or a colleague can&apos;t lift it. Only you can, by
+        starting the work yourself.
       </P>
 
       <H2 id="manage">Manage methods</H2>

@@ -286,7 +286,13 @@ function RunningPickup({
         stopping={stopping}
         onStop={canEdit ? () => void stop() : undefined}
         companySlug={companySlug}
-        context={pickup.preparationOnly ? "Preparing only" : null}
+        context={
+          pickup.preparationOnly
+            ? pickup.withBrowser
+              ? "Preparing, with the browser"
+              : "Preparing only"
+            : null
+        }
         note={stepsNote(pickup)}
         stopError={stopError}
       />

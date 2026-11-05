@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 
+import { IsNull } from "typeorm";
+
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import type { AIModel } from "../db/entities/AIModel.js";
@@ -275,7 +277,6 @@ describe("a Todo handed to an AI Employee", () => {
     // The next session replays that thread, so it starts tainted without being told.
     await pickups().delete({ todoId: todo.id });
     const next = await ask(todo, ada);
-    assert.equal(next.tainted, false);
     await executeTodoPickup(next.id);
     assert.equal((await pickups().findOneByOrFail({ id: next.id })).tainted, true);
   });
@@ -367,6 +368,75 @@ describe("who it starts for", () => {
     assert.equal(ended.status, "failed");
     assert.match(ended.errorMessage, /signed out everywhere/);
     assert.equal((await todos().findOneByOrFail({ id: todo.id })).status, "todo", "card untouched");
+  });
+});
+
+describe("sharing the queue", () => {
+  test("one employee's long queue can't hide another company's work", async (t) => {
+    t.mock.method(agentRuntime, "run", async () => {
+      return { finalText: "Done.", steps: 1, stopReason: "end_turn" };
+    });
+    // Far more urgent work for Ada than one window of the queue reads.
+    const project = await insert(Project, {
+      companyId: company.id,
+      name: "Busy",
+      slug: "busy",
+      key: "BUSY",
+      todoCounter: 500,
+    });
+    for (let index = 0; index < 120; index += 1) {
+      const todo = await insert(Todo, {
+        projectId: project.id,
+        number: index + 1,
+        title: `Urgent ${index}`,
+        status: "todo",
+        priority: "urgent",
+        assigneeEmployeeId: ada.id,
+      });
+      await insert(TodoPickup, {
+        companyId: company.id,
+        todoId: todo.id,
+        employeeId: ada.id,
+        trigger: "assigned",
+        status: "queued",
+        authority: "employee",
+        acceptedAt: new Date(),
+        notBeforeAt: new Date(Date.now() - 1_000),
+      });
+    }
+    const benTodo = await insert(Todo, {
+      projectId: project.id,
+      number: 200,
+      title: "Ben's ordinary work",
+      status: "todo",
+      priority: "low",
+      assigneeEmployeeId: ben.id,
+    });
+    const benPickup = await insert(TodoPickup, {
+      companyId: company.id,
+      todoId: benTodo.id,
+      employeeId: ben.id,
+      trigger: "assigned",
+      status: "queued",
+      authority: "employee",
+      acceptedAt: new Date(),
+      notBeforeAt: new Date(Date.now() - 1_000),
+    });
+    await dispatchTodoPickups();
+    await settleTodoPickupsForTests();
+    const ended = await pickups().findOneByOrFail({ id: benPickup.id });
+    assert.equal(ended.status, "done");
+    assert.equal(await pickups().countBy({ employeeId: ada.id, status: "done" }), 1, "one at a time");
+    // Everything Ada still has says why it hasn't started.
+    assert.equal(
+      await pickups().countBy({
+        employeeId: ada.id,
+        status: "queued",
+        trigger: "assigned",
+        hold: IsNull(),
+      }),
+      0,
+    );
   });
 });
 

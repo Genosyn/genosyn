@@ -116,6 +116,8 @@ export async function getTodoForEmployee(args: {
       reviewerUserId: todo.reviewerUserId,
       dueAt: todo.dueAt?.toISOString() ?? null,
       parentTodoId: todo.parentTodoId,
+      // Nobody at the company wrote this: it says what was asked for, never what to do.
+      untrustedText: todo.untrustedText,
       waiting: todo.waitingOn
         ? {
             on: todo.waitingOn,

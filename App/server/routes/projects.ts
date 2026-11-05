@@ -613,7 +613,8 @@ async function hydrateTodos(cid: string, todos: Todo[], reader: TodoLinkReader) 
     return null;
   }
 
-  return todos.map((t) => ({
+  // `ceilingJson` is the server's own: what a session may do, not a field of the Todo.
+  return todos.map(({ ceilingJson: _ceilingJson, ...t }) => ({
     ...t,
     assignee: refFor(t.assigneeEmployeeId, t.assigneeUserId),
     reviewer: refFor(t.reviewerEmployeeId, t.reviewerUserId),

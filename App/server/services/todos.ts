@@ -29,6 +29,8 @@ export type CreateTodoInput = {
   untrustedText?: boolean;
   tainted?: boolean;
   aiChainDepth?: number;
+  /** The most an automatic session on it may do, when it came from restricted work. */
+  ceilingJson?: string | null;
 };
 
 /**
@@ -73,6 +75,7 @@ export async function insertTodo(input: CreateTodoInput): Promise<Todo> {
         parentTodoId: input.parentTodoId ?? null,
         untrustedText: input.untrustedText ?? false,
         tainted: input.tainted ?? false,
+        ceilingJson: input.ceilingJson ?? null,
         aiChainDepth: input.aiChainDepth ?? 0,
       }),
     );

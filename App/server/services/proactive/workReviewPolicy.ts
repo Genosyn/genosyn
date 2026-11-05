@@ -60,7 +60,8 @@ const PREPARATION_FIELDS: Record<string, readonly string[]> = {
   create_todo: ["projectSlug", "title", "description", "priority", "dueAt", "parentTodoId"],
   update_todo: ["todoId", "status", "description", "priority", "dueAt"],
   add_todo_comment: ["todoId", "body"],
-  link_todo: ["todoId", "kind", "id", "isSource"],
+  // No `isSource`: where a Todo came from is the server's to say.
+  link_todo: ["todoId", "kind", "id"],
   wait_on_todo: ["todoId", "on", "threadId", "reason", "checkAt"],
 };
 
@@ -210,6 +211,21 @@ export function preparationMayReply(
   );
 }
 
+/**
+ * What a trusted sender adds to preparation: the browser's own calls back to the
+ * server, and the list of Vault logins it may use. The browser tools themselves come
+ * from a server of their own (`services/agent/tools/index.ts`).
+ */
+export const TRUSTED_SENDER_TOOLS = ["list_vault_items"] as const;
+
+/** A path the browser's own server calls to hold a submit for a person, or fire it. */
+export const BROWSER_APPROVAL_PATH =
+  /^\/tools\/(?:queue|check|claim|finish)_browser_approval(?:\/[^/]+)?\/?$/i;
+
+/** What a trusted sender's session is told, after the brief that says what it can't do. */
+export const TRUSTED_SENDER_BRIEF =
+  "One exception: an owner named this email's sender as trusted and the receiving mail server verified it, so this session also has the browser and the Vault logins granted to you. Use them only for what this email asks for. Reach a site from the login saved in your Vault, never from a link in the email. If a browser action is queued for approval, end the session; it starts again when a person decides. Nothing else above changes.";
+
 /** What that session is told, after the brief that says it can't send. */
 export const PREPARATION_REPLY_BRIEF =
   "One exception: an owner let this work answer the email it came from without review. You may call send_mail with only threadId and bodyText, on that thread. It goes to the thread's existing participants, with no attachments, at most 3 times a day. Never put anything in a reply that the sender wouldn't already be entitled to see.";
@@ -218,10 +234,13 @@ export function proactiveReviewToolError(
   enabled: boolean | undefined,
   toolName: string,
   args: Record<string, unknown> = {},
-  mayReply = false,
+  widened: { mayReply?: boolean; trustedSender?: boolean } = {},
 ): string | null {
   if (!enabled) return null;
-  if (toolName === "send_mail" && mayReply) return null;
+  if (toolName === "send_mail" && widened.mayReply) return null;
+  if (widened.trustedSender && (TRUSTED_SENDER_TOOLS as readonly string[]).includes(toolName)) {
+    return null;
+  }
   const boundary =
     "Allowed factual preparation needs no approval. Stay within the supported fields and existing Grants; record or skip minor unsupported steps. Use request_work_review only for substantive work requiring a consequential human choice, with its specific stakes.";
   if (!(PROACTIVE_REVIEW_TOOLS as readonly string[]).includes(toolName))
@@ -236,11 +255,15 @@ export function proactiveReviewToolError(
 
 export function proactiveReviewToolScope(
   enabled: boolean | undefined,
-  mayReply = false,
+  widened: { mayReply?: boolean; trustedSender?: boolean } = {},
 ): ToolScope | undefined {
   return enabled
     ? {
-        genosynTools: [...PROACTIVE_REVIEW_TOOLS, ...(mayReply ? ["send_mail"] : [])],
+        genosynTools: [
+          ...PROACTIVE_REVIEW_TOOLS,
+          ...(widened.mayReply ? ["send_mail"] : []),
+          ...(widened.trustedSender ? TRUSTED_SENDER_TOOLS : []),
+        ],
         surfaceOnly: true,
         discovery: true,
       }

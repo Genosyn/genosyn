@@ -52,6 +52,17 @@ describe("a sender that verifies", () => {
     assert.equal(verdict.verified, true);
   });
 
+  test("a comment beside the real result doesn't get in its way", () => {
+    const verdict = verifySender({
+      headers: headers([
+        "mx.google.com; spf=pass (google.com: domain of bounce@google.com designates 1.2.3.4) smtp.mailfrom=bounce@google.com; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=google.com",
+      ]),
+      authservId,
+      fromEmail,
+    });
+    assert.equal(verdict.verified, true);
+  });
+
   test("a display name holding an address doesn't confuse it", () => {
     const verdict = verifySender({
       headers: headers(
@@ -145,6 +156,48 @@ describe("a sender that doesn't verify", () => {
       }),
       false,
     );
+  });
+
+  test("a result written inside a comment or a quoted string", () => {
+    for (const verdict of [
+      'mx.google.com; spf=softfail (domain of "x;dmarc=pass header.from=google.com;"@evil.test) smtp.mailfrom=evil.test',
+      "mx.google.com; spf=softfail (;dmarc=pass header.from=google.com;) smtp.mailfrom=evil.test",
+      "mx.google.com; spf=softfail (nested (;dmarc=pass header.from=google.com;) comment) smtp.mailfrom=evil.test",
+      'mx.google.com; spf=softfail smtp.mailfrom=";dmarc=pass header.from=google.com;"',
+      "mx.google.com; spf=softfail (\\);dmarc=pass header.from=google.com;) smtp.mailfrom=evil.test",
+    ]) {
+      assert.equal(refused({ headers: headers([verdict]) }), false, verdict);
+    }
+  });
+
+  test("a verdict that doesn't close its comment or quote", () => {
+    assert.equal(
+      refused({ headers: headers(["mx.google.com; dmarc=pass header.from=google.com; x=(open"]) }),
+      false,
+    );
+    assert.equal(
+      refused({ headers: headers(['mx.google.com; dmarc=pass header.from=google.com; x="open']) }),
+      false,
+    );
+  });
+
+  test("DMARC failing, whatever DKIM says", () => {
+    assert.equal(
+      refused({
+        headers: headers([
+          "mx.google.com; dkim=pass header.d=google.com header.s=a; dmarc=fail header.from=google.com",
+        ]),
+      }),
+      false,
+    );
+  });
+
+  test("mail fetched from another mailbox, which this server didn't receive from the sender", () => {
+    const fetched = [
+      { name: "X-Gmail-Fetch-Info", value: "someone@other.test 1 pop.other.test 995 someone" },
+      ...headers(["mx.google.com; dmarc=pass header.from=google.com"]),
+    ];
+    assert.equal(refused({ headers: fetched }), false);
   });
 
   test("no verdict at all", () => {

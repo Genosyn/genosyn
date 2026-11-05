@@ -346,10 +346,15 @@ scope with review-only replies; `replyMode: send` lets `send_mail` answer the so
 thread only, to its existing participants worked out by the server, with no
 attachments, at most 3 a day, under a Send Grant; a trusted sender verified by the
 receiving server (`services/mail/senderVerification.ts`, topmost
-`Authentication-Results` only, and only for a mailbox whose server can be named)
-gets the employee's tools plus the browser, and nothing else a delivery ceiling
-closes. `TodoPickup.trustedSender` narrows like the rest of a ceiling and isn't
-inherited. Do not widen a mailbox's instructions list
+`Authentication-Results` only, with a sender's own words taken out of it, and only
+for a mailbox whose server can be named) gets preparation plus the browser and its
+granted Vault logins. Both are additions to the preparation allowlist, because every
+broader reading leaked: a denylist misses the next tool that reaches outside. Every
+ceiling only narrows for a Todo: `Todo.ceilingJson` holds the narrowest it has been
+held to, and `requestTodoPickup` applies it to everything but a Member's own request,
+so a stranger's Todo stays held when a trusted sender writes on its thread. A session
+an email started changes only its own Todo and thread. Filing starts no Pipelines. Do
+not widen a mailbox's instructions list
 (`mail/analysisAutomation.ts`) to do this, let the model name a target, give an AI
 tool a way to read or write an intake, treat `From:` as evidence, let an email's
 Pickup send any other way, or file from anything but the arrival read. A browser
