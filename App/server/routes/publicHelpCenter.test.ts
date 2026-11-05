@@ -19,6 +19,7 @@ import { SupportDraft } from "../db/entities/SupportDraft.js";
 import { SupportSettings } from "../db/entities/SupportSettings.js";
 import { SupportTicket } from "../db/entities/SupportTicket.js";
 import { User } from "../db/entities/User.js";
+import { createApp } from "../app.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { persistTestSession } from "../test/userSession.js";
@@ -781,6 +782,36 @@ describe("scanning is stopped, and reading leaves nothing behind", () => {
     assert.equal((await get(`/api/help/acme/articles/${published.id}`)).status, 200);
     assert.equal((await get("/help/acme")).status, 200);
     assert.equal(await AppDataSource.getRepository(AuthRateLimit).count(), 0);
+  });
+});
+
+describe("the real app", () => {
+  test("mounts it ahead of the session, with its headers on every path", async () => {
+    await article();
+    await turnOn();
+    actingUserId = null;
+    const real = createApp().listen(0, "127.0.0.1");
+    await new Promise((resolve) => real.once("listening", resolve));
+    const origin = `http://127.0.0.1:${(real.address() as AddressInfo).port}`;
+    try {
+      // A cookie this install did not sign must change nothing about a public answer.
+      const headers = { cookie: "genosyn.sid=e30=; genosyn.sid.sig=not-a-signature" };
+      for (const [urlPath, status] of [
+        ["/api/help/acme", 200],
+        ["/api/help/no-such-company", 404],
+        ["/help/no-such-company", 404],
+      ] as const) {
+        const response = await fetch(`${origin}${urlPath}`, { headers });
+        assert.equal(response.status, status, urlPath);
+        assert.equal(response.headers.get("x-robots-tag"), "noindex, nofollow", urlPath);
+        assert.match(response.headers.get("cache-control") ?? "", /no-store/, urlPath);
+        if (urlPath.startsWith("/api/")) {
+          assert.equal(response.headers.get("set-cookie"), null, `${urlPath} never sees the session`);
+        }
+      }
+    } finally {
+      await new Promise((resolve) => real.close(resolve));
+    }
   });
 });
 

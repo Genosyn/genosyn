@@ -220,7 +220,7 @@ function ArticleLink({ slug, article }: { slug: string; article: HelpCenterCard 
   return (
     <Link
       to={`${helpCenterPath(slug)}/articles/${article.id}`}
-      className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-slate-800 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/60"
+      className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-slate-800 hover:bg-slate-50 focus-visible:-outline-offset-2 dark:text-slate-200 dark:hover:bg-slate-800/60"
     >
       <span className="min-w-0 break-words">{article.title}</span>
       <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-slate-400" />
@@ -287,6 +287,7 @@ function Browse({ slug }: { slug: string }) {
   if (failure) return <CouldNotLoad message={failure.message} onRetry={retry} />;
   return (
     <Frame slug={slug} companyName={answer?.companyName ?? null}>
+      {answer && <h1 className="sr-only">{answer.companyName} help center</h1>}
       {!answer ? (
         <SkeletonList rows={5} />
       ) : list.rows.length === 0 ? (
@@ -377,7 +378,7 @@ function Results({ slug, q }: { slug: string; q: string }) {
               <Link
                 key={row.id}
                 to={`${helpCenterPath(slug)}/articles/${row.id}`}
-                className="block px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                className="block px-4 py-3 hover:bg-slate-50 focus-visible:-outline-offset-2 dark:hover:bg-slate-800/60"
               >
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="min-w-0 break-words text-sm font-medium text-slate-900 dark:text-slate-100">
@@ -422,7 +423,7 @@ function CouldNotSearch({ message, onRetry }: { message: string; onRetry: () => 
 export function PublicHelpCenter() {
   const { companySlug = "" } = useParams<{ companySlug: string }>();
   const [params] = useSearchParams();
-  const q = (params.get("q") ?? "").trim();
+  const q = (params.get("q") ?? "").trim().slice(0, SUPPORT_LIMITS.helpCenterQueryChars).trim();
   return q ? (
     <Results key={`${companySlug}:${q}`} slug={companySlug} q={q} />
   ) : (
