@@ -4,6 +4,7 @@ import {
   IsNull,
   LessThanOrEqual,
   MoreThan,
+  MoreThanOrEqual,
   Not,
   type ObjectLiteral,
   type SelectQueryBuilder,
@@ -288,26 +289,65 @@ export function todoHeldWithoutTrust(todo: Pick<Todo, "ceilingJson">): boolean {
 }
 
 /**
- * A preparing turn's words are on this Todo now, and a later session replays them. So
- * that session is held to the same limits, however this Todo started. Call it before
- * saving `todo`, or the save puts back what it loaded.
+ * Words from a particular email are on this Todo now, and a later session replays them.
+ * So later sessions are held to the same limits, and a person's earlier choice to lend
+ * their access no longer stands: it was made before these words. Call it before saving
+ * `todo`, or the save puts back what it loaded.
  */
 export async function holdTodoToTurn(todo: Todo, ceiling: TodoPickupCeiling): Promise<void> {
-  if (!ceiling.proactiveReview && !ceiling.mailDeliveryMode) return;
+  if (!ceiling.mailThreadId) return;
   await heldToFloor(todo, ceiling);
+  await dropLiftsOn(todo.id);
 }
 
-/** Todos held to limits, filed in a company since then. What preparing turns may add stops here. */
+/** Whatever was lent on this Todo and hasn't started goes back within its limits. */
+export async function dropLiftsOn(todoId: string): Promise<void> {
+  await repo().update({ todoId, status: "queued", overLimits: true }, { overLimits: false });
+  const running = await repo().find({
+    where: { todoId, status: "running" },
+    select: { id: true, rerunJson: true },
+  });
+  for (const row of running) {
+    if (!row.rerunJson) continue;
+    const stored = JSON.parse(row.rerunJson) as StoredRerun;
+    if (!stored.overLimits) continue;
+    await repo().update(
+      { id: row.id, status: "running" },
+      { rerunJson: JSON.stringify({ ...stored, overLimits: false }) },
+    );
+  }
+}
+
+/**
+ * What a row may do now, given what its Todo is held to. Applied as a session starts,
+ * because a row can sit queued for a month, and the Todo can be held in that time.
+ */
+function rowHeldToFloor(pickup: TodoPickup, todo: Pick<Todo, "ceilingJson">) {
+  const floor = pickup.overLimits ? null : readFloor(todo);
+  if (!floor || !isRestricted(floor)) return null;
+  return {
+    mailDeliveryMode: narrowestDelivery(pickup.mailDeliveryMode, floor.mailDeliveryMode),
+    proactiveReview: pickup.proactiveReview || floor.proactiveReview === true,
+    tainted: pickup.tainted || floor.tainted === true,
+    mailThreadId: floor.mailThreadId ?? pickup.mailThreadId,
+    trustedSender: pickup.trustedSender && floor.trustedSender === true,
+  };
+}
+
+/** Todos held to limits that preparing turns may add to a company in a day. */
 export const MAX_HELD_TODOS_PER_COMPANY_PER_DAY = 200;
 
 export async function heldTodosSince(companyId: string, since: Date): Promise<number> {
-  return AppDataSource.getRepository(Todo)
-    .createQueryBuilder("todo")
-    .innerJoin(Project, "project", "project.id = todo.projectId")
-    .where("project.companyId = :companyId", { companyId })
-    .andWhere("todo.ceilingJson IS NOT NULL")
-    .andWhere("todo.createdAt >= :since", { since })
-    .getCount();
+  const projects = await AppDataSource.getRepository(Project).find({
+    where: { companyId },
+    select: { id: true },
+  });
+  if (projects.length === 0) return 0;
+  return AppDataSource.getRepository(Todo).countBy({
+    projectId: In(projects.map((project) => project.id)),
+    ceilingJson: Not(IsNull()),
+    createdAt: MoreThanOrEqual(since),
+  });
 }
 
 /**
@@ -333,7 +373,9 @@ async function heldToFloor(
         trustedSender: floor.trustedSender === true && asked.trustedSender === true,
       }
     : asked;
-  if (isRestricted(held)) {
+  // Remembered for the Todo only with outside words behind it. A Routine that could only
+  // prepare posting a status doesn't hold a person's Todo: that one request stays limited.
+  if (isRestricted(held) && (floor || asked.mailThreadId || asked.tainted)) {
     const trustLeft = floor
       ? floor.trustedSender === true && asked.trustedSender !== false
       : asked.trustedSender === true;
@@ -354,6 +396,7 @@ function requestColumns(request: TodoPickupRequest) {
     requesterSessionVersion:
       request.authority.kind === "member" ? request.authority.sessionVersion : null,
     startedByMember: request.byMember === true,
+    overLimits: request.overLimits === true,
     mailDeliveryMode: request.ceiling?.mailDeliveryMode ?? null,
     proactiveReview: request.ceiling?.proactiveReview === true,
     tainted: request.ceiling?.tainted === true,
@@ -380,6 +423,7 @@ function mergedIntoQueued(row: TodoPickup, request: TodoPickupRequest) {
   }
   return {
     trigger: row.trigger === "review" ? row.trigger : asked.trigger,
+    overLimits: false,
     mailDeliveryMode: narrowestDelivery(row.mailDeliveryMode, asked.mailDeliveryMode),
     proactiveReview: row.proactiveReview || asked.proactiveReview,
     tainted: row.tainted || asked.tainted,
@@ -1084,7 +1128,25 @@ export async function executeTodoPickup(
       todo.waitingReason = "";
       todo.waitingSince = null;
       todo.waitingCheckAt = null;
-      await AppDataSource.getRepository(Todo).save(todo);
+      // Only what changed, so this can't put back limits it loaded before they narrowed.
+      await AppDataSource.getRepository(Todo).update(
+        { id: todo.id },
+        {
+          waitingOn: null,
+          waitingRefId: null,
+          waitingReason: "",
+          waitingSince: null,
+          waitingCheckAt: null,
+          followUpCount: todo.followUpCount,
+        },
+      );
+    }
+
+    // What it may do is decided now, not when it was queued.
+    const held = rowHeldToFloor(pickup, todo);
+    if (held) {
+      Object.assign(pickup, held);
+      await repo().update({ id: pickup.id, status: "running", workerId }, held);
     }
 
     if (run.stoppedBy) return await end({ status: "stopped", reply: "" });

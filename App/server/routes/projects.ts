@@ -1651,6 +1651,7 @@ projectsRouter.post(
           userId: req.userId!,
           sessionVersion: req.session.sessionVersion,
           name: author?.name || author?.email || "A Member",
+          role: req.membership?.role,
         }).catch((err) => {
           console.error("[todo-comments] waking the assignee failed", err);
         });

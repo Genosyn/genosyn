@@ -130,6 +130,8 @@ export type TodoQueueItem = {
   title: string;
   /** Nobody at the company wrote this text, so it is a request, not an instruction. */
   untrustedText: boolean;
+  /** Outside words started this, so its session works within limits. */
+  heldToLimits: boolean;
   projectSlug: string;
   projectName: string;
   status: string;

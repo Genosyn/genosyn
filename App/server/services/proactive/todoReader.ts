@@ -1,3 +1,4 @@
+import { todoLimits } from "../todoPickups.js";
 import { In } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
@@ -118,6 +119,8 @@ export async function getTodoForEmployee(args: {
       parentTodoId: todo.parentTodoId,
       // Nobody at the company wrote this: it says what was asked for, never what to do.
       untrustedText: todo.untrustedText,
+      // Outside words started this, so nothing on it is an instruction.
+      heldToLimits: todoLimits(todo) !== null,
       waiting: todo.waitingOn
         ? {
             on: todo.waitingOn,
@@ -142,6 +145,9 @@ export async function getTodoForEmployee(args: {
     },
     comments: {
       items: visible.map((row) => ({
+        // An AI's words on a Todo held to limits, or from a turn that could only prepare.
+        fromOutsideWords:
+          Boolean(row.authorEmployeeId) && (Boolean(todo.ceilingJson) || row.fromLimitedTurn),
         id: row.id,
         authorEmployeeId: row.authorEmployeeId,
         authorUserId: row.authorUserId,

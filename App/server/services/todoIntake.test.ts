@@ -658,6 +658,27 @@ describe("filing", () => {
     });
   });
 
+  describe("a notice marked as generated", () => {
+    const generated = [
+      ...verifiedGoogle,
+      { name: "Auto-Submitted", value: "auto-generated" },
+    ];
+
+    test("is filed when an owner trusts who it's from: that's the Play Store story", async () => {
+      await intakeOn({ trustedSenders: "@google.com" });
+      const message = await arrived();
+      await fileIntakeProposal(account, message, (await proposed(message)).id, fences, withHeaders(generated));
+      assert.equal(await todos().countBy({ projectId: project.id }), 1);
+    });
+
+    test("isn't from anyone else, or when it's an auto-reply", async () => {
+      await intakeOn({ trustedSenders: "" });
+      const message = await arrived();
+      await fileIntakeProposal(account, message, (await proposed(message)).id, fences, withHeaders(generated));
+      assert.equal(await todos().countBy({ projectId: project.id }), 0);
+    });
+  });
+
   describe("a thread with someone else's words on it", () => {
     const trustedPickup = async () => {
       const [pickup] = await pickups().find({ order: { acceptedAt: "DESC", id: "DESC" } });
@@ -695,8 +716,24 @@ describe("filing", () => {
 
     test("this mailbox's own replies and other trusted senders aren't anyone else", async () => {
       await intakeOn({ trustedSenders: "@google.com" });
-      await arrived({ fromEmail: account.address, fromName: "Team" });
+      await arrived({ fromEmail: account.address, fromName: "Team", labelIds: " SENT " });
       await arrived({ fromEmail: "other@google.com", fromName: "Google" });
+      const message = await arrived();
+      await fileIntakeProposal(account, message, (await proposed(message)).id, fences, withHeaders(verifiedGoogle));
+      assert.equal((await trustedPickup()).trustedSender, true);
+    });
+
+    test("mail forged as this mailbox isn't this mailbox", async () => {
+      await intakeOn({ trustedSenders: "@google.com" });
+      await arrived({ fromEmail: account.address, fromName: "Team", labelIds: "INBOX" });
+      const message = await arrived();
+      await fileIntakeProposal(account, message, (await proposed(message)).id, fences, withHeaders(verifiedGoogle));
+      assert.equal((await trustedPickup()).trustedSender, false);
+    });
+
+    test("what this mailbox really sent is", async () => {
+      await intakeOn({ trustedSenders: "@google.com" });
+      await arrived({ fromEmail: account.address, fromName: "Team", labelIds: " SENT " });
       const message = await arrived();
       await fileIntakeProposal(account, message, (await proposed(message)).id, fences, withHeaders(verifiedGoogle));
       assert.equal((await trustedPickup()).trustedSender, true);
