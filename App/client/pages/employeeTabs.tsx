@@ -279,6 +279,7 @@ function settingsNavGroups(company: Company, emp: Employee): SettingsNavGroup[] 
           label: "Routines",
           away: "Opens the company Routines list, filtered to this employee",
         },
+        { to: "work-queue", icon: <ListTodo size={14} />, label: "Work queue" },
       ],
     },
     {
@@ -296,7 +297,6 @@ function settingsNavGroups(company: Company, emp: Employee): SettingsNavGroup[] 
       collapsible: true,
       items: [
         { to: "memory", icon: <Brain size={14} />, label: "Memory" },
-        { to: "work-queue", icon: <ListTodo size={14} />, label: "Work queue" },
         { to: "journal", icon: <BookText size={14} />, label: "Journal" },
         { to: "handoffs", icon: <Handshake size={14} />, label: "Handoffs" },
         { to: "phone", icon: <Phone size={14} />, label: "Phone" },

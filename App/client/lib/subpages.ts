@@ -72,6 +72,7 @@ import {
   User,
   Users,
   Workflow,
+  ListTodo,
 } from "lucide-react";
 import type { FinanceAccess } from "./api";
 import { PRODUCT_INTEGRATION_KEYS } from "./productIntegrations";
@@ -1591,6 +1592,15 @@ export const EMPLOYEE_PAGES: readonly EmployeePageItem[] = [
       "permissions",
       "what can they reach",
     ],
+  },
+  // Open to every Member, like the work timeline. A Todo in a Project the viewer
+  // can't open isn't listed.
+  {
+    id: "employee-work-queue",
+    label: "Work queue",
+    path: "/settings/work-queue",
+    icon: ListTodo,
+    keywords: ["queue", "todos", "tasks", "waiting", "what are they working on", "on their plate"],
   },
 ];
 
