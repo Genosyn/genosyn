@@ -1385,8 +1385,26 @@ function TodoSourceChip({ todo }: { todo: Todo }) {
   );
 }
 
-/** It is waiting on someone, which the list and board should say at a glance. */
+/** What AI is doing on it or what it's waiting on, which a board should say at a glance. */
 function TodoWaitChip({ todo }: { todo: Todo }) {
+  if (todo.aiState === "working") {
+    return (
+      <span className="shrink-0" title="An AI Employee is working on this now">
+        <Badge tone="ai" size="sm">
+          Working
+        </Badge>
+      </span>
+    );
+  }
+  if (todo.aiState === "queued" && !todo.waitingOn) {
+    return (
+      <span className="shrink-0" title="An AI Employee will start on this soon">
+        <Badge tone="neutral" size="sm">
+          Queued
+        </Badge>
+      </span>
+    );
+  }
   if (!todo.waitingOn) return null;
   return (
     <span className="shrink-0" title={todo.waitingReason || TODO_WAIT_LABEL[todo.waitingOn]}>

@@ -234,6 +234,63 @@ describe("a person handing over a Todo", () => {
   });
 });
 
+describe("what a board says about AI", () => {
+  const list = async () => {
+    const res = await as<{ todos: Array<{ id: string; aiState: string | null }> }>(
+      member.id,
+      "GET",
+      `/projects/${project.slug}/todos`,
+    );
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    return new Map(res.body.todos.map((todo) => [todo.id, todo.aiState]));
+  };
+  const onBoard = (number: number) =>
+    insert(Todo, {
+      projectId: project.id,
+      number,
+      title: `Todo ${number}`,
+      status: "in_progress",
+      priority: "none",
+      assigneeEmployeeId: ada.id,
+    });
+  const session = (todoId: string, status: "running" | "queued", notBeforeAt: Date | null = null) =>
+    insert(TodoPickup, {
+      companyId: company.id,
+      todoId,
+      employeeId: ada.id,
+      trigger: "assigned",
+      status,
+      authority: "employee",
+      acceptedAt: new Date(),
+      notBeforeAt,
+    });
+
+  test("a row says Working and Queued, and nothing otherwise", async () => {
+    const [working, queued, later, idle] = [
+      await onBoard(1),
+      await onBoard(2),
+      await onBoard(3),
+      await onBoard(4),
+    ];
+    await session(working.id, "running");
+    await session(queued.id, "queued");
+    await session(later.id, "queued", new Date(Date.now() + 86_400_000));
+    const states = await list();
+    assert.equal(states.get(working.id), "working");
+    assert.equal(states.get(queued.id), "queued");
+    assert.equal(states.get(later.id), null, "a check-back waiting for its time isn't queued");
+    assert.equal(states.get(idle.id), null);
+  });
+
+  test("Tasks home answers from the route, for whoever's asking", async () => {
+    const working = await onBoard(1);
+    await session(working.id, "running");
+    const home = await as<{ working: { count: number } }>(member.id, "GET", "/tasks-home");
+    assert.equal(home.status, 200, JSON.stringify(home.body));
+    assert.equal(home.body.working.count, 1);
+  });
+});
+
 describe("Start now and Stop", () => {
   async function assigned(): Promise<string> {
     const row = await insert(Todo, {

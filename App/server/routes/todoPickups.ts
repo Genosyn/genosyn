@@ -103,8 +103,12 @@ todoPickupsRouter.get(
   validateParams(todoParamsSchema),
   async (req, res) => {
     const { cid, tid } = req.params as z.infer<typeof todoParamsSchema>;
-    if (!(await reachableTodo(req, res, cid, tid, "read"))) return;
-    res.json(await listTodoPickups({ companyId: cid, todoId: tid, viewerUserId: req.userId! }));
+    const found = await reachableTodo(req, res, cid, tid, "read");
+    if (!found) return;
+    res.json({
+      ...(await listTodoPickups({ companyId: cid, todoId: tid, viewerUserId: req.userId! })),
+      viewerIsReviewer: found.todo.reviewerUserId === req.userId,
+    });
   },
 );
 

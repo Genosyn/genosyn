@@ -87,6 +87,42 @@ export function Tasks() {
         <LI>Deleting a parent deletes its subtasks with it.</LI>
       </UL>
 
+      <H2 id="home">What&apos;s happening</H2>
+      <P>
+        <Strong>Tasks</Strong> opens on what&apos;s happening across every Project you can open, so
+        you can tell at a glance without going into one:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "Needs you",
+            def: "Todos in review with you as reviewer, waiting on a person, or waiting on an approval or a Decision.",
+          },
+          {
+            term: "AI working now",
+            def: "Sessions running at this moment, who is on them and since when, and how many more are queued.",
+          },
+          {
+            term: "Waiting",
+            def: "Todos waiting on a customer, a work session or a date, and when they check back.",
+          },
+          {
+            term: "Done in the last day",
+            def: "What finished, with the first line of its report.",
+          },
+        ]}
+      />
+      <P>
+        To hand something over, type it in <Strong>What needs doing?</Strong> at the top, choose who
+        does it and where it goes, and press enter. It files the todo and starts them on it, and the
+        details can go on the todo afterwards. It remembers who and where you chose last.
+      </P>
+      <P>
+        A todo opens with one sentence saying where it stands, such as who is working on it or what
+        it&apos;s waiting on. Rows on a board say <Strong>Working</Strong> or{" "}
+        <Strong>Queued</Strong> next to the assignee.
+      </P>
+
       <H2 id="links">Where a todo came from</H2>
       <P>
         A todo can be linked to the record it came from or is about: an email thread, a{" "}

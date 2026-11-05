@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { FolderKanban, Plus, ShieldCheck } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Breadcrumbs } from "../components/AppShell";
+import { TasksHome } from "../components/todos/TasksHome";
 import { Company, Project } from "../lib/api";
 import { useTasks } from "./TasksLayout";
 
@@ -25,7 +26,9 @@ export default function TasksIndex({ company }: { company: Company }) {
           <EmptyState onNew={() => navigate(`/c/${company.slug}/tasks/new`)} />
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 space-y-6 overflow-y-auto p-6">
+          <TasksHome company={company} projects={projects} />
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Projects</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => (
               <ProjectCard key={p.id} project={p} companySlug={company.slug} />
@@ -108,8 +111,8 @@ function EmptyState({ onNew }: { onNew: () => void }) {
             Your first project
           </h2>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Organize work into projects, break it into todos, and assign them to
-            AI employees — or keep them for yourself.
+            Organize work into projects and todos. Assign a todo to an AI Employee and it starts
+            right away, then reports back on the todo. Or keep it for yourself.
           </p>
       <div className="mt-4 flex justify-center">
         <Button onClick={onNew}>

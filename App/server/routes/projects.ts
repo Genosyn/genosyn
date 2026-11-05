@@ -1,3 +1,5 @@
+import { TodoPickup } from "../db/entities/TodoPickup.js";
+import { readTasksHome } from "../services/tasksHome.js";
 import { Request, Response, Router } from "express";
 import { z } from "zod";
 import { In } from "typeorm";
@@ -585,7 +587,7 @@ async function hydrateTodos(cid: string, todos: Todo[], reader: TodoLinkReader) 
       todos.flatMap((t) => [t.assigneeUserId, t.reviewerUserId]).filter((x): x is string => !!x),
     ),
   ];
-  const [emps, users, links] = await Promise.all([
+  const [emps, users, links, sessions] = await Promise.all([
     empIds.length
       ? AppDataSource.getRepository(AIEmployee).find({
           where: { id: In(empIds), companyId: cid },
@@ -599,7 +601,26 @@ async function hydrateTodos(cid: string, todos: Todo[], reader: TodoLinkReader) 
       todos.map((t) => t.id),
       reader,
     ),
+    todos.length
+      ? AppDataSource.getRepository(TodoPickup).find({
+          where: { todoId: In(todos.map((t) => t.id)), status: In(["running", "queued"]) },
+          select: { id: true, todoId: true, status: true, notBeforeAt: true },
+        })
+      : Promise.resolve([] as TodoPickup[]),
   ]);
+  // What AI is doing on each row, so a board reads at a glance. A check-back waiting for
+  // its time isn't queued: the Todo's wait already says that.
+  const aiStateOf = new Map<string, "working" | "queued">();
+  const now = Date.now();
+  for (const session of sessions) {
+    if (session.status === "running") aiStateOf.set(session.todoId, "working");
+    else if (
+      !aiStateOf.has(session.todoId) &&
+      (!session.notBeforeAt || session.notBeforeAt.getTime() <= now)
+    ) {
+      aiStateOf.set(session.todoId, "queued");
+    }
+  }
   const empById = new Map(emps.map((e) => [e.id, e]));
   const userById = new Map(users.map((u) => [u.id, u]));
 
@@ -618,6 +639,7 @@ async function hydrateTodos(cid: string, todos: Todo[], reader: TodoLinkReader) 
   // A person gets to know that there are limits, and that only they can go past them.
   return todos.map(({ ceilingJson, ...t }) => ({
     heldToLimits: todoLimits({ ceilingJson }) !== null,
+    aiState: aiStateOf.get(t.id) ?? null,
     ...t,
     assignee: refFor(t.assigneeEmployeeId, t.assigneeUserId),
     reviewer: refFor(t.reviewerEmployeeId, t.reviewerUserId),
@@ -1494,6 +1516,13 @@ projectsRouter.get(
     }
   },
 );
+
+// Tasks home: what needs this person, what AI is doing, what's waiting and what finished.
+projectsRouter.get("/tasks-home", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json(await readTasksHome({ companyId: cid, actor: actorOf(req), userId: req.userId! }));
+});
 
 // The way back from a record to the work it started: the Todos linked to one
 // email thread, Customer or Deal, limited to the Projects the caller can open.

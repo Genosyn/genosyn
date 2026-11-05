@@ -1450,7 +1450,7 @@ async function finishPickup(args: {
 
   if (outcome.tainted === true) await markTodoTainted(pickup.todoId);
   if (outcome.status === "done") {
-    await postReport(pickup, outcome.reply || "(no reply)", outcome.attachmentIds);
+    await postReport(pickup, outcome.reply || "Finished without writing a report.", outcome.attachmentIds);
   } else if (stopped && outcome.reply) {
     await postReport(pickup, outcome.reply, outcome.attachmentIds);
   } else if (outcome.status === "failed" && outcome.error) {
