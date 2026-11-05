@@ -87,7 +87,9 @@ jobs:
     # Its 16 browser suites take 8-9 minutes; a 10-minute ceiling cancelled
     # healthy runs on slower runners.
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    # Pinned: `ubuntu-latest` is now 26.04, where this Playwright can't install
+    # Chromium, so the job would stop before running a single suite.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: App
@@ -180,7 +182,8 @@ jobs:
     name: Onboarding browser regressions
     # One more fixture build for the backup API keys suite; keep the headroom.
     timeout-minutes: 18
-    runs-on: ubuntu-latest
+    # Pinned for the same reason as the Browser regressions job above.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: App
