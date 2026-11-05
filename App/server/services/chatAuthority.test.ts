@@ -17,6 +17,7 @@ describe("interactive chat prompt authority", () => {
       marketing: false,
       recruiting: false,
       dataRooms: false,
+      support: false,
       resources: false,
       extraSystem: false,
       taggedReferences: false,
@@ -44,6 +45,8 @@ describe("interactive chat prompt authority", () => {
     // Data rooms are owners' and admins' on the human route, so a Member's turn
     // is not briefed on them — their tools answer 403 under delegation anyway.
     assert.equal(access.dataRooms, false);
+    // Support is Member-level on the human route, so its briefing is too.
+    assert.equal(access.support, true);
     // A read-only Resources briefing only narrows what the employee attempts,
     // and the Member can already see the setting on the Resources page.
     assert.equal(access.resources, true);

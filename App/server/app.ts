@@ -101,6 +101,8 @@ import { meetingsRouter } from "./routes/meetings.js";
 import { revenueOperationsRouter } from "./routes/revenueOperations.js";
 import { marketingRouter } from "./routes/marketing.js";
 import { recruitingRouter } from "./routes/recruiting.js";
+import { supportRouter } from "./routes/support.js";
+import { publicSupportRouter, publicSupportSecurityHeaders } from "./routes/publicSupport.js";
 import { careersRouter } from "./routes/careers.js";
 import { careersHostGuard } from "./routes/careersSite.js";
 import { unsubscribeRouter } from "./routes/unsubscribe.js";
@@ -201,6 +203,9 @@ export function createApp(): express.Express {
   // A guest's data room link is a bearer credential too.
   app.use("/api/room", publicDataRoomSecurityHeaders);
   app.use("/room", publicDataRoomSecurityHeaders);
+  // So is a customer's link to rate a ticket.
+  app.use("/api/feedback", publicSupportSecurityHeaders);
+  app.use("/feedback", publicSupportSecurityHeaders);
   app.use(express.json({ limit: "1mb" }));
   // The OAuth registration, token and revocation endpoints: called by the
   // clients' own servers with no cookie, so ahead of the session — the client
@@ -215,6 +220,8 @@ export function createApp(): express.Express {
   // Data room guests: no account, no session — the token in their private
   // link is the credential, checked by the router on every request.
   app.use("/api/room", publicDataRoomsRouter);
+  // A customer rating a ticket: no account, no session, just their link.
+  app.use("/api/feedback", publicSupportRouter);
 
   let sessionMiddleware: ReturnType<typeof cookieSession> | null = null;
   let sessionMiddlewareSecret = "";
@@ -541,6 +548,10 @@ export function createApp(): express.Express {
   // Data rooms — documents shared with guests outside the company, their
   // activity and questions, and the room's AI work. Owners and admins only.
   app.use("/api/companies/:cid", dataRoomsRouter);
+
+  // Support — Support inboxes, Tickets, the AI Employee who works them, Articles
+  // and saved replies.
+  app.use("/api/companies/:cid", supportRouter);
 
   return app;
 }

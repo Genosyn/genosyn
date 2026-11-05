@@ -384,6 +384,8 @@ describe("subpage visibility", () => {
       "/settings/sso",
       "/settings/usage",
       "/skills/new",
+      "/support/ai-access",
+      "/support/settings",
       "/tldrs/letters",
       "/vault/integrations",
     ]);
@@ -468,14 +470,15 @@ describe("subpage search", () => {
     assert.equal(sections[0].item.key, "settings");
     assert.equal(pagesFirst, false);
     // Pages named for the word lead; the section's own pages follow as context.
-    assert.deepEqual(paths(pages).slice(0, 5), [
+    assert.deepEqual(paths(pages).slice(0, 6), [
       "/decisions/settings",
       "/tldrs/settings",
       "/mail/settings",
+      "/support/settings",
       "/finance/settings",
       "/recruiting/settings",
     ]);
-    assert.equal(pages[5].page.section, "settings");
+    assert.equal(pages[6].page.section, "settings");
   });
 
   test("finds Decision stack settings by what people want to do there, for every Member", () => {
@@ -710,6 +713,7 @@ describe("subpage search", () => {
       "/marketing/ai-access",
       "/revenue/ai-access",
       "/signatures/ai-access",
+      "/support/ai-access",
       "/data-rooms/ai-access",
       "/finance/ai-access",
       "/recruiting/ai-access",
@@ -754,13 +758,17 @@ describe("subpage search", () => {
     assert.equal(paths(revenue.pages).includes("/revenue"), false, "Insights is Revenue");
 
     const insights = palette("insights");
-    assert.deepEqual(paths(insights.pages), ["/revenue"], "Insights alone finds Revenue's page");
+    assert.deepEqual(
+      paths(insights.pages),
+      ["/revenue", "/support/insights"],
+      "Insights finds Revenue's page, and Support's",
+    );
     assert.equal(insights.pagesFirst, true);
 
     // Trailing slashes don't hide a duplicate.
     const trailing = searchSubpages(PALETTE_SUBPAGES, "insights", {
       viewer: OWNER,
-      excludePaths: ["/revenue/"],
+      excludePaths: ["/revenue/", "/support/insights/"],
     });
     assert.deepEqual(trailing, []);
   });
@@ -775,7 +783,7 @@ describe("subpage search", () => {
   });
 
   test("finds mail folders, admin-only logs, and create forms by name", () => {
-    assert.deepEqual(paths(palette("drafts").pages), ["/mail?view=drafts"]);
+    assert.deepEqual(paths(palette("drafts").pages), ["/mail?view=drafts", "/support?view=review"]);
     assert.equal(palette("email logs").pages[0].page.path, "/settings/email/logs");
     assert.equal(
       paths(palette("email logs", MEMBER_FULL).pages).includes("/settings/email/logs"),

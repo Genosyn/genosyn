@@ -25,6 +25,7 @@ import { EmployeeRevenueGrant } from "../../db/entities/EmployeeRevenueGrant.js"
 import { EmployeeRoutineGrant } from "../../db/entities/EmployeeRoutineGrant.js";
 import { EmployeeSigningGrant } from "../../db/entities/EmployeeSigningGrant.js";
 import { EmployeeDataRoomGrant } from "../../db/entities/EmployeeDataRoomGrant.js";
+import { EmployeeSupportGrant } from "../../db/entities/EmployeeSupportGrant.js";
 import { EmployeeVaultGrant } from "../../db/entities/EmployeeVaultGrant.js";
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
@@ -295,6 +296,7 @@ export const ACCESS_ROUTES: Record<AccessKind, KindRoutes> = {
   recruiting: upsertByEmployee("/recruiting/ai-access", "grant"),
   signing: upsertByEmployee("/signatures/ai-access", "employee"),
   data_room: upsertByEmployee("/data-rooms/ai-access", "employee"),
+  support: upsertByEmployee("/support/ai-access", "employee"),
 };
 
 /**
@@ -384,6 +386,7 @@ export const GRANT_SOURCES: Record<AccessKind, GrantSource> = {
   recruiting: { entity: EmployeeRecruitingGrant, levelColumn: "accessLevel" },
   signing: { entity: EmployeeSigningGrant, levelColumn: "accessLevel" },
   data_room: { entity: EmployeeDataRoomGrant, levelColumn: "accessLevel" },
+  support: { entity: EmployeeSupportGrant, levelColumn: "accessLevel" },
 };
 
 async function loadKindState(

@@ -73,6 +73,7 @@ const ADMIN_KINDS: ReadonlySet<AccessKind> = new Set([
   "recruiting",
   "signing",
   "data_room",
+  "support",
 ]);
 
 export const BROWSER_SESSION_REASON =

@@ -9,7 +9,7 @@ import { broadcastToCompany } from "../realtime.js";
 import { MailAttachmentError, fetchMailAttachmentsBytes } from "./attachments.js";
 import { mailboxForAccount } from "./mailbox/index.js";
 import { CANONICAL_LABELS, type Mailbox, type MailboxMessage } from "./mailbox/types.js";
-import type { MimeAttachment, MimeFields } from "./mime.js";
+import type { MimeAttachment, MimeFields, MimeMailbox } from "./mime.js";
 import { readAttachments, releaseAttachments } from "./outbox.js";
 import { assertRecipientsAllowed } from "./suppression.js";
 import {
@@ -227,6 +227,15 @@ export type ComposeFields = {
   /** Exact reply headers captured with a reviewed payload. Ordinary compose
    * paths omit this and derive them from the live thread as before. */
   reviewedThreading?: { inReplyTo?: string; references?: string };
+  /**
+   * Who the message is from, when it is not the mailbox's own default: a Support
+   * inbox answering from the alias its customer wrote to. Gmail honors an address
+   * set up under Send mail as and otherwise uses the mailbox's own; an SMTP server
+   * may refuse one it does not recognize, which reaches the caller as a failed send.
+   */
+  from?: MimeMailbox;
+  /** Server-chosen headers. See {@link MimeFields.extraHeaders}. */
+  extraHeaders?: Record<string, string>;
 };
 
 /**
@@ -579,6 +588,8 @@ async function composeMime(
     inReplyTo,
     references,
     attachments,
+    ...(fields.from ? { from: fields.from } : {}),
+    ...(fields.extraHeaders ? { extraHeaders: fields.extraHeaders } : {}),
   };
 }
 

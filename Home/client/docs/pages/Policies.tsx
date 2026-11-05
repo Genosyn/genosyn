@@ -147,15 +147,16 @@ export function Policies() {
         A turn that uses the <DocLink to="/docs/browser#web-tools">web tools</DocLink> —{" "}
         <Code>search_web</Code>, <Code>fetch_web_page</Code>, <Code>download_web_file</Code> — or
         reads what applicants sent in <DocLink to="/docs/recruiting#ai-employees">Recruiting</DocLink>{" "}
-        (<Code>list_applications</Code>, <Code>get_application</Code>) is marked tainted for the
-        rest of that turn. There is no untainting: the model has already read whatever the page or
-        the application said.
+        (<Code>list_applications</Code>, <Code>get_application</Code>) or what customers wrote in{" "}
+        <DocLink to="/docs/support#ai-employees">Support</DocLink> (<Code>list_support_tickets</Code>
+        , <Code>get_support_ticket</Code>) is marked tainted for the rest of that turn. There is no
+        untainting: the model has already read whatever the page, the application or the Ticket said.
       </P>
       <P>
         A tainted turn calling a high-risk sink does not execute it. The sinks are{" "}
-        <Code>send_mail</Code>, and texting or calling from a{" "}
-        <DocLink to="/docs/phone-numbers">Phone number</DocLink> (<Code>send_text_message</Code>,{" "}
-        <Code>place_phone_call</Code>); the tools an injection would use to persist itself —{" "}
+        <Code>send_mail</Code>, replying to a Ticket (<Code>reply_to_support_ticket</Code>), and
+        texting or calling from a <DocLink to="/docs/phone-numbers">Phone number</DocLink> (
+        <Code>send_text_message</Code>, <Code>place_phone_call</Code>); the tools an injection would use to persist itself —{" "}
         <Code>create_routine</Code> / <Code>update_routine</Code> / <Code>delete_routine</Code>,
         which would re-run it on a schedule, and <Code>create_skill</Code> /{" "}
         <Code>update_skill</Code> / <Code>delete_skill</Code>, which would put it in every later

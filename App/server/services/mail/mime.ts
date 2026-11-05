@@ -67,6 +67,12 @@ export type MimeFields = {
   /** Pre-generated Message-ID, angle brackets included. See
    * {@link generateMessageId} — SMTP submissions need one of their own. */
   messageId?: string;
+  /**
+   * Further headers, for a message the server itself decided to send: RFC 3834's
+   * `Auto-Submitted`, so the other side's auto-responder does not answer it. Names
+   * and values come from code, never a request; CR and LF are stripped regardless.
+   */
+  extraHeaders?: Record<string, string>;
 };
 
 function randomBoundary(tag: string): string {
@@ -99,6 +105,9 @@ export function buildMimeString(m: MimeFields): string {
   if (m.messageId) headers.push(`Message-ID: ${stripCrlf(m.messageId)}`);
   if (m.inReplyTo) headers.push(`In-Reply-To: ${stripCrlf(m.inReplyTo)}`);
   if (m.references) headers.push(`References: ${stripCrlf(m.references)}`);
+  for (const [name, value] of Object.entries(m.extraHeaders ?? {})) {
+    headers.push(`${stripCrlf(name)}: ${stripCrlf(value)}`);
+  }
   headers.push("MIME-Version: 1.0");
 
   const attachments = m.attachments ?? [];

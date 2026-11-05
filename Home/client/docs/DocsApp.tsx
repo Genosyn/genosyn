@@ -42,6 +42,7 @@ import { Vault } from "@/docs/pages/Vault";
 import { VaultSources } from "@/docs/pages/VaultSources";
 import { Connect } from "@/docs/pages/Connect";
 import { Email } from "@/docs/pages/Email";
+import { Support } from "@/docs/pages/Support";
 import { Meetings } from "@/docs/pages/Meetings";
 import { Tasks } from "@/docs/pages/Tasks";
 import { Decisions } from "@/docs/pages/Decisions";
@@ -117,6 +118,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/vault-sources": VaultSources,
   "/docs/connect": Connect,
   "/docs/email": Email,
+  "/docs/support": Support,
   "/docs/meetings": Meetings,
   "/docs/tasks": Tasks,
   "/docs/decisions": Decisions,

@@ -141,6 +141,7 @@ const PRODUCT_CLOCK: Record<string, string> = {
   marketing: "10:05",
   revenue: "06:35",
   email: "05:45",
+  support: "02:40",
   customers: "07:05",
   finance: "04:05",
   recruiting: "07:20",
@@ -158,8 +159,8 @@ const PRODUCT_CLOCK: Record<string, string> = {
  * `PRODUCT_CLOCK` in any case, since both are facts about how a product is
  * *drawn* rather than about what it does.
  *
- * Six of the fifteen name their own department and need no argument. The
- * other nine are placed by whose work they hold, and the test of a placement
+ * Six of the sixteen name their own department and need no argument. The
+ * other ten are placed by whose work they hold, and the test of a placement
  * is the 24-hour board in `Board.tsx`: if the lane that owns the hue would
  * plausibly file a Run under this product, the binding is right.
  *
@@ -181,6 +182,8 @@ const PRODUCT_CLOCK: Record<string, string> = {
  *                               Explore's own figure is June at $48,220
  *   recruiting   → people       hiring is the People lane's work, and the
  *                               AI Recruiter's whole day
+ *   support      → email        a Ticket is customer mail, and the AI Support
+ *                               Rep's day is already filed in the Email lane
  *
  * Nothing on this site may use a hue for a mood, so a product that fitted no
  * department would have to go without one rather than borrow the nearest.
@@ -198,6 +201,7 @@ export const PRODUCT_DEPT: Record<string, Dept> = {
   marketing: "marketing",
   revenue: "revenue",
   email: "email",
+  support: "email",
   customers: "revenue",
   finance: "finance",
   recruiting: "people",
@@ -398,6 +402,23 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
     {
       label: "Approval waiting",
       detail: "Three replies are drafted and none have sent.",
+      state: "approval",
+    },
+  ],
+  support: [
+    {
+      label: "Four Tickets triaged",
+      detail: "Pax summarized each and set its Topic and priority.",
+      state: "run",
+    },
+    {
+      label: "Three answered",
+      detail: "Each reply quotes a published Article, checked word for word.",
+      state: "run",
+    },
+    {
+      label: "One held for a Member",
+      detail: "Replies on Billing wait for a person, so the draft says why.",
       state: "approval",
     },
   ],

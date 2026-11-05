@@ -1,4 +1,16 @@
-import { Callout, Code, DocLink, H2, KeyList, LI, OL, P, PageHeader, Strong, UL } from "@/docs/Prose";
+import {
+  Callout,
+  Code,
+  DocLink,
+  H2,
+  KeyList,
+  LI,
+  OL,
+  P,
+  PageHeader,
+  Strong,
+  UL,
+} from "@/docs/Prose";
 
 export function Tasks() {
   return (
@@ -17,15 +29,14 @@ export function Tasks() {
 
       <H2 id="projects">Projects &amp; todos</H2>
       <P>
-        A <Strong>Project</Strong> groups related work and mints short ids like <Code>ENG-42</Code>
-        {" "}
+        A <Strong>Project</Strong> groups related work and mints short ids like <Code>ENG-42</Code>{" "}
         from its key. Inside a project, todos move through six statuses — <Code>backlog</Code>,{" "}
         <Code>todo</Code>, <Code>in_progress</Code>, <Code>in_review</Code>, <Code>done</Code>,{" "}
         <Code>cancelled</Code> — in either a <Strong>list</Strong> or a drag-and-drop{" "}
         <Strong>board</Strong> view. The view you pick is remembered for next time (a phone always
-        starts on the list). A new project opens with the cursor in <Strong>Add a todo</Strong>,
-        so its first todos are just typing and Enter; on any project, <Code>c</Code> jumps there
-        too, and <Code>Esc</Code> closes an open todo. Once you have a few projects, type in{" "}
+        starts on the list). A new project opens with the cursor in <Strong>Add a todo</Strong>, so
+        its first todos are just typing and Enter; on any project, <Code>c</Code> jumps there too,
+        and <Code>Esc</Code> closes an open todo. Once you have a few projects, type in{" "}
         <Strong>Filter projects</Strong> and press Enter to open the top match. Each todo carries:
       </P>
       <KeyList
@@ -82,8 +93,8 @@ export function Tasks() {
         show the same <Strong>Tasks</Strong> card when something is linked to them.
       </P>
       <P>
-        To make one from an email, open the thread and choose <Strong>Create task</Strong>. The title
-        starts as the subject, and you pick the Project and who it goes to. See{" "}
+        To make one from an email, open the thread and choose <Strong>Create task</Strong>. The
+        title starts as the subject, and you pick the Project and who it goes to. See{" "}
         <DocLink to="/docs/email#create-task">Email</DocLink>.
       </P>
       <UL>
@@ -105,8 +116,7 @@ export function Tasks() {
         A project is <Strong>open</Strong> by default: every Member and every{" "}
         <DocLink to="/docs/employees">AI Employee</DocLink> in the company can edit it. To narrow
         that, open the project&apos;s settings, pick the <Strong>Access</Strong> tab, and switch{" "}
-        <Strong>Who has access</Strong> from <Strong>&quot;Anyone in the company&quot;</Strong> to
-        {" "}
+        <Strong>Who has access</Strong> from <Strong>&quot;Anyone in the company&quot;</Strong> to{" "}
         <Strong>&quot;Only people and AI Employees you add&quot;</Strong>. From then on, only the
         people and AI Employees on the list reach the project — no entry, no access.
       </P>
@@ -145,32 +155,31 @@ export function Tasks() {
 
       <H2 id="ai">How AI Employees use it</H2>
       <P>
-        In a Todo&apos;s discussion, paste a screenshot, drag files onto the message box,
-        or use the paperclip. Choose an AI Employee when you want an answer about the image.
-        Sent images stay in the discussion and are available when the employee replies or works
-        on the Todo. See <DocLink to="/docs/workspace-chat#images">image formats and limits</DocLink>.
+        In a Todo&apos;s discussion, paste a screenshot, drag files onto the message box, or use the
+        paperclip. Choose an AI Employee when you want an answer about the image. Sent images stay
+        in the discussion and are available when the employee replies or works on the Todo. See{" "}
+        <DocLink to="/docs/workspace-chat#images">image formats and limits</DocLink>.
       </P>
       <P>
         AI Employees manage tasks through the built-in <Code>genosyn</Code> MCP server —{" "}
         <Code>list_projects</Code>, <Code>create_project</Code>, <Code>list_todos</Code>,{" "}
         <Code>create_todo</Code>, <Code>update_todo</Code>, <Code>add_todo_comment</Code>,{" "}
         <Code>start_todo</Code>, <Code>wait_on_todo</Code>, <Code>link_todo</Code>, and{" "}
-        <Code>unlink_todo</Code> —
-        subject to each project&apos;s{" "}
+        <Code>unlink_todo</Code> — subject to each project&apos;s{" "}
         <DocLink to="/docs/tasks#access">access settings</DocLink>: <Code>list_projects</Code> only
         returns the projects an employee can reach, and the writes require{" "}
         <Strong>&quot;Can edit&quot;</Strong>. <Code>list_todos</Code> reads a project a page at a
-        time in the board&apos;s order, with description previews (<Code>get_todo</Code> reads one in
-        full), and narrows to open work or to the employee&apos;s own Todos. A todo an employee
-        creates while working an email links that thread by itself, and{" "}
-        <Code>get_mail_thread</Code> shows the work a thread already started, so it isn&apos;t
-        started twice; <Code>link_todo</Code> and <Code>unlink_todo</Code> manage the rest, for
-        records its own Grants let it read. An employee can hand a todo to a person as well as
-        to a teammate — <Code>list_members</Code> gives it each Member&apos;s user id — and that
-        person must be able to open the project. When an employee
-        creates a todo it assigns itself by default, and it can pass <Code>parentTodoId</Code> to
-        decompose a big item into subtasks — so &quot;plan the launch&quot; in chat turns into a
-        tracked checklist you can watch from the <DocLink to="/docs">Home page</DocLink>.
+        time in the board&apos;s order, with description previews (<Code>get_todo</Code> reads one
+        in full), and narrows to open work or to the employee&apos;s own Todos. A todo an employee
+        creates while working an email links that thread by itself, and <Code>get_mail_thread</Code>{" "}
+        shows the work a thread already started, so it isn&apos;t started twice;{" "}
+        <Code>link_todo</Code> and <Code>unlink_todo</Code> manage the rest, for records its own
+        Grants let it read. An employee can hand a todo to a person as well as to a teammate —{" "}
+        <Code>list_members</Code> gives it each Member&apos;s user id — and that person must be able
+        to open the project. When an employee creates a todo it assigns itself by default, and it
+        can pass <Code>parentTodoId</Code> to decompose a big item into subtasks — so &quot;plan the
+        launch&quot; in chat turns into a tracked checklist you can watch from the{" "}
+        <DocLink to="/docs">Home page</DocLink>.
       </P>
 
       <H2 id="auto-start">Assign it, and it starts</H2>
@@ -179,8 +188,8 @@ export function Tasks() {
         puts it on that employee&apos;s work queue. Each employee works one todo at a time, highest
         priority first, so a busy morning is a queue and not twenty sessions at once. The todo moves
         to <Code>in_progress</Code>, the panel shows the employee working step by step with a{" "}
-        <Strong>Stop</Strong> button, and its report lands as a comment on the thread, with the steps
-        behind a <Strong>Worked for…</Strong> line. When it finishes, it moves the todo to{" "}
+        <Strong>Stop</Strong> button, and its report lands as a comment on the thread, with the
+        steps behind a <Strong>Worked for…</Strong> line. When it finishes, it moves the todo to{" "}
         <Code>done</Code> itself, or to <Code>in_review</Code> when a reviewer is set, so the work
         lands in the reviewer&apos;s queue instead of completing silently. If the brief is too vague
         to act on, it moves the todo back to <Code>todo</Code> and asks for what it needs.
@@ -220,10 +229,10 @@ export function Tasks() {
       <H2 id="waiting">Waiting on someone</H2>
       <P>
         When an AI Employee can&apos;t finish without an answer, it asks and then says what it is
-        waiting on. The todo stays <Code>in_progress</Code> with a <Strong>Waiting on
-        customer</Strong> chip on its card, and a banner in its panel gives the reason, since when,
-        and when it checks back. The session ends, so waiting costs nothing, and the same todo picks
-        up when the answer arrives:
+        waiting on. The todo stays <Code>in_progress</Code> with a{" "}
+        <Strong>Waiting on customer</Strong> chip on its card, and a banner in its panel gives the
+        reason, since when, and when it checks back. The session ends, so waiting costs nothing, and
+        the same todo picks up when the answer arrives:
       </P>
       <KeyList
         rows={[
@@ -255,10 +264,11 @@ export function Tasks() {
       <H2 id="email-intake">Email that becomes work</H2>
       <P>
         A Project can take incoming email by itself: the AI Employee reading each mailbox files what
-        belongs there as a todo, linked to the email, and whoever works these starts on it. It is off
-        until an owner or admin turns it on under <Strong>Project settings → Email intake</Strong>.
-        Say which email belongs there, who works it, and how to work it. Anyone can email you, so
-        nothing in an email can grant anything. What it can do is what you set here ahead of time:
+        belongs there as a todo, linked to the email, and whoever works these starts on it. It is
+        off until an owner or admin turns it on under{" "}
+        <Strong>Project settings → Email intake</Strong>. Say which email belongs there, who works
+        it, and how to work it. Anyone can email you, so nothing in an email can grant anything.
+        What it can do is what you set here ahead of time:
       </P>
       <KeyList
         rows={[
@@ -277,27 +287,33 @@ export function Tasks() {
         ]}
       />
       <P>
-        For the admin job this was built for, a store emailing that an agreement needs accepting: put
-        the store&apos;s address under Trusted senders, assign someone with the login in{" "}
+        For a customer support desk with a queue, response targets and replies quoted from your
+        Articles, use <DocLink to="/docs/support">Support</DocLink> instead. Mail a Support inbox
+        takes goes there and is not filed here.
+      </P>
+      <P>
+        For the admin job this was built for, a store emailing that an agreement needs accepting:
+        put the store&apos;s address under Trusted senders, assign someone with the login in{" "}
         <DocLink to="/docs/vault">Vault</DocLink> and the site on their browser host list, and write
-        how to do it in the instruction. It files the todo, signs in from the saved login rather than
-        any link in the email, and reports on the thread. Leave browser approval on for an act that
-        binds the company: each submit waits for a person, the todo says{" "}
+        how to do it in the instruction. It files the todo, signs in from the saved login rather
+        than any link in the email, and reports on the thread. Leave browser approval on for an act
+        that binds the company: each submit waits for a person, the todo says{" "}
         <Strong>Waiting on browser approval</Strong>, and your decision starts it again.
       </P>
       <P>
-        It also needs <DocLink to="/docs/email#analysis">AI analysis</DocLink> on for the mailbox, and
-        whoever works these needs Mail access to it. If they don&apos;t have it the todo is filed
-        unassigned and owners hear why. It reads each email once, as it arrives, and nothing else
-        files one: reading an email again, a mailbox&apos;s instructions, and older mail don&apos;t.
-        Spam, marketing, auto-replies, blocked senders and a thread with open work are never filed.
-        A reply on a thread with open work wakes that work instead, under these same limits.
+        It also needs <DocLink to="/docs/email#analysis">AI analysis</DocLink> on for the mailbox,
+        and whoever works these needs Mail access to it. If they don&apos;t have it the todo is
+        filed unassigned and owners hear why. It reads each email once, as it arrives, and nothing
+        else files one: reading an email again, a mailbox&apos;s instructions, and older mail
+        don&apos;t. Spam, marketing, auto-replies, blocked senders and a thread with open work are
+        never filed. A reply on a thread with open work wakes that work instead, under these same
+        limits.
       </P>
 
       <H2 id="email-to-done">From email to done</H2>
       <P>
-        <Strong>An admin job.</Strong> A store emails that an agreement needs accepting, and you want
-        an AI Employee to deal with it.
+        <Strong>An admin job.</Strong> A store emails that an agreement needs accepting, and you
+        want an AI Employee to deal with it.
       </P>
       <OL>
         <LI>
@@ -307,11 +323,12 @@ export function Tasks() {
           address to <Strong>Trusted senders</Strong>.
         </LI>
         <LI>
-          Give that employee what the job needs: <DocLink to="/docs/email#access">Mail access</DocLink>{" "}
-          to the mailbox, the login in the <DocLink to="/docs/vault">Vault</DocLink>, and the site on
-          its <DocLink to="/docs/browser#allow-list">browser allow list</DocLink>. Leave{" "}
-          <DocLink to="/docs/browser#approvals">approval-gated submits</DocLink> on for anything that
-          binds the company.
+          Give that employee what the job needs:{" "}
+          <DocLink to="/docs/email#access">Mail access</DocLink> to the mailbox, the login in the{" "}
+          <DocLink to="/docs/vault">Vault</DocLink>, and the site on its{" "}
+          <DocLink to="/docs/browser#allow-list">browser allow list</DocLink>. Leave{" "}
+          <DocLink to="/docs/browser#approvals">approval-gated submits</DocLink> on for anything
+          that binds the company.
         </LI>
         <LI>
           The email arrives. The <DocLink to="/docs/email#analysis">analysis</DocLink> on it says{" "}
@@ -337,16 +354,16 @@ export function Tasks() {
           todo <Strong>Waiting on customer</Strong>, and the session ends.
         </LI>
         <LI>
-          The customer replies. The same todo starts again with the reply, and the employee carries on
-          and reports. If nobody replies, it checks back when it said it would.
+          The customer replies. The same todo starts again with the reply, and the employee carries
+          on and reports. If nobody replies, it checks back when it said it would.
         </LI>
       </OL>
       <P>
-        To see where it all stands, an employee&apos;s <Strong>Work queue</Strong> under its settings
-        lists what it&apos;s working on, what&apos;s queued and why, and what&apos;s waiting. Choose{" "}
-        <Strong>Assigned to AI</Strong> in a Project&apos;s filter to see the same on its board. The
-        heartbeat that starts queued work is a database query, so a day with nothing to do uses no AI
-        Model.
+        To see where it all stands, an employee&apos;s <Strong>Work queue</Strong> under its
+        settings lists what it&apos;s working on, what&apos;s queued and why, and what&apos;s
+        waiting. Choose <Strong>Assigned to AI</Strong> in a Project&apos;s filter to see the same
+        on its board. The heartbeat that starts queued work is a database query, so a day with
+        nothing to do uses no AI Model.
       </P>
 
       <Callout kind="warn" title="AI assignment requires a browser session.">
@@ -365,27 +382,24 @@ export function Tasks() {
       </Callout>
 
       <Callout kind="info" title="Reviews close the loop.">
-        Ask an employee to mark its work <Code>in_review</Code> with you as the reviewer instead of
-        {" "}
+        Ask an employee to mark its work <Code>in_review</Code> with you as the reviewer instead of{" "}
         <Code>done</Code>. You&apos;ll get a notification (and a push notification on your phone, if
-        enabled — see <DocLink to="/docs/mobile">Install on your phone</DocLink>) that opens the todo
-        itself, ready to approve or push back, and the todo
-        waits in your Review queue until you sign it off. <Strong>Open in project</Strong> there
-        (and <Strong>Open the board</Strong> from Home) opens that todo beside its board. In the
-        todo&apos;s panel, <Strong>Approve &amp; mark done</Strong> closes the panel and returns
-        you to the row, while <Strong>Push back</Strong> leaves the cursor in the comment box for
-        your reason.
+        enabled — see <DocLink to="/docs/mobile">Install on your phone</DocLink>) that opens the
+        todo itself, ready to approve or push back, and the todo waits in your Review queue until
+        you sign it off. <Strong>Open in project</Strong> there (and <Strong>Open the board</Strong>{" "}
+        from Home) opens that todo beside its board. In the todo&apos;s panel,{" "}
+        <Strong>Approve &amp; mark done</Strong> closes the panel and returns you to the row, while{" "}
+        <Strong>Push back</Strong> leaves the cursor in the comment box for your reason.
       </Callout>
       <P>
         The reviewer can be an AI Employee too. A todo entering <Code>in_review</Code> with an AI
         reviewer queues a review session instead of ringing a bell, which starts once the
-        assignee&apos;s report is written: the reviewer reads the thread, verifies
-        what the report claims with its own tools, and moves the card itself — <Code>done</Code>
-        {" "}
-        when the work holds up, back to <Code>in_progress</Code> with what&apos;s missing when it
-        doesn&apos;t. When the assignee is also an AI Employee, rework goes back as a Handoff, which
-        starts them on the fix immediately. After three review passes the card stays in review for a
-        human to break the tie, so two AI teammates can&apos;t ping-pong a card forever.
+        assignee&apos;s report is written: the reviewer reads the thread, verifies what the report
+        claims with its own tools, and moves the card itself — <Code>done</Code> when the work holds
+        up, back to <Code>in_progress</Code> with what&apos;s missing when it doesn&apos;t. When the
+        assignee is also an AI Employee, rework goes back as a Handoff, which starts them on the fix
+        immediately. After three review passes the card stays in review for a human to break the
+        tie, so two AI teammates can&apos;t ping-pong a card forever.
       </P>
     </>
   );

@@ -26,7 +26,8 @@ export function Email() {
         mail server in both directions: mail that arrives shows up here within about a minute, and
         anything you do here — read, star, archive, label, draft, send, forward — is written
         straight back. The goal is that you never need to open your other mail client; read it there
-        or here, act on it here, and neither drifts.
+        or here, act on it here, and neither drifts. To turn mail to an address such as{" "}
+        <Code>support@</Code> into Tickets instead, see <DocLink to="/docs/support">Support</DocLink>.
       </P>
 
       <Callout kind="info" title="Different from the email that Genosyn sends.">
@@ -671,6 +672,11 @@ export function Email() {
         stop too. Any member can change this card, instructions included. It only chooses among
         employees an owner or admin has already given{" "}
         <DocLink to="/docs/email#access">AI access</DocLink>, so it cannot widen what they can do.
+      </P>
+      <P>
+        Mail a <DocLink to="/docs/support">Support inbox</DocLink> takes is read once, by Support, so
+        this review skips it. Your <DocLink to="/docs/email#rules">rules</DocLink> and Pipelines still
+        run for it.
       </P>
       <Callout kind="info" title="Read access summarises; Draft access can act.">
         An employee on <Strong>Read</Strong> can summarise and suggest next steps, but will not

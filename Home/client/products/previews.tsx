@@ -14,6 +14,7 @@ import {
   Hash,
   Landmark,
   Library,
+  LifeBuoy,
   Mail,
   MessageSquare,
   Mic,
@@ -49,6 +50,7 @@ const PREVIEWS: Record<string, () => JSX.Element> = {
   marketing: MarketingPreview,
   revenue: RevenuePreview,
   email: EmailPreview,
+  support: SupportPreview,
   customers: CustomersPreview,
   finance: FinancePreview,
   recruiting: RecruitingPreview,
@@ -1448,6 +1450,123 @@ function RecruitingPreview() {
         <span>
           <span className="font-medium text-slate-700">Noor (AI)</span> scored 11 applications
           overnight, blind to names · every quote checked against the application
+        </span>
+      </div>
+    </Window>
+  );
+}
+
+// ────────────────────────────────── Support ─────────────────────────────────
+
+const SUPPORT_QUEUE: Array<{
+  number: string;
+  from: string;
+  subject: string;
+  state: string;
+  active?: boolean;
+}> = [
+  {
+    number: "#1042",
+    from: "Dana · Acme Co.",
+    subject: "Can we move to annual billing?",
+    state: "Draft ready",
+    active: true,
+  },
+  {
+    number: "#1041",
+    from: "Lee · Globex",
+    subject: "Export a report as CSV",
+    state: "Answered by AI",
+  },
+  {
+    number: "#1040",
+    from: "Noa · Initech",
+    subject: "Sign-in link never arrives",
+    state: "Needs a person",
+  },
+  {
+    number: "#1039",
+    from: "Ines · Hooli",
+    subject: "Where do I find past invoices?",
+    state: "Answered by AI",
+  },
+];
+
+function SupportPreview() {
+  return (
+    <Window url="genosyn.com / support / tickets / 1042">
+      <div className="grid grid-cols-1 md:grid-cols-6">
+        <div className="divide-y divide-slate-50 border-b border-slate-50 md:col-span-2 md:border-b-0 md:border-r">
+          {SUPPORT_QUEUE.map((ticket) => (
+            <div key={ticket.number} className={`px-4 py-3 ${ticket.active ? "bg-slate-50" : ""}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-[11px] font-semibold text-slate-900">
+                  {ticket.from}
+                </span>
+                <span className="shrink-0 font-mono text-[10px] text-slate-500">{ticket.number}</span>
+              </div>
+              <div className="mt-0.5 truncate text-[12px] text-slate-700">{ticket.subject}</div>
+              <div className="mt-1.5">
+                <Tag
+                  tone={
+                    ticket.state === "Needs a person"
+                      ? "bg-slate-900 text-slate-50 ring-slate-700"
+                      : "bg-slate-50 text-slate-700 ring-slate-200"
+                  }
+                >
+                  {ticket.state}
+                </Tag>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="p-5 md:col-span-4 md:pr-16">
+          <div className="flex items-center gap-2">
+            <LifeBuoy className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+            <span className="min-w-0 truncate text-[12.5px] font-semibold text-slate-900">
+              Can we move to annual billing?
+            </span>
+            <span className="ml-auto shrink-0 font-mono text-[10px] text-slate-500">02:40</span>
+          </div>
+          <p className="mt-2.5 text-[12px] leading-relaxed text-slate-700">
+            Hi, can we switch to annual billing partway through a term?
+          </p>
+          <div className="mt-3 border border-slate-100 bg-slate-50/50 p-3.5">
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-900">
+              <Sparkles className="h-3 w-3" />
+              Draft by Pax (AI) · High confidence
+            </div>
+            <p className="mt-2 text-[12px] leading-relaxed text-slate-700">
+              Hi Dana, yes. You can switch at any time, and annual starts on your next renewal date.
+            </p>
+            <div className="mt-2.5 flex items-start gap-1.5 text-[10.5px] leading-4 text-slate-600">
+              <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0 text-slate-700" />
+              <span className="min-w-0">
+                <span className="block italic">
+                  “A switch to annual takes effect on your next renewal date.”
+                </span>
+                <span className="block font-medium text-slate-700">Changing your plan</span>
+              </span>
+            </div>
+            <div className="mt-2.5 text-[10.5px] leading-4 text-slate-500">
+              <div className="font-medium text-slate-700">Held for a person because:</div>
+              Replies on &ldquo;Billing&rdquo; wait for a person.
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white">Send</span>
+              <span className="border border-slate-100 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700">
+                Edit first
+              </span>
+              <span className="px-2 py-1.5 text-[11px] font-medium text-slate-500">Discard</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 border-t border-slate-50 bg-slate-50/60 px-5 py-2.5 text-[11px] text-slate-500">
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-slate-700" />
+        <span>
+          <span className="font-medium text-slate-700">Pax (AI)</span> answered 3 of 4 Tickets
+          overnight from published Articles · every quote checked word for word
         </span>
       </div>
     </Window>

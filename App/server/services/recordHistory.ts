@@ -89,6 +89,8 @@ export const RECORD_HISTORY_TYPES: Record<string, AccessRule> = {
   signature_envelope: "member",
   // Owners and admins only, like the data room itself.
   data_room: "admin",
+  support_ticket: "member",
+  support_article: "member",
   marketing_campaign: "member",
   repository: "member",
   // Tasks — a restricted Project is readable only by its own members.

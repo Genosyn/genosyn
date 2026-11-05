@@ -354,6 +354,42 @@ export function Vocabulary() {
         ]}
       />
 
+      <H2 id="support-words">Support words</H2>
+      <KeyList
+        rows={[
+          {
+            term: "Support inbox",
+            def: (
+              <>
+                A mailbox and the addresses on it that count as support, or the whole mailbox. Mail
+                it takes becomes Tickets, and the AI Employee working it goes only as far as the
+                inbox allows. See <DocLink to="/docs/support">Support</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Ticket",
+            def: "One customer's request: the emails both ways, internal notes, a status, a priority, a Topic and a timeline. Written #12. Never a Todo, which is the company's own work on a Project.",
+          },
+          {
+            term: "Requester",
+            def: "The customer a Ticket answers: usually whoever wrote, or the person behind a web form or a Google Group that relayed the message.",
+          },
+          {
+            term: "Article",
+            def: "An answer the company has written down. Published Articles are all an AI Employee working a Ticket can tell a customer, and every quote it uses is checked against one, word for word.",
+          },
+          {
+            term: "Saved reply",
+            def: "An answer a Member writes once and inserts from the composer, with blanks such as the customer's first name filled in.",
+          },
+          {
+            term: "Topic",
+            def: "What a Ticket is about, and what follows from that: whether a reply on it may go out on its own, and who it goes to when nobody holds it yet.",
+          },
+        ]}
+      />
+
       <H2 id="control-surfaces">Control surfaces</H2>
       <KeyList
         rows={[

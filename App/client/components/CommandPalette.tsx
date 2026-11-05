@@ -1,6 +1,7 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  LifeBuoy,
   BarChart3,
   Briefcase,
   Building2,
@@ -127,6 +128,11 @@ const KIND_META: Record<SearchResultKind, { group: string; icon: LucideIcon; ico
     group: "Product areas",
     icon: WalletCards,
     iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-300",
+  },
+  ticket: {
+    group: "Support tickets",
+    icon: LifeBuoy,
+    iconBg: "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
   },
   catalogProduct: {
     group: "Products & services",

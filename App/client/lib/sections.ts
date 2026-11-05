@@ -7,6 +7,7 @@ import {
   Contact2,
   FolderGit2,
   FolderLock,
+  LifeBuoy,
   FileSignature,
   GitBranch,
   Home,
@@ -77,6 +78,7 @@ export type SectionKey =
   | "customers"
   | "signatures"
   | "dataRooms"
+  | "support"
   | "finance"
   | "recruiting"
   | "pipelines"
@@ -479,6 +481,35 @@ export const SECTION_GROUPS: SectionGroup[] = [
         ],
       },
       {
+        key: "support",
+        label: "Support",
+        description: "Customer email becomes tickets an AI Employee answers.",
+        icon: LifeBuoy,
+        // The one letter no other section holds that says something about it.
+        shortcut: "/",
+        path: "/support",
+        iconBg: "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
+        // What people call this product elsewhere; it says Support, Tickets, Articles.
+        keywords: [
+          "support",
+          "tickets",
+          "ticketing",
+          "helpdesk",
+          "help desk",
+          "customer service",
+          "customer support",
+          "support inbox",
+          "shared inbox",
+          "sla",
+          "csat",
+          "knowledge base",
+          "zendesk",
+          "intercom",
+          "freshdesk",
+          "front",
+        ],
+      },
+      {
         key: "dataRooms",
         label: "Data rooms",
         description: "Share documents with investors, buyers, and auditors.",
@@ -670,6 +701,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/customers(\/|$)/.test(pathname)) return "customers";
   if (/\/c\/[^/]+\/signatures(\/|$)/.test(pathname)) return "signatures";
   if (/\/c\/[^/]+\/data-rooms(\/|$)/.test(pathname)) return "dataRooms";
+  if (/\/c\/[^/]+\/support(\/|$)/.test(pathname)) return "support";
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/recruiting(\/|$)/.test(pathname)) return "recruiting";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";

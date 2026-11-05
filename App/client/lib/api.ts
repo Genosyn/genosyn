@@ -3875,6 +3875,14 @@ export type NotificationKind =
   | "data_room_question"
   /** A guest opened a data room for the first time. */
   | "data_room_visit"
+  /** A support ticket was assigned to the recipient. */
+  | "support_ticket_assigned"
+  /** A customer wrote again on a ticket the recipient holds. */
+  | "support_customer_replied"
+  /** A ticket the recipient holds missed its target. */
+  | "support_sla_breached"
+  /** A customer gave a low rating on a ticket the recipient holds. */
+  | "support_low_rating"
   /** A group discussion the recipient started handed back its outcome. */
   | "group_discussion"
   /** An AI Model became unavailable; the work on it waits. */
@@ -3902,6 +3910,7 @@ export type NotificationEntityKind =
   | "board_letter"
   | "recruiting_application"
   | "data_room"
+  | "support_ticket"
   | "ai_model";
 
 export type NotificationActor = {
@@ -6690,6 +6699,8 @@ export type SearchResultKind =
   | "account"
   | "opening"
   | "applicant"
+  /** A support ticket, by its subject, customer or number. */
+  | "ticket"
   /** A Finance → Products & services row, opened filtered to its name. */
   | "catalogProduct";
 

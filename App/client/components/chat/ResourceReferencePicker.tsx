@@ -35,6 +35,7 @@ const KIND_LABELS: Record<SearchResultKind, string> = {
   account: "Revenue account",
   opening: "Opening",
   applicant: "Applicant",
+  ticket: "Support ticket",
   catalogProduct: "Product",
 };
 

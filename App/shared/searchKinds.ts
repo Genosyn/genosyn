@@ -35,6 +35,7 @@ export type SearchKind =
   | "account"
   | "opening"
   | "applicant"
+  | "ticket"
   | "catalogProduct";
 
 /**
@@ -66,6 +67,7 @@ const KIND_TERMS: Record<SearchKind, readonly string[]> = {
   account: ["account"],
   opening: ["opening", "job", "role", "vacancy", "posting"],
   applicant: ["applicant", "candidate", "application"],
+  ticket: ["ticket", "support ticket", "case"],
   catalogProduct: [],
 };
 
