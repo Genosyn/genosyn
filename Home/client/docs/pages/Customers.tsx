@@ -22,6 +22,16 @@ export function Customers() {
           deal, person, meeting, billing document, contract, and signature request linked to it.
         </LI>
         <LI>
+          <Strong>Notes</Strong> — dated, signed notes anyone in the company can add to an account,
+          right on its page.
+        </LI>
+        <LI>
+          <Strong>Accounts from meetings</Strong> — a meeting with someone from outside the company
+          links to their account, and{" "}
+          <DocLink to="/docs/meetings#customer">creates it as a prospect</DocLink> when you don&apos;t
+          have one yet.
+        </LI>
+        <LI>
           <Strong>Accounts</Strong> — prospect/customer/former status, with each domain visible in
           the customer list; website, industry, size and owner alongside billing email, phone, tax
           ID, currency, and address.
@@ -54,7 +64,10 @@ export function Customers() {
         A <Strong>Customer</Strong> row is the account across its whole lifecycle. Create a prospect
         from <Code>Revenue → Accounts</Code> before it has finance activity, or create a customer
         directly from <Code>Customers → New customer</Code>, which opens the customer once created;
-        saving an edit returns to the customer too. Issuing the first invoice promotes a
+        saving an edit returns to the customer too. A{" "}
+        <DocLink to="/docs/meetings#customer">meeting</DocLink> creates a prospect too, when the
+        people on it are from a company you don&apos;t have yet; archive one that isn&apos;t a
+        customer and later meetings won&apos;t create it again. Issuing the first invoice promotes a
         prospect to customer automatically. The same row carries the company name, domain,
         firmographics, owner, billing email, tax ID, default currency, and invoice address.
       </P>
@@ -194,10 +207,14 @@ export function Customers() {
           <Strong>Overview</Strong> — the headline numbers (annual contract value, outstanding
           balance, lifetime billed, open pipeline), an <Strong>action-needed</Strong> queue that
           surfaces overdue and unpaid invoices, estimates awaiting a response, and recurring
-          invoice runs that are retrying or couldn&apos;t email their invoice, then the latest
-          emails, activity, and open deals, any{" "}
+          invoice runs that are retrying or couldn&apos;t email their invoice, then the newest notes
+          with a box to add one, the latest emails, activity, and open deals, any{" "}
           <DocLink to="/docs/tasks#links">linked tasks</DocLink>, every account detail, the people at
           the account, and custom fields.
+        </LI>
+        <LI>
+          <Strong>Notes</Strong> — what your team knows about the account. See{" "}
+          <a href="#notes">notes</a>.
         </LI>
         <LI>
           <Strong>Emails</Strong> — every conversation in your connected mailboxes with the
@@ -220,8 +237,10 @@ export function Customers() {
           latest activity, and its billing contacts.
         </LI>
         <LI>
-          <Strong>Meetings</Strong> — the meetings linked to the account, with their recordings,
-          transcripts, and summaries.
+          <Strong>Meetings</Strong> — the{" "}
+          <DocLink to="/docs/meetings#customer">meetings linked to the account</DocLink>, with their
+          recordings, transcripts, and summaries. Open one and its page links straight back here, and
+          a meeting on the <Strong>Activity</Strong> tab has an <Strong>Open meeting</Strong> link.
         </LI>
         <LI>
           <Strong>Billing</Strong> — invoices, estimates, recurring invoices, and credit notes.
@@ -251,6 +270,23 @@ export function Customers() {
         Signatures — where it is edited, and the customer&apos;s name on an invoice, estimate, or
         recurring invoice links back here. The open tab is kept in the page URL, so a shared link
         opens the same view.
+      </P>
+
+      <H3 id="notes">Notes</H3>
+      <P>
+        Type in the box on the <Strong>Overview</Strong> or the <Strong>Notes</Strong> tab and press{" "}
+        <Strong>Add note</Strong>, or <Code>⌘</Code>/<Code>Ctrl</Code>+<Code>Enter</Code>. Each note
+        shows who wrote it and when, and anyone who can open the customer can add one, edit one, or
+        delete one, including a Member with read-only finance access, because a note is not a finance
+        record.
+      </P>
+      <P>
+        The tab also lists the notes kept on the account&apos;s contacts and deals, each with a link
+        to where it lives, and the ones an AI Employee writes from a{" "}
+        <DocLink to="/docs/customer-channels">customer channel</DocLink>. Notes appear on the{" "}
+        <Strong>Activity</Strong> timeline with everything else. <Strong>Account notes</Strong>, on
+        the customer&apos;s edit form, are something else: one block of text about the account that
+        you keep up to date, rather than a running record.
       </P>
 
       <H3 id="emails">How emails are matched</H3>
