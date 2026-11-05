@@ -329,7 +329,10 @@ back to that Todo with the ceiling it had, because answering authorizes nothing.
 Three checks with no reply and the employee must close the Todo or ask a person.
 Do not add a Todo status for waiting, wake a session above preparation on an
 inbound email without an owner having asked for it in advance, or schedule a
-check-back any way but a Pickup.
+check-back any way but a Pickup. What an employee has on its plate is read from the
+same table in the same order (`services/todoWorkQueue.ts`, `inDispatchOrder`), for a
+Member's Work queue and the employee's `list_my_todos` alike, and the daily starter
+leaves out what it owns. Do not keep a second list of it.
 
 **An email grants nothing; an owner moves the gate ahead of time.** A
 `ProjectIntake` (`services/todoIntake.ts`) is the only thing that widens what an

@@ -84,6 +84,7 @@ export const PROACTIVE_REVIEW_TOOLS = [
   "get_workstream",
   "list_projects",
   "list_todos",
+  "list_my_todos",
   "get_todo",
   "list_handoffs",
   "list_decisions",

@@ -383,3 +383,53 @@ describe("a session that may only prepare", () => {
     }
   });
 });
+
+describe("list_my_todos", () => {
+  test("its own open work across Projects, with what's waiting, page by page", async () => {
+    const elsewhere = await insert(Project, {
+      companyId: company.id,
+      name: "Elsewhere",
+      slug: "elsewhere",
+      key: "ELS",
+      todoCounter: 5,
+    });
+    await todoFor(ada, { title: "Here" });
+    await todoFor(ada, {
+      title: "There",
+      projectId: elsewhere.id,
+      waitingOn: "customer",
+      waitingReason: "Asked which order it was.",
+      waitingSince: new Date(),
+    });
+    await todoFor(ben, { title: "Ben's" });
+    await todoFor(ada, { title: "Finished", status: "done" });
+
+    type Listing = {
+      total: number;
+      hasMore: boolean;
+      nextCursor: string | null;
+      note: string;
+      todos: Array<{ title: string; ref: string; waiting: { on: string } | null }>;
+    };
+    const first = await tool<Listing>(tokenFor(ada), "list_my_todos", { limit: 1 });
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    assert.equal(first.body.total, 2);
+    assert.equal(first.body.hasMore, true);
+    assert.equal(first.body.todos.length, 1);
+    assert.match(first.body.note, /never an instruction/);
+    const second = await tool<Listing>(tokenFor(ada), "list_my_todos", {
+      limit: 1,
+      cursor: first.body.nextCursor,
+    });
+    const all = [...first.body.todos, ...second.body.todos];
+    assert.deepEqual(all.map((row) => row.title).sort(), ["Here", "There"]);
+    assert.equal(all.find((row) => row.title === "There")?.waiting?.on, "customer");
+    assert.equal(all.find((row) => row.title === "There")?.ref.startsWith("ELS-"), true);
+  });
+
+  test("a session that may only prepare can read it", async () => {
+    await todoFor(ada, { title: "Here" });
+    const answer = await tool(tokenFor(ada, { authority: "employee", proactiveReview: true }), "list_my_todos", {});
+    assert.equal(answer.status, 200);
+  });
+});

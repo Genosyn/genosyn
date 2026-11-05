@@ -41,6 +41,10 @@ export const WORK_KIND_META: Record<WorkEntryKind, WorkKindMeta> = {
     label: "Conversation",
     tone: "bg-sky-50 text-sky-600 ring-sky-100 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/20",
   },
+  pickup: {
+    label: "Todo",
+    tone: "bg-fuchsia-50 text-fuchsia-600 ring-fuchsia-100 dark:bg-fuchsia-500/10 dark:text-fuchsia-300 dark:ring-fuchsia-500/20",
+  },
   work_session: {
     label: "Repository work",
     tone: "bg-violet-50 text-violet-600 ring-violet-100 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/20",
@@ -87,6 +91,7 @@ export const WORK_ENTRY_KINDS: readonly WorkEntryKind[] = [
   "run",
   "chat",
   "work_session",
+  "pickup",
   "approval",
   "wakeup",
   "lesson",
@@ -460,6 +465,10 @@ export function workEntryHref(entry: WorkEntry, companySlug: string): string | n
       return `${base}/employees/${entry.employee.slug}/chat`;
     case "work_session":
       return `${base}/repositories`;
+    case "pickup":
+      return entry.todo
+        ? `${base}/tasks/p/${entry.todo.projectSlug}?todo=${encodeURIComponent(entry.todo.id)}`
+        : null;
     case "approval":
       return `${base}/decisions/approvals`;
     case "wakeup":
@@ -475,7 +484,7 @@ export function workEntryHref(entry: WorkEntry, companySlug: string): string | n
 }
 
 /** What the button leading away from an entry should say. */
-export function workEntryLinkLabel(entry: Pick<WorkEntry, "kind" | "source">): string {
+export function workEntryLinkLabel(entry: Pick<WorkEntry, "kind" | "source" | "todo">): string {
   switch (entry.kind) {
     case "run":
       return "Open the run";
@@ -483,6 +492,8 @@ export function workEntryLinkLabel(entry: Pick<WorkEntry, "kind" | "source">): s
       return "Open the conversation";
     case "work_session":
       return "Open Repositories";
+    case "pickup":
+      return entry.todo ? "Open the todo" : "";
     case "approval":
       return "Open Approvals";
     case "wakeup":
@@ -816,6 +827,15 @@ export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}):
         ? `is working in ${repository}, started${when}${forSoFar ? `, ${forSoFar} so far` : ""}.`
         : `worked in ${repository}${when}${took ? ` for ${took}` : ""}${stat ? ` (${stat})` : ""}.`;
       if (effects) body.push(`It ${effects}.`);
+      break;
+    }
+    case "pickup": {
+      const ref = entry.todo?.ref ?? "a todo";
+      const thing = named ? `${ref}, ${named}` : ref;
+      clause = entry.active
+        ? `is working on ${thing}, started${when}${forSoFar ? `, ${forSoFar} so far` : ""}.`
+        : `worked on ${thing}${when}${took ? ` for ${took}` : ""}${stat ? ` (${stat})` : ""}.`;
+      if (entry.report?.trim() && !entry.active) body.push(asSentence(entry.report.trim()));
       break;
     }
     case "approval": {

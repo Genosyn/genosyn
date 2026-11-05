@@ -7,9 +7,12 @@ import express from "express";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
+import { Project } from "../db/entities/Project.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Standdown } from "../db/entities/Standdown.js";
+import { Todo } from "../db/entities/Todo.js";
+import { TodoPickup } from "../db/entities/TodoPickup.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import type { EmployeeWorkQueue } from "../services/employeeWorkQueue.js";
@@ -17,6 +20,7 @@ import { claimRetryDispatch } from "../services/runRecovery.js";
 import { refreshStanddowns } from "../services/standdowns.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { persistTestSession } from "../test/userSession.js";
+import type { EmployeeTodoQueue } from "../../shared/todoPickups.js";
 import { employeeWorkQueueRouter } from "./employeeWorkQueue.js";
 
 let server: Server;
@@ -129,6 +133,7 @@ test("finishing Runs retain live visibility for modern and legacy dispatch marke
 test("empty, unauthenticated, foreign company and foreign employee queues stay distinct", async () => {
   assert.deepEqual((await call()).body, {
     employeeId: employee.id, current: null, running: [], runningCount: 0, pending: [], pendingCount: 0,
+    todos: { running: [], queued: [], queuedCount: 0, waiting: [], waitingCount: 0 },
   });
   assert.equal((await call(randomUUID())).status, 404);
   const foreign = await insert(AIEmployee, { companyId: randomUUID(), name: "Other", slug: "other", role: "", soulBody: "" });
@@ -206,4 +211,59 @@ test("bounds concurrent running previews without undercounting active work", asy
   assert.equal(body.runningCount, 103);
   assert.equal(body.current?.id, body.running[0].id);
   assert.equal(body.pendingCount, 0);
+});
+
+test("lists its Todos too, without a Project the reader can't open", async () => {
+  const open = await insert(Project, {
+    companyId: company.id,
+    name: "Ops",
+    slug: "ops",
+    key: "OPS",
+    todoCounter: 2,
+  });
+  const locked = await insert(Project, {
+    companyId: company.id,
+    name: "Payroll",
+    slug: "payroll",
+    key: "PAY",
+    todoCounter: 1,
+    accessMode: "restricted",
+  });
+  for (const [project, number, title] of [
+    [open, 1, "Open work"],
+    [locked, 1, "Locked work"],
+  ] as const) {
+    const todo = await insert(Todo, {
+      projectId: project.id,
+      number,
+      title,
+      status: "todo",
+      priority: "none",
+      assigneeEmployeeId: employee.id,
+    });
+    await insert(TodoPickup, {
+      companyId: company.id,
+      todoId: todo.id,
+      employeeId: employee.id,
+      trigger: "assigned",
+      status: "queued",
+      authority: "employee",
+      acceptedAt: new Date(),
+      notBeforeAt: new Date(Date.now() - 1_000),
+    });
+  }
+  const asMember = await call();
+  assert.equal(asMember.status, 200);
+  const { todos } = asMember.body as EmployeeWorkQueue & { todos: EmployeeTodoQueue };
+  assert.deepEqual(todos.queued.map((row) => row.title), ["Open work"]);
+  assert.equal(todos.queuedCount, 1);
+  assert.equal(todos.queued[0].ref, "OPS-1");
+
+  const founder = await insert(User, {
+    email: "queue-owner@example.test", name: "Owner", passwordHash: "x", sessionVersion: 0,
+  });
+  await insert(Membership, { companyId: company.id, userId: founder.id, role: "owner" });
+  actingUserId = founder.id;
+  const asOwner = (await call()).body as EmployeeWorkQueue & { todos: EmployeeTodoQueue };
+  assert.equal(asOwner.todos.queuedCount, 2);
 });

@@ -303,7 +303,8 @@ export function Reactivity() {
       <P>
         A Project can go further and start work from an email without a Routine, and an owner can let
         it answer without review or trust a verified sender. That is set on the Project, not on a
-        Routine: see <DocLink to="/docs/tasks#email-intake">Email that becomes work</DocLink>.
+        Routine: see <DocLink to="/docs/tasks#email-intake">Email that becomes work</DocLink>, and{" "}
+        <DocLink to="/docs/tasks#email-to-done">From email to done</DocLink> for how it fits together.
       </P>
 
       <H2 id="triggers">Triggers — Routines that fire on change</H2>

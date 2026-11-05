@@ -9,6 +9,15 @@ import {
 } from "./recordHistory.js";
 
 describe("describeHistoryAction", () => {
+  test("says what an AI Employee did on a Todo in plain words", () => {
+    const say = (action: string) => describeHistoryAction(action, "todo", "this todo");
+    assert.equal(say("todo.pickup.start"), "started working on this todo");
+    assert.equal(say("todo.pickup.done"), "finished a session on this todo");
+    assert.equal(say("todo.pickup.failed"), "couldn't finish a session on this todo");
+    assert.equal(say("todo.pickup.stopped"), "was stopped working on this todo");
+    assert.equal(say("todo.wait"), "marked this todo as waiting");
+  });
+
   test("words a record's own actions without the namespace or its type", () => {
     assert.equal(describeHistoryAction("finance.invoice.create", "invoice", "this invoice"), "created this invoice");
     assert.equal(describeHistoryAction("invoice.email.resend", "invoice", "this invoice"), "resent the email");

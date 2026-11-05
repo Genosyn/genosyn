@@ -1,4 +1,5 @@
 import type { TodoLinkView } from "../../shared/todoLinks";
+import type { EmployeeTodoQueue } from "../../shared/todoPickups";
 import type { TodoPickupView, TodoWaitKind } from "../../shared/todoPickups";
 import type { BaseFilterOperator } from "../../shared/baseFilters";
 import type { EntryCategoryLock } from "../../shared/entryCategory";
@@ -4001,6 +4002,7 @@ export type WorkEntryKind =
   | "run"
   | "chat"
   | "work_session"
+  | "pickup"
   | "approval"
   | "wakeup"
   | "lesson"
@@ -4074,6 +4076,10 @@ export type WorkEntry = {
   detail: string;
   /** Linked provenance for a standalone change, when its source still exists. */
   source: WorkEntrySource | null;
+  /** The Todo a `pickup` entry worked on. */
+  todo?: { id: string; ref: string; projectSlug: string } | null;
+  /** A `pickup`'s report, bounded and redacted. */
+  report?: string | null;
   /** A bounded result for an email analysis effect; optional for older responses. */
   analysis?: WorkEntryAnalysis | null;
   /** Present only on `kind: "run"`. */
@@ -4132,6 +4138,8 @@ export type EmployeeWorkQueue = {
   runningCount: number;
   pending: EmployeeQueueItem[];
   pendingCount: number;
+  /** Its Todos. Older servers leave it out. */
+  todos?: EmployeeTodoQueue;
 };
 
 // ───────────────────────── System Health ────────────────────────────────
