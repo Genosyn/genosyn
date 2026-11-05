@@ -54,6 +54,7 @@ import { companyNotificationLink, needsCompanyPrefix } from "../../shared/notifi
 export const PUSHED_NOTIFICATION_KINDS: ReadonlySet<NotificationKind> = new Set<NotificationKind>([
   "mention",
   "todo_review_requested",
+  "todo_needs_attention",
   "approval_pending",
   "decision_pending",
   "mail_handover",

@@ -40,6 +40,10 @@ export class TodoComment {
   @Column({ type: "boolean", default: false })
   pending!: boolean;
 
+  /** The session this comment reports, when it is a pickup's report. */
+  @Column({ type: "varchar", nullable: true })
+  pickupId!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

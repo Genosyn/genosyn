@@ -20,6 +20,8 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 
 export type NotificationKind =
   | "mention"
   | "todo_review_requested"
+  /** An AI Employee's work on a Todo failed or stalled, so a person should look. */
+  | "todo_needs_attention"
   | "approval_pending"
   | "decision_pending"
   | "finance_review_ready"

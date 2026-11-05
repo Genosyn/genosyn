@@ -118,6 +118,31 @@ export class Todo {
   @Column({ type: "varchar", nullable: true })
   parentTodoId!: string | null;
 
+  /**
+   * A Member did not write this Todo's title and description: an AI Employee
+   * did, or a Pipeline's template. They are what was asked for, never an
+   * instruction, so a session reads them as data
+   * (`services/todoPickupBrief.ts`). It never clears: a person fixing a typo has
+   * not vouched for the rest.
+   */
+  @Column({ type: "boolean", default: false })
+  untrustedText!: boolean;
+
+  /**
+   * Words a tainted turn wrote are on this Todo, so every session that replays
+   * its thread starts tainted (`services/taintPolicy.ts`). There is no untaint.
+   */
+  @Column({ type: "boolean", default: false })
+  tainted!: boolean;
+
+  /**
+   * How many AI hand-offs led here. A Todo created or handed on inside a pickup
+   * is one deeper than the Todo that pickup was on; past the limit in
+   * `services/todoPickups.ts` it is saved and starts nothing.
+   */
+  @Column({ type: "int", default: 0 })
+  aiChainDepth!: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 

@@ -54,6 +54,7 @@ import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Todo } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
+import { TodoPickup } from "../db/entities/TodoPickup.js";
 import { TldrDismissal } from "../db/entities/TldrDismissal.js";
 import { TldrQuestion } from "../db/entities/TldrQuestion.js";
 import { TldrQuestionAction } from "../db/entities/TldrQuestionAction.js";
@@ -214,6 +215,10 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     await m.update(Todo, { assigneeUserId: userId }, { assigneeUserId: null });
     await m.update(Todo, { reviewerUserId: userId }, { reviewerUserId: null });
     await m.update(Todo, { createdById: userId }, { createdById: null });
+    // A pickup queued under their authority can't lend it any more; it ends
+    // saying so when it comes up.
+    await m.update(TodoPickup, { requesterUserId: userId }, { requesterUserId: null });
+    await m.update(TodoPickup, { stoppedByUserId: userId }, { stoppedByUserId: null });
 
     // `createdById` (human creator) across the rest of the model.
     await m.update(Base, { createdById: userId }, { createdById: null });

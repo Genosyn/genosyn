@@ -1,4 +1,5 @@
 import type { TodoLinkView } from "../../shared/todoLinks";
+import type { TodoPickupView } from "../../shared/todoPickups";
 import type { BaseFilterOperator } from "../../shared/baseFilters";
 import type { EntryCategoryLock } from "../../shared/entryCategory";
 import type { ModelEffort } from "../../shared/modelEffort";
@@ -2603,6 +2604,8 @@ export type TodoComment = {
   createdAt: string;
   updatedAt: string;
   author: TodoCommentAuthor | null;
+  /** The session this comment reports, when it is an AI Employee's report. */
+  pickup?: TodoPickupView | null;
 };
 
 // ───────────────────────── Bases (Airtable-style) ───────────────────────────
@@ -3831,6 +3834,7 @@ export type FinanceGrantCandidate = FinanceGrantEmployee & {
 export type NotificationKind =
   | "mention"
   | "todo_review_requested"
+  | "todo_needs_attention"
   | "approval_pending"
   | "decision_pending"
   | "finance_review_ready"

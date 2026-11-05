@@ -2,32 +2,26 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo } from "../db/entities/Todo.js";
-import { TodoComment } from "../db/entities/TodoComment.js";
-import { chatWithEmployee } from "./chat.js";
-import { todoDiscussionHistory } from "./todoCommentAttachments.js";
 import { getActiveModel } from "./models.js";
+import { requestTodoPickup, type TodoPickupCeiling } from "./todoPickups.js";
 
 /**
- * Review kickoff — the session that starts when work lands in an AI
- * reviewer's queue.
+ * Review kickoff: the session that starts when work lands in an AI reviewer's
+ * queue.
  *
- * A todo moved to `in_review` used to notify a human reviewer and do nothing
- * at all for an AI one ("bots don't get a bell") — the card sat in review
- * forever unless somebody noticed. An AI reviewer doesn't need a bell; it
- * needs a session, the same "go" signal `todoKickoff.ts` gives an assignee.
+ * A todo moved to `in_review` used to notify a human reviewer and do nothing at
+ * all for an AI one, so the card sat in review forever unless somebody noticed.
+ * An AI reviewer doesn't need a bell; it needs a session. The session is a pickup
+ * like any other (`todoPickups.ts`), so it waits out a Standdown or an outage and
+ * survives a restart, and it runs after the assignee's session has finished
+ * writing its report.
  *
- * The reviewer is briefed with the thread, judges the work, and moves the card
- * itself via `update_todo`: `done` when the work holds up, `in_progress` when
- * it should go back to the assignee — with the reasons on the thread either
- * way. Runs under employee authority (`toolAuthority: "employee"`): review is
- * background AI orchestration whether a human or an AI moved the card, and
- * everything privileged the reviewer tries still meets its own gate.
- *
- * Degradation mirrors the sibling kickoffs: no model → skip quietly (a human
- * will see the card in the review queue), errors land on the thread.
+ * The reviewer judges the work and moves the card itself via `update_todo`:
+ * `done` when it holds up, `in_progress` when it should go back. It runs under
+ * employee authority: review is background AI orchestration whether a human or
+ * an AI moved the card, and everything privileged the reviewer tries still meets
+ * its own gate.
  */
-
-const inFlight = new Set<string>();
 
 /**
  * How many AI review sessions one todo may have before it waits for a human.
@@ -39,10 +33,10 @@ const MAX_AI_REVIEW_PASSES = 3;
 export async function kickoffTodoReview(args: {
   companyId: string;
   todoId: string;
+  /** What the turn that moved the card was held to. A review can't shed it. */
+  ceiling?: TodoPickupCeiling;
 }): Promise<void> {
   const { companyId, todoId } = args;
-  if (inFlight.has(todoId)) return;
-
   const todoRepo = AppDataSource.getRepository(Todo);
   const todo = await todoRepo.findOneBy({ id: todoId });
   if (!todo || todo.status !== "in_review" || !todo.reviewerEmployeeId) return;
@@ -67,10 +61,10 @@ export async function kickoffTodoReview(args: {
     );
     return;
   }
-  // Bound the review⇄rework cycle two AI employees can drive on their own.
+  // Bound the review and rework cycle two AI employees can drive on their own.
   // The count lives on the row rather than being inferred from the comment
-  // thread: an AI reviewer also comments when a human @-mentions it, so
-  // counting comments would let ordinary chatter silently disable reviewing.
+  // thread: an AI reviewer also comments when a human @-mentions it, so counting
+  // comments would let ordinary chatter silently disable reviewing.
   if (todo.aiReviewPasses >= MAX_AI_REVIEW_PASSES) {
     console.log(
       `[review-kickoff] ${project.key}-${todo.number} has had ${todo.aiReviewPasses} review ` +
@@ -86,77 +80,12 @@ export async function kickoffTodoReview(args: {
   );
   if (!claim.affected) return;
 
-  inFlight.add(todoId);
-  const commentRepo = AppDataSource.getRepository(TodoComment);
-  const pending = await commentRepo.save(
-    commentRepo.create({
-      todoId: todo.id,
-      authorUserId: null,
-      authorEmployeeId: reviewer.id,
-      body: "",
-      pending: true,
-    }),
-  );
-  // Whatever happens from here, that placeholder has to stop being pending —
-  // the thread renders a pending row as a typing skeleton and would spin on it
-  // forever.
-  let outcome: string;
-  try {
-    const assignee = todo.assigneeEmployeeId
-      ? await AppDataSource.getRepository(AIEmployee).findOneBy({
-          id: todo.assigneeEmployeeId,
-          companyId,
-        })
-      : null;
-    const result = await chatWithEmployee(
-      companyId,
-      reviewer.id,
-      composeReviewBrief(project, todo, assignee),
-      await todoDiscussionHistory(companyId, todo.id, reviewer.id, pending.id),
-      // The same thread the assignee kickoff and @-mention replies replay, so
-      // a review must not answer it while one of those is mid-reply.
-      { toolAuthority: "employee", workloadScope: `todo:${todo.id}` },
-    );
-    outcome =
-      result.status === "ok"
-        ? result.reply || "(no reply)"
-        : `I couldn't review this — ${result.reply}`;
-  } catch (err) {
-    outcome = `I couldn't review this — ${err instanceof Error ? err.message : String(err)}`;
-  } finally {
-    inFlight.delete(todoId);
-  }
-  try {
-    const row = await commentRepo.findOneBy({ id: pending.id });
-    if (row) {
-      row.body = outcome;
-      row.pending = false;
-      await commentRepo.save(row);
-    }
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error(`[review-kickoff] failed to post review verdict for todo ${todoId}:`, err);
-  }
-}
-
-function composeReviewBrief(project: Project, todo: Todo, assignee: AIEmployee | null): string {
-  const ref = `${project.key}-${todo.number}`;
-  const lines = [
-    `**${ref}: ${todo.title}** in project "${project.name}" has been moved to review, and you are its reviewer.`,
-  ];
-  if (todo.description) lines.push("", "Description:", todo.description);
-  lines.push(
-    "",
-    "---",
-    "Review the work now. The thread above carries the worker's report; verify what it claims with your tools where you can, rather than taking the report's word for it.",
-    `- If the work holds up, call \`update_todo\` with todoId "${todo.id}" and set status to "done".`,
-    `- If it does not, call \`update_todo\` with todoId "${todo.id}" and set status to "in_progress", and say precisely what is missing so the assignee can fix it.`,
-    ...(assignee
-      ? [
-          `- The assignee is your AI teammate ${assignee.name} (@${assignee.slug}). If you send the work back, also call \`create_handoff\` to them titled "Rework ${ref}" carrying exactly what must change — that starts them on the fix immediately instead of on their next scheduled run.`,
-        ]
-      : []),
-    "- Your reply is posted on the todo's thread as the review verdict. Make it concrete: what you checked, what you found, what happens next.",
-  );
-  return lines.join("\n");
+  await requestTodoPickup({
+    companyId,
+    todoId: todo.id,
+    employeeId: reviewer.id,
+    trigger: "review",
+    authority: { kind: "employee" },
+    ceiling: args.ceiling,
+  });
 }

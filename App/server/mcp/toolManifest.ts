@@ -1904,6 +1904,17 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "start_todo",
+    description:
+      "Queue a work session on a Todo assigned to an AI Employee, yourself included. Handing a Todo to a colleague starts them already; your own Todos don't start a session on their own. It runs when its assignee is free, with what your current turn is allowed. Needs write access to the Todo's project.",
+    inputSchema: {
+      type: "object",
+      properties: { todoId: { type: "string" } },
+      required: ["todoId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "link_todo",
     description:
       "Link a Todo to a record you can read, so each shows the other: the email thread it came from (`mail_thread`), or the Customer, Contact, Deal, Decision, Meeting or Run it is about. A Todo created while working an email already links that thread. Needs write access to the Todo's project. Pass `isSource` when this is where the Todo came from.",

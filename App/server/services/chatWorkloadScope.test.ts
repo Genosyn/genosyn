@@ -54,7 +54,7 @@ describe("chat reply serialization", () => {
   });
 
   test("both Todo surfaces name the same thread", () => {
-    // A kickoff (`todoKickoff.ts`) and an @-mention reply (`routes/projects.ts`)
+    // A pickup (`todoPickups.ts`) and an @-mention reply (`routes/projects.ts`)
     // replay the same Todo comment thread, so they are the one pair here that
     // genuinely must not answer it at once. Scoping only one of them would
     // have quietly removed the serialization they actually need.
@@ -133,7 +133,7 @@ describe("every transcript-replaying caller names its thread", () => {
     const files = callerFiles().map((f) => path.relative(SERVER_ROOT, f));
     assert.ok(files.length >= 5, `expected several chat-seam callers, saw ${files.length}`);
     // Workspace channel replies run as channel turns (`channelTurns.ts`).
-    for (const expected of ["services/todoKickoff.ts", "services/channelTurns.ts"]) {
+    for (const expected of ["services/todoPickups.ts", "services/channelTurns.ts"]) {
       assert.ok(files.includes(expected), `the scan missed ${expected}`);
     }
   });

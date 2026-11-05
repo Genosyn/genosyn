@@ -174,26 +174,61 @@ export function Tasks() {
 
       <H2 id="auto-start">Assign it, and it starts</H2>
       <P>
-        Assigning a todo to an AI Employee — when you create it, or by changing the assignee later —
-        starts the work immediately. The todo moves to <Code>in_progress</Code>, the employee works
-        within both your current access and its Grants, and posts its report as a comment on the
-        todo&apos;s thread. Coding, browser, Connections, and configured MCP servers remain
-        owner/admin-only on an interactive assignment. When it finishes, it moves the todo to{" "}
-        <Code>done</Code> itself — or to <Code>in_review</Code> when a reviewer is set, so the work
+        Assigning a todo to an AI Employee, when you create it or by changing the assignee later,
+        puts it on that employee&apos;s work queue. Each employee works one todo at a time, highest
+        priority first, so a busy morning is a queue and not twenty sessions at once. The todo moves
+        to <Code>in_progress</Code>, the panel shows the employee working step by step with a{" "}
+        <Strong>Stop</Strong> button, and its report lands as a comment on the thread, with the steps
+        behind a <Strong>Worked for…</Strong> line. When it finishes, it moves the todo to{" "}
+        <Code>done</Code> itself, or to <Code>in_review</Code> when a reviewer is set, so the work
         lands in the reviewer&apos;s queue instead of completing silently. If the brief is too vague
-        to act on, the employee moves the todo back to <Code>todo</Code> and asks for what it needs
-        on the thread.
+        to act on, it moves the todo back to <Code>todo</Code> and asks for what it needs.
       </P>
+      <UL>
+        <LI>
+          <Strong>Who it works for.</Strong> When you assign it, the employee works within both your
+          current access and its Grants. Coding, browser, Connections, and configured MCP servers
+          remain owner/admin-only on an interactive assignment.
+        </LI>
+        <LI>
+          <Strong>AI Employees hand work to each other.</Strong> A todo one employee assigns to
+          another starts by itself, with what the first one&apos;s turn was allowed. If that turn
+          could only prepare, or read a web page, the colleague&apos;s session is held to the same
+          limit, so handing work over can&apos;t shed one. A todo an employee puts on its own list
+          doesn&apos;t start a separate session unless it asks with <Code>start_todo</Code>.
+        </LI>
+        <LI>
+          <Strong>It waits rather than fails.</Strong> During a{" "}
+          <DocLink to="/docs/standdowns">Standdown</DocLink> or while its{" "}
+          <DocLink to="/docs/models">AI Model</DocLink> is unavailable, the todo stays queued, says
+          why in its panel, and starts by itself afterwards. A restart hands the work to the next
+          worker, told what the first attempt already changed. A real error tries again after 5
+          minutes, 30 minutes and 2 hours, then says so on the thread and tells a person.
+        </LI>
+        <LI>
+          <Strong>It can&apos;t loop.</Strong> A session that ends with the todo still open gets one
+          more try, then a person is asked to look. A todo gets at most 10 automatic sessions in a
+          day, and work passing through more than 5 AI hand-offs waits for a Member.
+        </LI>
+        <LI>
+          <Strong>Start now</Strong> in the panel sends the assignee back to a todo that sat, under
+          your access. Nothing already assigned starts by itself when you upgrade; only a new
+          assignment or Start now does.
+        </LI>
+      </UL>
       <Callout kind="warn" title="AI assignment requires a browser session.">
         Starting an AI Employee is an interactive delegation, so creating or changing an AI assignee
         requires a logged-in browser session. Personal API keys can still automate ordinary todo
-        fields, but cannot launch an AI Employee by assigning one.
+        fields and can press Stop, but cannot launch an AI Employee by assigning one.
       </Callout>
       <Callout kind="info" title="Needs a connected model.">
-        Auto-start only fires for employees with an <DocLink to="/docs/models">AI Model</DocLink>
-        {" "}
-        connected. Assigning to an employee without one just records the assignee, exactly as
-        before.
+        Assigning to an employee without a connected <DocLink to="/docs/models">AI Model</DocLink>{" "}
+        just records the assignee, exactly as before. Connecting a model later doesn&apos;t start a
+        backlog of old assignments; press Start now on the ones you want.
+      </Callout>
+      <Callout kind="info" title="A todo no Member wrote is a request, not an instruction.">
+        A todo an AI Employee or a Pipeline wrote reaches the session that works it as data. It says
+        what was asked for and can&apos;t change that employee&apos;s Soul, Grants or limits.
       </Callout>
 
       <Callout kind="info" title="Reviews close the loop.">
@@ -210,7 +245,8 @@ export function Tasks() {
       </Callout>
       <P>
         The reviewer can be an AI Employee too. A todo entering <Code>in_review</Code> with an AI
-        reviewer starts a review session instead of a bell: the reviewer reads the thread, verifies
+        reviewer queues a review session instead of ringing a bell, which starts once the
+        assignee&apos;s report is written: the reviewer reads the thread, verifies
         what the report claims with its own tools, and moves the card itself — <Code>done</Code>
         {" "}
         when the work holds up, back to <Code>in_progress</Code> with what&apos;s missing when it
