@@ -35,7 +35,7 @@ import {
   shortMailDate,
 } from "../lib/mail";
 import { MailAnalysisCard } from "./MailAnalysisCard";
-import { CreateTaskModal } from "../components/mail/CreateTaskModal";
+import { CreateTaskModal } from "../components/todos/CreateTaskModal";
 import { LinkedTodosCard } from "../components/todos/TodoLinks";
 import { MailOutletCtx } from "./MailLayout";
 import { ReplyComposer, type ReplyComposerHandle } from "./MailReplyComposer";
@@ -757,8 +757,12 @@ export default function MailThreadView() {
             onClose={() => setTaskOpen(false)}
             companyId={company.id}
             companySlug={company.slug}
-            threadId={thread.id}
-            subject={thread.subject}
+            heading="Create a task from this email"
+            initialTitle={thread.subject}
+            // The server links the two as it creates the Todo, so a Todo never
+            // loses track of the email it came from.
+            links={[{ kind: "mail_thread", targetId: thread.id, isSource: true }]}
+            aiAssigneeNote="It needs Mail access to this mailbox to read the email."
             onCreated={() => setTasksKey((key) => key + 1)}
           />
 

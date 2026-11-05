@@ -6,20 +6,31 @@
  * comment box; a new project lands ready for its first todo; the board's `c`
  * no longer swallows `G` `C`; List/Board is remembered (never Board on a
  * phone); Enter in the project filter and in Notes' Quick find opens the top
- * match; a new note page arrives with its title selected and Enter moves to
- * the body; the sidebar's + is reachable from the keyboard; a work-session
- * starter selects the part to fill in; and Enter adds a URL resource. Each
- * flow counts its clicks. Run with `npm run test:clicks-tasks`.
+ * match; ⌥T creates a task from anywhere, a field or an open modal included,
+ * and puts the cursor back; a new note page arrives with its title selected and
+ * Enter moves to the body; the sidebar's + is reachable from the keyboard; a
+ * work-session starter selects the part to fill in; and Enter adds a URL
+ * resource. Each flow counts its clicks. Run with `npm run test:clicks-tasks`.
  */
 import assert from "node:assert/strict";
-import type { Page } from "playwright-core";
-import type { Note, Notebook, Project, Resource, ReviewItem, Todo } from "../client/lib/api";
+import type { Locator, Page } from "playwright-core";
+import type {
+  Employee,
+  Member,
+  Note,
+  Notebook,
+  Project,
+  Resource,
+  ReviewItem,
+  Todo,
+} from "../client/lib/api";
 import {
   API,
   ME,
   hoursAgo,
   noSidewaysScroll,
   startApp,
+  status,
   waitForFocus,
   type ApiRoute,
 } from "./appFixture";
@@ -316,6 +327,303 @@ await app.check("Enter in the project filter opens the top match", async () => {
   await filter.press("Enter");
   await view.landedOn("/c/acme/tasks/p/operations");
   await page.close();
+});
+
+// ───────────────────────────── Create a task ─────────────────────────────
+
+const MORGAN: Member = {
+  userId: ME.id,
+  role: "owner",
+  financeAccess: "full",
+  email: ME.email,
+  name: ME.name,
+};
+const ALEX = { id: "alex", name: "Alex Rivera", slug: "alex", role: "Engineer" } as Employee;
+
+function createTaskRoutes(s: TaskStore, extra: ApiRoute[] = []): ApiRoute[] {
+  return [
+    ...extra,
+    ["GET", `${API}/members`, () => [MORGAN]],
+    ["GET", `${API}/employees`, () => [ALEX]],
+    ...taskRoutes(s),
+  ];
+}
+
+const createTask = (page: Page) => page.getByRole("dialog", { name: "Create a task", exact: true });
+const field = (dialog: Locator, label: string) => dialog.getByLabel(label, { exact: true });
+
+/** A picker fills in once its Projects and people have loaded. */
+async function waitForValue(target: Locator, expected: string) {
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    const value = await target.inputValue();
+    if (value === expected) return;
+    if (Date.now() > deadline) assert.equal(value, expected);
+    await target.page().waitForTimeout(25);
+  }
+}
+
+/** Choose by typing, the way a searchable field is meant to be used. */
+async function choose(target: Locator, text: string) {
+  await target.focus();
+  await target.page().getByRole("listbox").waitFor();
+  await target.page().keyboard.type(text);
+  await target.page().keyboard.press("Enter");
+  await target.page().getByRole("listbox").waitFor({ state: "detached" });
+}
+
+await app.check(
+  "⌥T mid-sentence: file it on the Project on screen, and the cursor is back where it was",
+  async () => {
+    const s = taskStore();
+    const view = await app.open({ path: "/c/acme/tasks/p/operations", routes: createTaskRoutes(s) });
+    const { page } = view;
+    const add = page.getByPlaceholder("Add a todo… (c)");
+    await add.focus();
+    await page.keyboard.type("half a tho");
+    await page.keyboard.press("Alt+KeyT");
+    const dialog = createTask(page);
+    await waitForFocus(field(dialog, "Title"), "the title has the cursor straight away");
+    assert.equal(await add.inputValue(), "half a tho", "nothing leaked into the field behind");
+    await waitForValue(field(dialog, "Project"), "Operations");
+    await waitForValue(field(dialog, "Assign to"), "Morgan Lee (you)");
+    await page.keyboard.type("Renew the fire certificate");
+    await page.keyboard.press("Enter");
+    const write = await view.waitForWrite((w) => w.method === "POST");
+    assert.equal(write.path, `${API}/projects/operations/todos`);
+    assert.deepEqual(write.body, {
+      title: "Renew the fire certificate",
+      assigneeEmployeeId: null,
+      assigneeUserId: ME.id,
+    });
+    await dialog.waitFor({ state: "detached" });
+    await waitForFocus(add, "the cursor is back in the field it left");
+    assert.equal(await add.inputValue(), "half a tho");
+    assert.equal(view.clicks(), 0, "the keyboard alone");
+    await page.close();
+  },
+);
+
+await app.check("from a rich-text editor the caret comes back where it was", async () => {
+  const s = taskStore();
+  const view = await app.open({ path: "/c/acme/tasks/review", routes: createTaskRoutes(s) });
+  const { page } = view;
+  await page.getByText("Write the release notes").first().waitFor();
+  // A contenteditable loses its caret with focus, where an input keeps it.
+  const editor = page.locator("[data-test-editor]");
+  await page.evaluate(() => {
+    const element = document.createElement("div");
+    element.setAttribute("contenteditable", "true");
+    element.setAttribute("data-test-editor", "");
+    element.textContent = "Mid-sentence";
+    document.querySelector("main")?.append(element);
+    element.focus();
+    window.getSelection()?.collapse(element.firstChild, "Mid-sentence".length);
+  });
+  await page.keyboard.press("Alt+KeyT");
+  const dialog = createTask(page);
+  await waitForFocus(field(dialog, "Title"));
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "detached" });
+  await waitForFocus(editor);
+  await page.keyboard.type(" and on");
+  assert.equal(await editor.textContent(), "Mid-sentence and on");
+  await page.close();
+});
+
+await app.check("away from a Project it starts on the last one used, and remembers", async () => {
+  const s = taskStore();
+  const view = await app.open({
+    path: "/c/acme/tasks/review",
+    routes: createTaskRoutes(s),
+    storage: { "genosyn.tasks.lastProject.company": "operations" },
+  });
+  const { page } = view;
+  await page.getByText("Write the release notes").first().waitFor();
+  await page.keyboard.press("Alt+KeyT");
+  const dialog = createTask(page);
+  await waitForValue(field(dialog, "Project"), "Operations");
+  await page.keyboard.type("Plan the offsite");
+  await choose(field(dialog, "Project"), "Eng");
+  await view.click(dialog.getByRole("button", { name: "Create task" }));
+  const write = await view.waitForWrite((w) => w.method === "POST");
+  assert.equal(write.path, `${API}/projects/engineering/todos`);
+  await dialog.waitFor({ state: "detached" });
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("genosyn.tasks.lastProject.company")),
+    "engineering",
+  );
+  await page.close();
+});
+
+await app.check("a Project this person can only view is never offered", async () => {
+  const s = taskStore();
+  s.projects[0].myAccessLevel = "read";
+  const view = await app.open({ path: "/c/acme/tasks/p/engineering", routes: createTaskRoutes(s) });
+  const { page } = view;
+  await todoRow(page, "Fix the checkout bug").first().waitFor();
+  await page.keyboard.press("Alt+KeyT");
+  const dialog = createTask(page);
+  await waitForValue(field(dialog, "Project"), "Operations");
+  await field(dialog, "Project").focus();
+  await page.getByRole("listbox").waitFor();
+  await page.getByRole("option", { name: "Operations" }).waitFor();
+  assert.equal(await page.getByRole("option", { name: "Engineering" }).count(), 0);
+  await page.close();
+});
+
+await app.check("Esc closes an open list first, then the modal, and nothing is created", async () => {
+  const s = taskStore();
+  const view = await app.open({ path: "/c/acme/tasks/review", routes: createTaskRoutes(s) });
+  const { page } = view;
+  await page.getByText("Write the release notes").first().waitFor();
+  await page.keyboard.press("Alt+KeyT");
+  const dialog = createTask(page);
+  await waitForFocus(field(dialog, "Title"));
+  await page.keyboard.type("Not worth it");
+  await waitForValue(field(dialog, "Project"), "Engineering");
+  await field(dialog, "Project").focus();
+  await page.getByRole("listbox").waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("listbox").waitFor({ state: "detached" });
+  assert.equal(await field(dialog, "Title").inputValue(), "Not worth it", "the modal stayed");
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "detached" });
+  assert.deepEqual(view.writes, []);
+  // Fresh each time: what was abandoned does not come back.
+  await page.keyboard.press("Alt+KeyT");
+  await waitForFocus(field(dialog, "Title"));
+  assert.equal(await field(dialog, "Title").inputValue(), "");
+  await page.close();
+});
+
+await app.check("Advanced says what was set, and ⌘Enter sends all of it", async () => {
+  const s = taskStore();
+  const view = await app.open({ path: "/c/acme/tasks/review", routes: createTaskRoutes(s) });
+  const { page } = view;
+  await page.getByText("Write the release notes").first().waitFor();
+  await page.keyboard.press("Alt+KeyT");
+  const dialog = createTask(page);
+  await waitForFocus(field(dialog, "Title"));
+  await page.keyboard.type("Ship the release");
+  await waitForValue(field(dialog, "Assign to"), "Morgan Lee (you)");
+  await choose(field(dialog, "Assign to"), "Alex");
+  await dialog.getByText("An AI Employee starts as soon as it is assigned").waitFor();
+
+  const advanced = dialog.getByRole("button", { name: /Advanced/ });
+  await advanced.getByText("All defaults").waitFor();
+  await view.click(advanced);
+  await choose(field(dialog, "Status"), "Backlog");
+  await choose(field(dialog, "Priority"), "High");
+  await field(dialog, "Due date").fill("2026-11-20");
+  await choose(field(dialog, "Reviewer"), "Morgan");
+  await choose(field(dialog, "Repeat"), "Weekly");
+  await advanced
+    .getByText("Backlog · High priority · Due 2026-11-20 · Reviewer: Morgan Lee · Weekly")
+    .waitFor();
+
+  await field(dialog, "What needs doing (optional)").fill("Tag it and write it up.");
+  await field(dialog, "What needs doing (optional)").press("Control+Enter");
+  const write = await view.waitForWrite((w) => w.method === "POST");
+  assert.deepEqual(write.body, {
+    title: "Ship the release",
+    description: "Tag it and write it up.",
+    assigneeEmployeeId: "alex",
+    assigneeUserId: null,
+    status: "backlog",
+    priority: "high",
+    dueAt: "2026-11-20T00:00:00.000Z",
+    reviewerUserId: ME.id,
+    recurrence: "weekly",
+  });
+  await dialog.waitFor({ state: "detached" });
+  await page.close();
+});
+
+await app.check("a refused create says why in the modal and keeps what was typed", async () => {
+  const s = taskStore();
+  const view = await app.open({
+    path: "/c/acme/tasks/review",
+    routes: createTaskRoutes(s, [
+      [
+        "POST",
+        /^\/api\/companies\/company\/projects\/([^/]+)\/todos$/,
+        () => status(400, { error: "That person can't open this project." }),
+      ],
+    ]),
+  });
+  const { page } = view;
+  await page.getByText("Write the release notes").first().waitFor();
+  await page.keyboard.press("Alt+KeyT");
+  const dialog = createTask(page);
+  await waitForFocus(field(dialog, "Title"));
+  await page.keyboard.type("Keep this");
+  await view.click(dialog.getByRole("button", { name: "Create task" }));
+  await dialog.getByRole("alert").getByText("That person can't open this project.").waitFor();
+  assert.equal(await field(dialog, "Title").inputValue(), "Keep this");
+  await page.close();
+});
+
+await app.check("with no Project to file it in, it says so and links to making one", async () => {
+  const s: TaskStore = { projects: [], todos: [] };
+  const view = await app.open({ path: "/c/acme/tasks", routes: createTaskRoutes(s) });
+  const { page } = view;
+  await page.getByText("Your first project").waitFor();
+  await page.keyboard.press("Alt+KeyT");
+  const dialog = createTask(page);
+  await view.click(dialog.getByRole("link", { name: "Create a Project" }));
+  await view.landedOn("/c/acme/tasks/new");
+  await dialog.waitFor({ state: "detached" });
+  await page.close();
+});
+
+await app.check("it opens over a modal already open, and Esc goes back to that modal", async () => {
+  const s = taskStore();
+  const view = await app.open({ path: "/c/acme/tasks/review", routes: createTaskRoutes(s) });
+  const { page } = view;
+  await page.getByText("Write the release notes").first().waitFor();
+  await page.keyboard.press("?");
+  const guide = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await guide.getByText("Create a task").waitFor();
+  await page.keyboard.press("Alt+KeyT");
+  const dialog = createTask(page);
+  // A click lands only on what is really on top.
+  await field(dialog, "Title").click();
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "detached" });
+  await guide.getByText("Create a task").waitFor();
+  await page.close();
+});
+
+await app.check("the ⌘K palette offers it, and on a phone that is the way in", async () => {
+  const s = taskStore();
+  const view = await app.open({ path: "/c/acme/tasks/review", routes: createTaskRoutes(s) });
+  const { page } = view;
+  await page.getByText("Write the release notes").first().waitFor();
+  await page.keyboard.press("Control+KeyK");
+  await page.keyboard.type("create a task");
+  await page.keyboard.press("Enter");
+  await waitForFocus(field(createTask(page), "Title"), "the palette hands over to the modal");
+  // Back the other way it does nothing: a palette opened under a modal would
+  // take the cursor to a search box nobody can see.
+  await page.keyboard.press("Control+KeyK");
+  await page.keyboard.type("still typing here");
+  assert.equal(await field(createTask(page), "Title").inputValue(), "still typing here");
+  assert.equal(await page.getByRole("dialog", { name: "Search" }).count(), 0);
+  await page.close();
+
+  const phone = await app.open({
+    path: "/c/acme/tasks/review",
+    routes: createTaskRoutes(taskStore()),
+    touch: true,
+  });
+  await phone.page.getByText("Write the release notes").first().waitFor();
+  await phone.click(phone.page.getByRole("button", { name: /Search sections and pages/ }));
+  await phone.click(phone.page.getByRole("option", { name: /Create a task/ }));
+  await waitForFocus(field(createTask(phone.page), "Title"));
+  await noSidewaysScroll(phone.page, "Create a task on a phone");
+  assert.equal(phone.clicks(), 2);
+  await phone.page.close();
 });
 
 // ───────────────────────────── Notes ─────────────────────────────

@@ -6,6 +6,7 @@ import {
   ModalPanel,
   ModalScrim,
   useModalChrome,
+  type ModalLayer,
   type ModalSize,
 } from "./ModalChrome";
 import { clsx } from "./clsx";
@@ -51,6 +52,7 @@ export function Modal({
   onSubmit,
   onEscape,
   size = "md",
+  layer,
   padded = true,
   bodyMode = "scroll",
   panelClassName,
@@ -72,6 +74,8 @@ export function Modal({
    */
   onEscape?: () => boolean;
   size?: ModalSize;
+  /** Which stacking rung it sits on; a page's own modal unless it can open over one. */
+  layer?: ModalLayer;
   /**
    * Drop the body's own padding, for content that has to reach the panel edge
    * — a chat transcript whose row hover and scrollbar belong at the edge, a
@@ -105,7 +109,7 @@ export function Modal({
   );
 
   return createPortal(
-    <ModalScrim onDismiss={onClose}>
+    <ModalScrim layer={layer} onDismiss={onClose}>
       <ModalPanel
         ref={panelRef}
         size={size}

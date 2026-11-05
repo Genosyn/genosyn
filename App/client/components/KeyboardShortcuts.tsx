@@ -1,5 +1,5 @@
 import React from "react";
-import { CornerDownLeft, Keyboard, Search, Sparkles } from "lucide-react";
+import { CornerDownLeft, Keyboard, ListPlus, Search, Sparkles } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ACCOUNT_SECTION,
@@ -9,7 +9,12 @@ import {
   SectionGroup,
   SectionItem,
 } from "../lib/sections";
-import { anotherDialogIsOpen, isTypingTarget, setChordPending } from "../lib/keyboard";
+import {
+  CREATE_TASK_SHORTCUT,
+  anotherDialogIsOpen,
+  isTypingTarget,
+  setChordPending,
+} from "../lib/keyboard";
 import { canOpenSection, listedGroups } from "../lib/sectionVisibility";
 import type { SubpageViewer } from "../lib/subpages";
 import { PALETTE_SHORTCUT } from "./CommandPalette";
@@ -345,6 +350,11 @@ function ShortcutGuide({
                 keys={[PALETTE_SHORTCUT]}
               />
               <ShortcutCard
+                icon={<ListPlus size={15} />}
+                label="Create a task"
+                keys={[CREATE_TASK_SHORTCUT]}
+              />
+              <ShortcutCard
                 icon={<CornerDownLeft size={15} />}
                 label="Start page navigation"
                 keys={["G"]}
@@ -420,7 +430,7 @@ function ShortcutGuide({
         </div>
 
         <div className="shrink-0 border-t border-slate-200/70 bg-slate-50 px-5 py-2.5 text-xs text-slate-400 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-500">
-          Shortcuts pause automatically while you type in a field or editor.
+          Single-key shortcuts pause automatically while you type in a field or editor.
         </div>
       </ModalPanel>
     </ModalScrim>
