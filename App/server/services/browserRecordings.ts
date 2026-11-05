@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { In } from "typeorm";
+import { In, IsNull, MoreThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { Run } from "../db/entities/Run.js";
@@ -971,6 +971,30 @@ async function recoverOne(session: BrowserSession): Promise<BrowserRecordingInfo
     );
     await writeMetadata(session, failed).catch(() => undefined);
     return failed;
+  }
+}
+
+/**
+ * A Run's recordings are recovered with the Run. A Todo has nothing like that at boot, so
+ * a crash can leave one saying `recording`, with its partial file outside retention. This
+ * finishes those, once their session has closed and nothing is writing to them.
+ */
+export async function recoverInterruptedTodoRecordings(closedSince: Date): Promise<void> {
+  const sessions = await AppDataSource.getRepository(BrowserSession).find({
+    where: {
+      todoId: Not(IsNull()),
+      status: In(["closed", "expired"]),
+      closedAt: MoreThanOrEqual(closedSince),
+    },
+    order: { closedAt: "DESC", id: "DESC" },
+    take: 500,
+  });
+  for (const session of sessions) {
+    if (recordingInFlight(session)) continue;
+    const persisted = await readMetadata(session);
+    if (persisted?.status === "recording" || persisted?.status === "finalizing") {
+      await recoverOne(session);
+    }
   }
 }
 

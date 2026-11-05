@@ -518,6 +518,10 @@ await context.route("**/api/**", async (route) => {
     return json({ reply: "I can see the image.", status: "ok", employee });
   }
   if (pathname.endsWith("/session-candidates")) return json({ employees: [employee] });
+  if (pathname.endsWith("/todo-links")) {
+    return json({ total: 0, hasMore: false, nextCursor: null, todos: [] });
+  }
+  if (pathname.endsWith("/work-session-repositories")) return json({ repositories: [] });
   if (pathname.endsWith("/workspace/status")) return json({ branch: "main" });
   if (pathname.endsWith("/sessions"))
     return json({ sessions: pathname.includes("archived") ? [] : [session] });

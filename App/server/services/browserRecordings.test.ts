@@ -28,6 +28,7 @@ import {
   expireBrowserRecordingsFinishedBefore,
   getBrowserRecordingFile,
   listBrowserRecordingsForTodo,
+  recoverInterruptedTodoRecordings,
   browserRecordingDemand,
   browserRecordingProcessStateForTests,
   deleteBrowserRecordingsForCompany,
@@ -264,6 +265,32 @@ describe("a Todo's browser recordings", () => {
     assert.deepEqual(await listBrowserRecordingsForTodo(todoId), []);
     assert.equal(await AppDataSource.getRepository(BrowserSession).countBy({ todoId }), 0);
     await assert.rejects(fs.stat(video));
+  });
+
+  test("a crash leaves nothing recording for good: the next pass finishes it", async () => {
+    const { session, todoId } = await todoSession();
+    const finalPath = browserRecordingFile(session.companyId, todoId, session.id);
+    await fs.mkdir(path.dirname(finalPath), { recursive: true, mode: 0o700 });
+    await fs.writeFile(`${finalPath}.part`, "torn", { mode: 0o600 });
+    await fs.writeFile(
+      finalPath.replace(/\.mp4$/, ".json"),
+      JSON.stringify({
+        id: session.id,
+        status: "recording",
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+        mimeType: "video/mp4",
+        sizeBytes: 0,
+        filename: `${session.id}.mp4`,
+      }),
+    );
+    await AppDataSource.getRepository(BrowserSession).update(
+      { id: session.id },
+      { status: "closed", closedAt: new Date() },
+    );
+    await recoverInterruptedTodoRecordings(new Date(Date.now() - 60_000));
+    await assert.rejects(fs.stat(`${finalPath}.part`), /ENOENT/);
+    assert.equal((await listBrowserRecordingsForTodo(todoId))[0]?.status, "failed");
   });
 
   test("retention expires a Todo's video like any other", async () => {

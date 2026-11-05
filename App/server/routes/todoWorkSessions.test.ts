@@ -499,6 +499,41 @@ describe("a Todo waiting on the code", () => {
       assert.equal((await tool(token, "wait_on_todo", body(todo.id, session.id))).status, 403);
     });
 
+    test("only on its own session: a colleague's report isn't its to read", async () => {
+      const todo = await todoFor();
+      const session = await sessionRow({ status: "ready", reply: "A colleague's private report." });
+      await sessions().update({ id: session.id }, { employeeId: ben.id });
+      await insert(EmployeeRepositoryGrant, {
+        employeeId: ben.id,
+        repositoryId: repository.id,
+        accessLevel: "write",
+      });
+      const answer = await tool(
+        tokenFor({ authority: "employee" }),
+        "wait_on_todo",
+        body(todo.id, session.id),
+      );
+      assert.equal(answer.status, 403);
+      assert.equal(await pickups().countBy({ todoId: todo.id }), 0);
+    });
+
+    test("a turn that filed its own Todo carries on with what it had", async () => {
+      const token = tokenFor({ authority: "employee" });
+      const filed = await tool<{ todo: { id: string } }>(token, "create_todo", {
+        projectSlug: project.slug,
+        title: "Fix the export",
+      });
+      const session = await sessionRow({ status: "running" });
+      const waited = await tool(token, "wait_on_todo", body(filed.body.todo.id, session.id));
+      assert.equal(waited.status, 200, JSON.stringify(waited.body));
+      await sessions().update({ id: session.id }, { status: "ready" });
+      await wakeTodoForWorkSession(await sessions().findOneByOrFail({ id: session.id }));
+      const pickup = await pickups().findOneByOrFail({ todoId: filed.body.todo.id });
+      assert.equal(pickup.trigger, "work_session_ended");
+      assert.equal(pickup.proactiveReview, false, "it can open the pull request");
+      assert.equal(pickup.mailDeliveryMode, null);
+    });
+
     test("anything else still needs a time to check back", async () => {
       const todo = await todoFor();
       const answer = await tool(tokenFor({ authority: "employee" }), "wait_on_todo", {

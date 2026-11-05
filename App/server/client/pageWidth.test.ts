@@ -128,6 +128,7 @@ describe("wide operational page layout", () => {
       "client/pages/NotesIndex.tsx",
       "client/pages/Onboarding.tsx",
       "client/pages/ResourceDetail.tsx",
+      "client/pages/TodoPage.tsx",
     ]);
   });
 
@@ -143,6 +144,8 @@ describe("wide operational page layout", () => {
     const focusedSurfaces = [
       ["client/pages/MailThreadView.tsx", /\bmax-w-4xl\b/],
       ["client/pages/ResourceDetail.tsx", /\bmax-w-4xl\b/],
+      // One Todo reads like a document with its details beside it, as an email does.
+      ["client/pages/TodoPage.tsx", /\bmax-w-6xl\b/],
       // Notes read like a document, as in Notion: a centered home and a page
       // that keeps its line length.
       ["client/pages/NotesIndex.tsx", /\bmax-w-4xl\b/],

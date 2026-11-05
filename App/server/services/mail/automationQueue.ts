@@ -13,7 +13,7 @@ import { runRulesForNewMessage } from "./rules.js";
 import { reconcileProactiveDefaults } from "../proactive/defaults.js";
 import { messageBelongsToSupport, noteInboundMail } from "../support/intake.js";
 import { eventCeilingForTodo, fileIntakeProposal } from "../todoIntake.js";
-import { wakeTodosForInboundMail } from "../todoWaits.js";
+import { holdTodosForNewMail, wakeTodosForInboundMail } from "../todoWaits.js";
 
 const DISCOVERY_INTERVAL_MS = 5_000;
 const ACCOUNT_LEASE_MS = 12 * 60 * 60 * 1_000;
@@ -186,6 +186,15 @@ export async function runDefaultMailEffects(
     await (dependencies.dispatchReceived ?? dispatchEmailReceived)(message.id, {
       failOnRejected: true,
       beforeEffect,
+    });
+  } else {
+    // A blocked sender starts nothing, but a session on this thread can still read them.
+    await holdTodosForNewMail(account, message, {
+      ceilingFor: (todo, reply, mailbox) => eventCeilingForTodo(todo, reply, mailbox),
+    }).catch(async (error) => {
+      await assertRunnable();
+      // eslint-disable-next-line no-console
+      console.error(`[mail] holding Todos for message ${message.id} failed:`, error);
     });
   }
 }
