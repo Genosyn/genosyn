@@ -1,44 +1,59 @@
-import type React from "react";
-
 /**
  * What the chat adds to a reply's rendered markdown: a bar over each fenced code
  * block, naming its language and offering to copy it.
  *
- * Runs on HTML DOMPurify has already sanitized, so a `<pre>` here is a real one
- * (one written in the text is escaped by then), and it adds only this file's own
- * markup, with a language it has held to a word.
+ * Built with DOM calls on what DOMPurify already let through, and never by editing
+ * its HTML: a string edit cannot tell a tag from the same text inside an attribute,
+ * and its quotes would close that attribute and turn the rest into live markup.
  */
 
-const FENCED_BLOCK = /<pre><code(?: class="language-([\w+#.-]+)")?>([\s\S]*?)<\/code><\/pre>/g;
-
-export function withCodeBars(html: string): string {
-  return html.replace(FENCED_BLOCK, (_block, language: string | undefined, code: string) => {
-    const label = language ? `<span class="chat-md-code-language">${language}</span>` : "<span></span>";
-    const className = language ? ` class="language-${language}"` : "";
-    return (
-      `<div class="chat-md-code"><div class="chat-md-code-bar">${label}` +
-      `<button type="button" class="chat-md-code-copy touch-target" data-copy-code aria-label="Copy code">Copy</button>` +
-      `</div><pre><code${className}>${code}</code></pre></div>`
-    );
-  });
-}
+/** Blocks that already have their bar. A reply's own HTML cannot forge a place here. */
+const barred = new WeakSet<Element>();
 
 /** How long a Copy button says it worked. */
-const COPIED_MS = 1_500;
+const SAID_MS = 1_500;
 
-/** Copy the code block whose Copy button was clicked; every other click passes by. */
-export function copyCodeFromClick(event: React.MouseEvent<HTMLElement>): void {
-  const button = (event.target as Element | null)?.closest?.("[data-copy-code]");
-  if (!(button instanceof HTMLElement)) return;
-  event.preventDefault();
-  const code = button.closest(".chat-md-code")?.querySelector("pre")?.textContent ?? "";
-  const say = (words: string) => {
-    button.textContent = words;
-    window.setTimeout(() => {
-      button.textContent = "Copy";
-    }, COPIED_MS);
-  };
-  void copyText(code).then((copied) => say(copied ? "Copied" : "Could not copy"));
+export function addCodeBars(root: HTMLElement): void {
+  for (const pre of Array.from(root.querySelectorAll("pre"))) {
+    const code = pre.firstElementChild;
+    if (barred.has(pre) || code?.tagName !== "CODE") continue;
+    barred.add(pre);
+    const doc = pre.ownerDocument;
+    const block = doc.createElement("div");
+    block.className = "chat-md-code";
+    const bar = doc.createElement("div");
+    bar.className = "chat-md-code-bar";
+    const language = doc.createElement("span");
+    const name = /(?:^|\s)language-([\w+#.-]+)/.exec(code.className)?.[1];
+    if (name) {
+      language.className = "chat-md-code-language";
+      language.textContent = name;
+    }
+    bar.append(language, copyButton(doc, pre));
+    pre.replaceWith(block);
+    block.append(bar, pre);
+  }
+}
+
+function copyButton(doc: Document, pre: HTMLElement): HTMLButtonElement {
+  const button = doc.createElement("button");
+  button.type = "button";
+  button.className = "chat-md-code-copy touch-target";
+  button.textContent = "Copy";
+  button.setAttribute("aria-label", "Copy code");
+  button.addEventListener("click", () => {
+    // What is on screen, and only that: a span hidden inside the block stays behind.
+    void copyText(pre.innerText).then((copied) => {
+      const said = copied ? "Copied" : "Could not copy";
+      button.textContent = said;
+      button.setAttribute("aria-label", said);
+      window.setTimeout(() => {
+        button.textContent = "Copy";
+        button.setAttribute("aria-label", "Copy code");
+      }, SAID_MS);
+    });
+  });
+  return button;
 }
 
 /** Put text on the clipboard; false when the browser would not. */

@@ -1,7 +1,7 @@
 import React from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { copyCodeFromClick, withCodeBars } from "../lib/chatMarkdown";
+import { addCodeBars } from "../lib/chatMarkdown";
 
 /**
  * Render an assistant's reply as HTML. Models emit markdown (bold, lists,
@@ -12,8 +12,8 @@ import { copyCodeFromClick, withCodeBars } from "../lib/chatMarkdown";
  * whitespace-pre-wrap feel people are used to from chat. DOMPurify strips
  * anything scripty before we hand it to `dangerouslySetInnerHTML` — the
  * model output is ultimately user-controlled text, so we don't trust it. Each
- * fenced block then gets its bar, with the language and a Copy button; the
- * clicks are delegated, because there is no component here to hang them on.
+ * fenced block then gets its bar, with the language and a Copy button, added to
+ * the page after React has put the sanitized HTML there, before it paints.
  */
 export function ChatMarkdown({
   content,
@@ -32,15 +32,11 @@ export function ChatMarkdown({
       gfm: true,
       breaks: true,
     }) as string;
-    return withCodeBars(
-      DOMPurify.sanitize(raw, blockImages ? { FORBID_TAGS: ["img"] } : undefined),
-    );
+    return DOMPurify.sanitize(raw, blockImages ? { FORBID_TAGS: ["img"] } : undefined);
   }, [content, blockImages]);
-  return (
-    <div
-      className="chat-md break-words"
-      onClick={copyCodeFromClick}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
+  const root = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    if (root.current) addCodeBars(root.current);
+  }, [html]);
+  return <div ref={root} className="chat-md break-words" dangerouslySetInnerHTML={{ __html: html }} />;
 }

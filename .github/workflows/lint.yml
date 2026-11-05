@@ -106,6 +106,10 @@ jobs:
         run: npm run test:chat-images
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test a reply's code blocks and what the sanitizer lets through
+        run: npm run test:chat-markdown
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Test saved draft attachment downloads and editing
         run: npm run test:mail-draft-attachments
         env:
