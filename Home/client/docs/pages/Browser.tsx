@@ -370,6 +370,12 @@ export function Browser() {
         when the session opens the browser. Parallel delegated browser work produces separate
         recordings, and none of them contain page audio.
       </P>
+      <P>
+        Browser work on a <DocLink to="/docs/tasks#auto-start">todo</DocLink> is recorded the same
+        way. The video sits under the employee&apos;s report on the todo&apos;s thread, live while it
+        works. A todo waiting on a browser approval keeps recording until the approved submit has
+        fired, so the video covers the part that mattered. Deleting the todo deletes it.
+      </P>
       <Callout kind="warn" title="A recording shows the whole screen">
         Visual recording captures everything rendered in the browser viewport, including a login
         form mid-sign-in and a TOTP enrollment page mid-reveal. Nothing is cut out of it, so a

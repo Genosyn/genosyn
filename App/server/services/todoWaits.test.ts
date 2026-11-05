@@ -20,7 +20,12 @@ import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
-import { executeTodoPickup, setTodoPickupAutoStartForTests, settleTodoPickupsForTests } from "./todoPickups.js";
+import {
+  executeTodoPickup,
+  requestTodoPickup,
+  setTodoPickupAutoStartForTests,
+  settleTodoPickupsForTests,
+} from "./todoPickups.js";
 import {
   endTodoWait,
   isAutomatedReply,
@@ -416,6 +421,80 @@ describe("mail on a linked thread without a wait", () => {
   });
 });
 
+describe("new outside words on a linked thread", () => {
+  const lentAndQueued = async (changes: Partial<Todo> = {}) => {
+    const todo = await todoFor({ status: "todo", ...changes });
+    await linked(todo);
+    await requestTodoPickup({
+      companyId: company.id,
+      todoId: todo.id,
+      employeeId: ada.id,
+      trigger: "start_now",
+      authority: { kind: "member", userId: ruth.id, sessionVersion: 0 },
+      byMember: true,
+      overLimits: true,
+      notBeforeAt: new Date(Date.now() + 3_600_000),
+    });
+    const [row] = await pickups().findBy({ todoId: todo.id });
+    assert.equal(row.overLimits, true);
+    return todo;
+  };
+
+  const automated = {
+    readHeaders: async () => [{ name: "Auto-Submitted", value: "auto-generated" }],
+  };
+
+  test("an automated message wakes nothing, and still ends what was lent", async () => {
+    const todo = await lentAndQueued();
+    await wakeTodosForInboundMail(account, await inbound(), automated);
+    const [row] = await pickups().findBy({ todoId: todo.id });
+    assert.equal(row.overLimits, false);
+    const held = await todos().findOneByOrFail({ id: todo.id });
+    assert.match(held.ceilingJson ?? "", /"proactiveReview":true/);
+  });
+
+  test("it takes a sender's trust off what's waiting to check back", async () => {
+    const todo = await todoFor({
+      ceilingJson: JSON.stringify({
+        proactiveReview: true,
+        mailDeliveryMode: "review",
+        trustedSender: true,
+        mailThreadId: thread.id,
+      }),
+    });
+    await linked(todo);
+    await wakeTodosForInboundMail(account, await inbound(), automated);
+    const row = await todos().findOneByOrFail({ id: todo.id });
+    assert.match(row.ceilingJson ?? "", /"trustedSender":false/);
+  });
+
+  test("a lent rerun goes back within the limits too", async () => {
+    const todo = await todoFor();
+    await linked(todo);
+    const running = await insert(TodoPickup, {
+      companyId: company.id,
+      todoId: todo.id,
+      employeeId: ada.id,
+      trigger: "start_now",
+      status: "running",
+      authority: "member",
+      acceptedAt: new Date(),
+      rerunJson: JSON.stringify({
+        employeeId: ada.id,
+        trigger: "start_now",
+        authority: { kind: "member", userId: ruth.id, sessionVersion: 0 },
+        ceiling: { tainted: true },
+        byMember: true,
+        overLimits: true,
+        note: "",
+      }),
+    });
+    await wakeTodosForInboundMail(account, await inbound(), automated);
+    const row = await pickups().findOneByOrFail({ id: running.id });
+    assert.equal(JSON.parse(row.rerunJson ?? "{}").overLimits, false);
+  });
+});
+
 describe("waiting on a person", () => {
   test("their comment wakes it under their access", async () => {
     const todo = await todoFor();
@@ -433,6 +512,7 @@ describe("waiting on a person", () => {
       userId: ruth.id,
       sessionVersion: 0,
       name: "Ruth",
+      role: "owner",
     });
     const [pickup] = await pickups().findBy({ todoId: todo.id });
     assert.equal(pickup.trigger, "member_comment");
@@ -440,6 +520,161 @@ describe("waiting on a person", () => {
     assert.equal(pickup.requesterUserId, ruth.id);
     assert.equal(pickup.startedByMember, true);
     assert.equal((await todos().findOneByOrFail({ id: todo.id })).waitingOn, null);
+  });
+
+  describe("on a Todo held to limits", () => {
+    const limits = JSON.stringify({
+      proactiveReview: true,
+      mailDeliveryMode: "review",
+      trustedSender: false,
+    });
+
+    async function heldAndWaiting(): Promise<Todo> {
+      const todo = await todoFor({ ceilingJson: limits });
+      await insert(TodoPickup, {
+        companyId: company.id,
+        todoId: todo.id,
+        employeeId: ada.id,
+        trigger: "email_intake",
+        status: "done",
+        authority: "employee",
+        proactiveReview: true,
+        mailDeliveryMode: "review",
+        acceptedAt: new Date(),
+      });
+      await waitOnTodo({
+        companyId: company.id,
+        todo,
+        on: "member",
+        reason: "Should I accept this?",
+        checkAt: new Date(Date.now() + 3_600_000),
+        authority: { kind: "employee" },
+        ceiling: { proactiveReview: true, mailDeliveryMode: "review" },
+      });
+      await pickups().delete({ todoId: todo.id, status: "queued" });
+      return todos().findOneByOrFail({ id: todo.id });
+    }
+
+    const queued = async (todo: Todo) =>
+      pickups().findOneByOrFail({ todoId: todo.id, status: "queued" });
+
+    test("an owner's answer stays within them, even a bare no", async () => {
+      const todo = await heldAndWaiting();
+      await wakeTodoForMemberComment({
+        companyId: company.id,
+        todo,
+        userId: ruth.id,
+        sessionVersion: 0,
+        name: "Ruth",
+        role: "owner",
+      });
+      const pickup = await queued(todo);
+      assert.equal(pickup.trigger, "member_comment");
+      assert.equal(pickup.proactiveReview, true);
+      assert.equal(pickup.mailDeliveryMode, "review");
+      assert.equal(pickup.authority, "employee", "as its last session ran");
+    });
+
+    test("a plain Member's answer runs under them, not the last session's access", async () => {
+      const todo = await heldAndWaiting();
+      await wakeTodoForMemberComment({
+        companyId: company.id,
+        todo,
+        userId: ruth.id,
+        sessionVersion: 0,
+        name: "Ruth",
+        role: "member",
+      });
+      const pickup = await queued(todo);
+      assert.equal(pickup.authority, "member");
+      assert.equal(pickup.requesterUserId, ruth.id);
+      assert.equal(pickup.proactiveReview, true);
+    });
+
+    test("a sender's trust doesn't reach whoever has it now", async () => {
+      const todo = await todoFor({
+        ceilingJson: JSON.stringify({
+          proactiveReview: true,
+          mailDeliveryMode: "review",
+          trustedSender: true,
+        }),
+      });
+      await insert(TodoPickup, {
+        companyId: company.id,
+        todoId: todo.id,
+        employeeId: ada.id,
+        trigger: "email_intake",
+        status: "done",
+        authority: "employee",
+        proactiveReview: true,
+        mailDeliveryMode: "review",
+        trustedSender: true,
+        acceptedAt: new Date(),
+      });
+      const colleague = await insert(AIEmployee, {
+        companyId: company.id,
+        name: "Ben",
+        slug: "ben",
+        role: "Support",
+        soulBody: "",
+      });
+      await insertEmployeeModel({
+        employeeId: colleague.id,
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        authMode: "apikey",
+        configJson: "{}",
+        isActive: true,
+      });
+      await todos().update(
+        { id: todo.id },
+        { assigneeEmployeeId: colleague.id, waitingOn: "member" },
+      );
+      await wakeTodoForMemberComment({
+        companyId: company.id,
+        todo: await todos().findOneByOrFail({ id: todo.id }),
+        userId: ruth.id,
+        sessionVersion: 0,
+        name: "Ruth",
+        role: "owner",
+      });
+      const pickup = await queued(todo);
+      assert.equal(pickup.employeeId, colleague.id);
+      assert.equal(pickup.trustedSender, false);
+    });
+
+    test("so does Stop waiting", async () => {
+      const todo = await heldAndWaiting();
+      await stopWaitingOnTodo({
+        companyId: company.id,
+        todo,
+        userId: ruth.id,
+        sessionVersion: 0,
+        name: "Ruth",
+        role: "owner",
+      });
+      const pickup = await queued(todo);
+      assert.equal(pickup.trigger, "wait_stopped");
+      assert.equal(pickup.proactiveReview, true);
+    });
+
+    test("until the person says to use their access", async () => {
+      const todo = await heldAndWaiting();
+      await stopWaitingOnTodo({
+        companyId: company.id,
+        todo,
+        userId: ruth.id,
+        sessionVersion: 0,
+        name: "Ruth",
+        role: "owner",
+        withMyAccess: true,
+      });
+      const pickup = await queued(todo);
+      assert.equal(pickup.proactiveReview, false);
+      assert.equal(pickup.authority, "member");
+      assert.equal(pickup.requesterUserId, ruth.id);
+      assert.equal(pickup.tainted, true);
+    });
   });
 
   test("a comment on a Todo waiting on something else doesn't wake it", async () => {
@@ -450,6 +685,7 @@ describe("waiting on a person", () => {
       userId: ruth.id,
       sessionVersion: 0,
       name: "Ruth",
+      role: "owner",
     });
     assert.equal((await todos().findOneByOrFail({ id: todo.id })).waitingOn, "customer");
   });
@@ -462,6 +698,7 @@ describe("waiting on a person", () => {
       userId: ruth.id,
       sessionVersion: 0,
       name: "Ruth",
+      role: "owner",
     });
     const [pickup] = await pickups().findBy({ todoId: todo.id });
     assert.equal(pickup.trigger, "wait_stopped");

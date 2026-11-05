@@ -1920,17 +1920,22 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "wait_on_todo",
     description:
-      "Say a Todo assigned to you is waiting on something, and end your session. `customer`: a reply on an email thread (name it with threadId; it is linked to the Todo). `member`: a person answering on the Todo's thread; ask your question there first. `date`: nothing until checkAt. A reply or an answer wakes you sooner, in a new session; otherwise you are woken at checkAt (at most 30 days out). After 3 checks with no customer reply, close the Todo or ask a person. For a consequential choice use request_decision, which waits by itself, as request_mail_review does.",
+      "Say a Todo assigned to you is waiting on something, and end your session. `customer`: a reply on an email thread (name it with threadId; it is linked to the Todo). `work_session`: a Repository work session you started (name it with sessionId), which wakes this Todo when its turn ends. `member`: a person answering on the Todo's thread; ask your question there first. `date`: nothing until checkAt. A reply or an answer wakes you sooner, in a new session; otherwise you are woken at checkAt (at most 30 days out). After 3 checks with no customer reply, close the Todo or ask a person. For a consequential choice use request_decision, which waits by itself, as request_mail_review does.",
     inputSchema: {
       type: "object",
       properties: {
         todoId: { type: "string" },
-        on: { type: "string", enum: ["customer", "member", "date"] },
+        on: { type: "string", enum: ["customer", "member", "date", "work_session"] },
         threadId: { type: "string", description: "The email thread a customer will reply on." },
+        sessionId: { type: "string", description: "The Repository work session you started." },
         reason: { type: "string", description: "What you are waiting for, in a sentence." },
-        checkAt: { type: "string", description: "When to check back, as an ISO-8601 timestamp." },
+        checkAt: {
+          type: "string",
+          description:
+            "When to check back, as an ISO-8601 timestamp. Not needed for work_session, which wakes this Todo when its turn ends.",
+        },
       },
-      required: ["todoId", "on", "reason", "checkAt"],
+      required: ["todoId", "on", "reason"],
       additionalProperties: false,
     },
   },

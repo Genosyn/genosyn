@@ -1,3 +1,5 @@
+import { TodoPickup } from "../db/entities/TodoPickup.js";
+import { readTasksHome } from "../services/tasksHome.js";
 import { Request, Response, Router } from "express";
 import { z } from "zod";
 import { In } from "typeorm";
@@ -32,6 +34,7 @@ import { createNotification } from "../services/notifications.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import {
   deleteTodoPickups,
+  todoLimits,
   markTodoTainted,
   presentCommentPickups,
   requestTodoPickup,
@@ -584,7 +587,7 @@ async function hydrateTodos(cid: string, todos: Todo[], reader: TodoLinkReader) 
       todos.flatMap((t) => [t.assigneeUserId, t.reviewerUserId]).filter((x): x is string => !!x),
     ),
   ];
-  const [emps, users, links] = await Promise.all([
+  const [emps, users, links, sessions] = await Promise.all([
     empIds.length
       ? AppDataSource.getRepository(AIEmployee).find({
           where: { id: In(empIds), companyId: cid },
@@ -598,7 +601,26 @@ async function hydrateTodos(cid: string, todos: Todo[], reader: TodoLinkReader) 
       todos.map((t) => t.id),
       reader,
     ),
+    todos.length
+      ? AppDataSource.getRepository(TodoPickup).find({
+          where: { todoId: In(todos.map((t) => t.id)), status: In(["running", "queued"]) },
+          select: { id: true, todoId: true, status: true, notBeforeAt: true },
+        })
+      : Promise.resolve([] as TodoPickup[]),
   ]);
+  // What AI is doing on each row, so a board reads at a glance. A check-back waiting for
+  // its time isn't queued: the Todo's wait already says that.
+  const aiStateOf = new Map<string, "working" | "queued">();
+  const now = Date.now();
+  for (const session of sessions) {
+    if (session.status === "running") aiStateOf.set(session.todoId, "working");
+    else if (
+      !aiStateOf.has(session.todoId) &&
+      (!session.notBeforeAt || session.notBeforeAt.getTime() <= now)
+    ) {
+      aiStateOf.set(session.todoId, "queued");
+    }
+  }
   const empById = new Map(emps.map((e) => [e.id, e]));
   const userById = new Map(users.map((u) => [u.id, u]));
 
@@ -613,7 +635,11 @@ async function hydrateTodos(cid: string, todos: Todo[], reader: TodoLinkReader) 
     return null;
   }
 
-  return todos.map((t) => ({
+  // `ceilingJson` is the server's own: what a session may do, not a field of the Todo.
+  // A person gets to know that there are limits, and that only they can go past them.
+  return todos.map(({ ceilingJson, ...t }) => ({
+    heldToLimits: todoLimits({ ceilingJson }) !== null,
+    aiState: aiStateOf.get(t.id) ?? null,
     ...t,
     assignee: refFor(t.assigneeEmployeeId, t.assigneeUserId),
     reviewer: refFor(t.reviewerEmployeeId, t.reviewerUserId),
@@ -765,6 +791,41 @@ const todoLinkInputSchema = z.object({
     .optional()
     .describe("This is where the Todo came from. A Todo has at most one source."),
 });
+
+// One Todo by the number people already call it by, with the parent and subtasks
+// its page shows. Its own address is what lets someone share it.
+const TODO_PAGE_RELATED_LIMIT = 200;
+
+projectsRouter.get(
+  "/projects/:pSlug/todos/:number",
+  validateParams(
+    z.object({ cid: z.string().uuid(), pSlug: z.string(), number: z.coerce.number().int().min(1) }),
+  ),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const p = await loadProjectBySlug(cid, req.params.pSlug);
+    if (!p) return res.status(404).json({ error: "Project not found" });
+    const level = await findProjectAccess(p, actorOf(req));
+    if (!level) return res.status(403).json({ error: "No access to that project" });
+    const repo = AppDataSource.getRepository(Todo);
+    const todo = await repo.findOneBy({ projectId: p.id, number: Number(req.params.number) });
+    if (!todo) return res.status(404).json({ error: "Todo not found" });
+    const [subtasks, parent] = await Promise.all([
+      repo.find({
+        where: { projectId: p.id, parentTodoId: todo.id },
+        order: { sortOrder: "ASC", id: "ASC" },
+        take: TODO_PAGE_RELATED_LIMIT,
+      }),
+      todo.parentTodoId ? repo.findOneBy({ id: todo.parentTodoId, projectId: p.id }) : null,
+    ]);
+    const [hydrated, ...related] = await hydrateTodos(
+      cid,
+      [todo, ...subtasks, ...(parent ? [parent] : [])],
+      memberLinkReader(req),
+    );
+    res.json({ project: { ...p, myAccessLevel: level }, todo: hydrated, related });
+  },
+);
 
 const createTodoSchema = z.object({
   title: z.string().min(1).max(200),
@@ -1456,6 +1517,13 @@ projectsRouter.get(
   },
 );
 
+// Tasks home: what needs this person, what AI is doing, what's waiting and what finished.
+projectsRouter.get("/tasks-home", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json(await readTasksHome({ companyId: cid, actor: actorOf(req), userId: req.userId! }));
+});
+
 // The way back from a record to the work it started: the Todos linked to one
 // email thread, Customer or Deal, limited to the Projects the caller can open.
 projectsRouter.get(
@@ -1612,6 +1680,7 @@ projectsRouter.post(
           userId: req.userId!,
           sessionVersion: req.session.sessionVersion,
           name: author?.name || author?.email || "A Member",
+          role: req.membership?.role,
         }).catch((err) => {
           console.error("[todo-comments] waking the assignee failed", err);
         });
@@ -1683,6 +1752,7 @@ async function respondAsEmployee(
   });
   const turn = await composeTodoMentionContext({
     companyId,
+    todoId,
     comments: thread,
     triggerCommentId: requester.commentId,
     requesterUserId: requester.userId,
@@ -1710,7 +1780,13 @@ async function respondAsEmployee(
     : `You are collaborating on **${project.key}-${todo.number}: ${todo.title}** ` +
       `(status: ${todo.status}, priority: ${todo.priority}).` +
       (todo.description ? `\n\nDescription:\n${todo.description}` : "");
-  const history = [{ role: "user" as const, content: header }, ...turn.history];
+  // Mentioning an AI Employee grants nothing, so the outside words on this thread stay
+  // behind the Todo's limits here as well.
+  const limits = todoLimits(todo);
+  const heldLine = limits
+    ? "\n\nThis Todo started from outside words, so this turn can read and prepare, not act. If it needs more, say what. A Member can send you back to it with their access from this Todo."
+    : "";
+  const history = [{ role: "user" as const, content: header + heldLine }, ...turn.history];
 
   const result = await chatWithEmployee(companyId, employeeId, turn.message, history, {
     requesterUserId: requester.userId,
@@ -1719,7 +1795,14 @@ async function respondAsEmployee(
     // The comment thread on one Todo is the transcript this turn replays, so
     // it is what the reply serializes against — not the whole employee.
     workloadScope: `todo:${todo.id}`,
-    startTainted: todo.tainted,
+    startTainted: todo.tainted || limits?.tainted === true,
+    ...(limits
+      ? {
+          proactiveReview: limits.proactiveReview === true,
+          mailDeliveryMode: limits.mailDeliveryMode ?? null,
+          mailThreadId: limits.mailThreadId ?? null,
+        }
+      : {}),
   });
   if (result.tainted) await markTodoTainted(todo.id);
   const reply = result.reply || "(no reply)";

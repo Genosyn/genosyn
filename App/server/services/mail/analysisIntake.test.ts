@@ -12,11 +12,10 @@ import { Project } from "../../db/entities/Project.js";
 import { ProjectIntake } from "../../db/entities/ProjectIntake.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
 import { insertEmployeeModel } from "../../test/modelFixtures.js";
-import { parseIntakeOutcome } from "../todoIntake.js";
+import { parseIntakeOutcome, presentIntakeOutcome } from "../todoIntake.js";
 import {
   analysisSystemPrompt,
   analyzeInboundMessage,
-  serializeAnalysis,
   type MailAnalysisDependencies,
   type MailAnalysisFacts,
   type MailAnalysisOptions,
@@ -207,7 +206,7 @@ describe("with a Project taking email", () => {
     assert.equal(stored?.projectId, project.id);
     assert.equal(stored?.title, filing.title);
     assert.equal(stored?.category, "notification");
-    assert.equal(serializeAnalysis(row!).intake?.status, "proposed");
+    assert.equal(presentIntakeOutcome(row!.intakeJson, new Set([project.id]))?.status, "proposed");
   });
 
   test("leaving it out files nothing", async () => {

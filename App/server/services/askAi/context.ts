@@ -1,3 +1,4 @@
+import type { MailDeliveryMode } from "../mail/deliveryPolicy.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { ChannelMember } from "../../db/entities/ChannelMember.js";
 import { EmployeeChartGrant } from "../../db/entities/EmployeeChartGrant.js";
@@ -112,6 +113,10 @@ export type AskAiContextItem = {
   related?: boolean;
   /** Carried onto the chat turn so provenance-aware tools can link back. */
   mailThreadId?: string;
+  /** Outside words are on this record, so a turn with it in view keeps to these limits. */
+  heldLimits?: { proactiveReview?: boolean; mailDeliveryMode?: MailDeliveryMode | null };
+  /** A tainted turn's words are on this record, so a turn with it in view starts tainted. */
+  startsTainted?: boolean;
   routineId?: string;
 };
 

@@ -813,6 +813,23 @@ export async function reviseRepositoryWorkSession(
 export async function runRepositoryWorkSession(
   prepared: PreparedWorkSession,
 ): Promise<RepositoryWorkSession> {
+  const finished = await runWorkSessionTurn(prepared);
+  await tellTodoTurnEnded(finished);
+  return finished;
+}
+
+/** A Todo waiting on this session carries on. That never fails the session it follows. */
+async function tellTodoTurnEnded(session: RepositoryWorkSession): Promise<void> {
+  try {
+    // Imported here: a Todo's session can start a work session, so the other way round.
+    const { wakeTodoForWorkSession } = await import("./todoWaits.js");
+    await wakeTodoForWorkSession(session);
+  } catch (error) {
+    console.error(`[repository-session] could not wake a Todo for ${session.id}:`, error);
+  }
+}
+
+async function runWorkSessionTurn(prepared: PreparedWorkSession): Promise<RepositoryWorkSession> {
   const { session, turn, repo, employee } = prepared;
   const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
 
@@ -1677,9 +1694,17 @@ type OpenRepositoryWorkSessionPullRequestArgs = {
 export async function openRepositoryWorkSessionPullRequest(
   args: OpenRepositoryWorkSessionPullRequestArgs,
 ): Promise<RepositoryWorkSession> {
-  return withSessionMutation(args.sessionId, () =>
+  const session = await withSessionMutation(args.sessionId, () =>
     openRepositoryWorkSessionPullRequestUnlocked(args),
   );
+  // The Todos this work is for hear about it. That never fails the pull request.
+  try {
+    const { notePullRequestOnTodos } = await import("./todoWaits.js");
+    await notePullRequestOnTodos(session);
+  } catch (error) {
+    console.error(`[repository-session] could not note a pull request for ${session.id}:`, error);
+  }
+  return session;
 }
 
 async function openRepositoryWorkSessionPullRequestUnlocked(

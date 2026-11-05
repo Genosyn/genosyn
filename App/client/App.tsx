@@ -219,6 +219,7 @@ import FinanceLayout from "./pages/FinanceLayout";
 import FinanceIndex from "./pages/FinanceIndex";
 import FinanceProducts from "./pages/FinanceProducts";
 import FinanceTaxRates from "./pages/FinanceTaxRates";
+import TodoPage from "./pages/TodoPage";
 import FinanceInvoices from "./pages/FinanceInvoices";
 import FinanceInvoiceNew from "./pages/FinanceInvoiceNew";
 import FinanceInvoiceDetail from "./pages/FinanceInvoiceDetail";
@@ -599,6 +600,7 @@ function CompanyRoutes({
             <Route path="review" element={<TasksReview company={company} />} />
             <Route path="new" element={<ProjectNew company={company} />} />
             <Route path="p/:pSlug" element={<ProjectDetail company={company} me={me} />} />
+            <Route path="p/:pSlug/t/:todoNumber" element={<TodoPage company={company} />} />
           </Route>
 
           {/* Vault — encrypted logins, authenticators, API keys, and secure notes.

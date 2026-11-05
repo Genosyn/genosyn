@@ -1,5 +1,5 @@
 import { MAIL_ANALYSIS_CATEGORIES } from "../services/mail/analysis.js";
-import { Router, type Response } from "express";
+import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
 import {
@@ -91,6 +91,8 @@ import {
   updateMailAnalysisSettings,
 } from "../services/mail/analysisSettings.js";
 import { MailInboundAnalysis } from "../db/entities/MailInboundAnalysis.js";
+import { listAccessibleProjectIds } from "../services/projects.js";
+import { presentIntakeOutcome } from "../services/todoIntake.js";
 import { decodeHtmlEntities } from "../services/mail/gmailClient.js";
 import {
   MailAttachmentError,
@@ -756,9 +758,27 @@ mailRouter.get("/mail/threads/:tid", async (req, res) => {
     account: { id: account.id, address: account.address },
     messages: messages.map(serializeMessage),
     handovers: handovers.map((h) => serializeHandover(h, employees)),
-    analyses: analyses.map(serializeAnalysis),
+    analyses: await analysesForMember(req, analyses),
   });
 });
+
+/**
+ * An email's analyses as this Member may see them. What it was filed as is in a
+ * Project, and a Todo in one they can't open is one they aren't told about.
+ */
+async function analysesForMember(req: Request, rows: MailInboundAnalysis[]) {
+  const openable = rows.some((row) => row.intakeJson)
+    ? await listAccessibleProjectIds((req.params as Record<string, string>).cid, {
+        kind: "user",
+        id: req.userId!,
+        role: req.companyRole!,
+      })
+    : new Set<string>();
+  return rows.map((row) => ({
+    ...serializeAnalysis(row),
+    intake: presentIntakeOutcome(row.intakeJson, openable),
+  }));
+}
 
 const threadActionSchema = z.object({
   action: z.enum([
@@ -2021,7 +2041,7 @@ mailRouter.post("/mail/messages/:mid/analyze", requireBrowserSession, async (req
     if (!analysis) {
       return res.status(409).json({ error: "This message cannot be analysed." });
     }
-    res.json({ analysis: serializeAnalysis(analysis) });
+    res.json({ analysis: (await analysesForMember(req, [analysis]))[0] });
   } catch (err) {
     if (err instanceof MailAnalysisAlreadyActed || err instanceof MailAnalysisWaiting) {
       return res.status(409).json({ error: err.message });
@@ -2050,7 +2070,7 @@ mailRouter.post("/mail/analyses/:id/actions/:actionId", requireBrowserSession, a
       },
     );
     res.json({
-      analysis: serializeAnalysis(result.analysis),
+      analysis: (await analysesForMember(req, [result.analysis]))[0],
       navigateTo: result.navigateTo,
       message: result.message,
     });
@@ -2089,7 +2109,10 @@ mailRouter.post(
       const result = await undoAutomaticAnalysisAction(found.account, found.analysis, autoId, {
         userId: req.userId!,
       });
-      res.json({ analysis: serializeAnalysis(result.analysis), message: result.message });
+      res.json({
+        analysis: (await analysesForMember(req, [result.analysis]))[0],
+        message: result.message,
+      });
     } catch (err) {
       // A refusal and a mail server that would not take the change back are
       // both the Member's to read and retry.

@@ -248,6 +248,13 @@ export function Support() {
         note, and <Code>E</Code> solves it. <Code>⌘/Ctrl+Enter</Code> sends from the composer.
       </P>
 
+      <H2 id="tasks">Tickets and Tasks</H2>
+      <P>
+        A ticket&apos;s page shows the Todos linked to it, and <Strong>Create task</Strong> files a
+        new one from it. An AI Employee working a Todo links any ticket it works on to that Todo. See{" "}
+        <DocLink to="/docs/tasks#links">Where a todo came from</DocLink>.
+      </P>
+
       <H2 id="articles">Articles and knowledge gaps</H2>
       <P>
         <Strong>Knowledge</Strong> holds the Articles your AI Employee answers from. Choose{" "}

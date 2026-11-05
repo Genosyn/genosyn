@@ -133,7 +133,7 @@ describe("employee page navigation", () => {
 
     assert.deepEqual(groups, {
       Employee: ["General", "Soul", "Model"],
-      Work: ["Skills", "Routines"],
+      Work: ["Skills", "Routines", "Work queue"],
       Access: ["Connections", "Autonomy"],
       Advanced: ["Memory", "Journal", "Handoffs", "Phone", "MCP", "Browser", "Integrations"],
     });

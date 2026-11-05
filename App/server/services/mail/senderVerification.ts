@@ -16,7 +16,11 @@ import { authResultProperty } from "./unsubscribe.js";
  * that passed from that domain or a parent of it. Anything less fails closed, with
  * the reason, including a mailbox whose receiving server Genosyn can't identify,
  * which is every IMAP mailbox today. Trust here is what lets an email-started
- * session use the AI Employee's full tools, so "probably fine" reads as no.
+ * session use the browser and Vault logins, so "probably fine" reads as no.
+ *
+ * It vouches for the domain, not the address. Anyone able to send authenticated
+ * mail from a domain can write any address at it, so an owner's exact address is
+ * only as strong as that domain's own controls.
  */
 
 export type SenderVerdict = {
@@ -44,6 +48,52 @@ function fromAddress(value: string): string | null {
   const address = (angle.length === 1 ? angle[0][1] : bare).trim().toLowerCase();
   if (/[\s,;]/.test(address)) return null;
   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address) ? address : null;
+}
+
+/**
+ * A verdict with what senders can write taken out, or null when it can't be read.
+ *
+ * Comments and quoted strings are where a server repeats a sender's own words: the
+ * MAIL FROM it was given, say. `;` and `=` inside them mean nothing, so a sender's
+ * `(;dmarc=pass header.from=google.com;)` must not read as a result (RFC 8601).
+ */
+function withoutSendersWords(value: string): string | null {
+  let out = "";
+  let depth = 0;
+  let quoted = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "\\" && (quoted || depth > 0)) {
+      index += 1;
+      continue;
+    }
+    if (quoted) {
+      if (char === '"') {
+        quoted = false;
+        out += char;
+      } else {
+        // A domain or an address reads the same; nothing else needs to survive.
+        out += /[a-z0-9.@_+-]/i.test(char) ? char : "_";
+      }
+      continue;
+    }
+    if (depth > 0) {
+      // A quote here is a sender's MAIL FROM, repeated by the server. A `)` inside it
+      // closes this comment read one way and not the other, and what follows it could
+      // then read as a result. There's no safe reading, so there isn't one.
+      if (char === '"') return null;
+      if (char === "(") depth += 1;
+      else if (char === ")") depth -= 1;
+      continue;
+    }
+    if (char === "(") depth = 1;
+    else if (char === ")") return null;
+    else {
+      if (char === '"') quoted = true;
+      out += char;
+    }
+  }
+  return depth === 0 && !quoted ? out : null;
 }
 
 function domainOf(address: string): string {
@@ -82,12 +132,28 @@ export function verifySender(args: {
     return refuse("The From header doesn't name exactly the sender we recorded.");
   }
 
+  // Fetched from another mailbox, so this server received it from that one, not
+  // from whoever wrote it. Nothing here vouches for the sender.
+  if (header(args.headers, "X-Gmail-Fetch-Info").length > 0) {
+    return refuse("This email was fetched from another mailbox, so its sender can't be verified.");
+  }
+
   // The topmost one: the last thing added, by the server that received it.
   const [topmost] = header(args.headers, "Authentication-Results");
   if (!topmost) return refuse("The receiving server left no verdict on this email.");
-  const [authserv, ...segments] = topmost.split(";");
+  const verdict = withoutSendersWords(topmost);
+  if (verdict === null) return refuse("The verdict on this email can't be read.");
+  const [authserv, ...segments] = verdict.split(";");
   if (authserv?.trim().toLowerCase() !== args.authservId) {
     return refuse("The newest verdict on this email isn't from this mailbox's receiving server.");
+  }
+  // Only mail with no return address has this, and what follows it is whatever the
+  // sending server called itself, printed as it said it.
+  if (segments.some((segment) => /(?:^|\s)smtp\.helo\s*=/i.test(segment))) {
+    return refuse("This email has no return address to check its sender against.");
+  }
+  if (segments.some((segment) => /^\s*dmarc\s*=\s*(fail|permerror|temperror)\b/i.test(segment))) {
+    return refuse("DMARC didn't pass for this sender.");
   }
 
   const fromDomain = domainOf(claimed);

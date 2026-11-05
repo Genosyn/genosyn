@@ -214,12 +214,11 @@ type ChatBaseOptions = {
   mailThreadId?: string | null;
   mailDeliveryMode?: MailDeliveryMode | null;
   /**
-   * Keep this one privileged source open under `mailDeliveryMode`, which otherwise
-   * closes every source it can't govern. Only a Todo pickup from a trusted, verified
-   * sender sets it (`services/todoIntake.ts`). The browser answers to its own host
-   * list, submit approval and Vault Grants.
+   * This preparation turn also gets the browser and its granted Vault logins. Only a
+   * Todo pickup from a trusted, verified sender sets it (`services/todoIntake.ts`).
+   * The browser answers to its own host list, submit approval and Vault Grants.
    */
-  browserUnderMailCeiling?: boolean;
+  trustedSender?: boolean;
   /** Turns of one piece of work share a browser page, as a conversation's do. */
   browserSessionKey?: string;
   proactiveReview?: boolean;
@@ -1099,6 +1098,7 @@ export async function streamChatWithEmployee(
       runId: options.runId ?? undefined,
       repositoryWorkSessionId: options.repositoryWorkSessionId ?? null,
       todoPickupId: options.todoPickupId ?? null,
+      trustedSender: options.trustedSender === true && options.proactiveReview === true,
       collaboration: options.collaboration ?? null,
       tainted: options.startTainted ?? false,
     };
@@ -1146,7 +1146,6 @@ export async function streamChatWithEmployee(
         extraToolsAuthority: helpSource ? "member" : undefined,
         conversationId: options.conversationId,
         allowPrivilegedToolSources: privilegedToolSourcesAllowed && !options.mailDeliveryMode,
-        allowBrowser: privilegedToolSourcesAllowed && options.browserUnderMailCeiling === true,
         browserSessionKey: options.browserSessionKey,
         authorizePrivilegedToolCall,
         toolScope: repositoryWork
