@@ -128,7 +128,7 @@ function contract(input: TodoPickupBriefInput): string[] {
     : '"done"';
   return [
     input.preparationOnly
-      ? "Do what you can on this todo now. This session may only prepare: do the research and record keeping your tools allow, and use request_work_review for anything that needs more."
+      ? "Do what you can on this todo now. This session may only prepare: do the research and record keeping your tools allow, and use request_work_review for anything that needs more, and say what. A Member can send you back to this with their access."
       : "Work on this todo now. Actually do the work with your tools — don't just plan or acknowledge.",
     `- The todo is already in \`${todo.status}\`. When you finish, call \`update_todo\` with todoId "${todo.id}" and set status to ${finish}.`,
     ...(input.preparationOnly

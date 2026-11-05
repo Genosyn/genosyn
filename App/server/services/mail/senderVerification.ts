@@ -78,6 +78,10 @@ function withoutSendersWords(value: string): string | null {
       continue;
     }
     if (depth > 0) {
+      // A quote here is a sender's MAIL FROM, repeated by the server. A `)` inside it
+      // closes this comment read one way and not the other, and what follows it could
+      // then read as a result. There's no safe reading, so there isn't one.
+      if (char === '"') return null;
       if (char === "(") depth += 1;
       else if (char === ")") depth -= 1;
       continue;
@@ -142,6 +146,11 @@ export function verifySender(args: {
   const [authserv, ...segments] = verdict.split(";");
   if (authserv?.trim().toLowerCase() !== args.authservId) {
     return refuse("The newest verdict on this email isn't from this mailbox's receiving server.");
+  }
+  // Only mail with no return address has this, and what follows it is whatever the
+  // sending server called itself, printed as it said it.
+  if (segments.some((segment) => /(?:^|\s)smtp\.helo\s*=/i.test(segment))) {
+    return refuse("This email has no return address to check its sender against.");
   }
   if (segments.some((segment) => /^\s*dmarc\s*=\s*(fail|permerror|temperror)\b/i.test(segment))) {
     return refuse("DMARC didn't pass for this sender.");

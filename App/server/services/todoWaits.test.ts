@@ -442,6 +442,90 @@ describe("waiting on a person", () => {
     assert.equal((await todos().findOneByOrFail({ id: todo.id })).waitingOn, null);
   });
 
+  describe("on a Todo held to limits", () => {
+    const limits = JSON.stringify({
+      proactiveReview: true,
+      mailDeliveryMode: "review",
+      trustedSender: false,
+    });
+
+    async function heldAndWaiting(): Promise<Todo> {
+      const todo = await todoFor({ ceilingJson: limits });
+      await insert(TodoPickup, {
+        companyId: company.id,
+        todoId: todo.id,
+        employeeId: ada.id,
+        trigger: "email_intake",
+        status: "done",
+        authority: "employee",
+        proactiveReview: true,
+        mailDeliveryMode: "review",
+        acceptedAt: new Date(),
+      });
+      await waitOnTodo({
+        companyId: company.id,
+        todo,
+        on: "member",
+        reason: "Should I accept this?",
+        checkAt: new Date(Date.now() + 3_600_000),
+        authority: { kind: "employee" },
+        ceiling: { proactiveReview: true, mailDeliveryMode: "review" },
+      });
+      await pickups().delete({ todoId: todo.id, status: "queued" });
+      return todos().findOneByOrFail({ id: todo.id });
+    }
+
+    const queued = async (todo: Todo) =>
+      pickups().findOneByOrFail({ todoId: todo.id, status: "queued" });
+
+    test("an owner's answer stays within them, even a bare no", async () => {
+      const todo = await heldAndWaiting();
+      await wakeTodoForMemberComment({
+        companyId: company.id,
+        todo,
+        userId: ruth.id,
+        sessionVersion: 0,
+        name: "Ruth",
+      });
+      const pickup = await queued(todo);
+      assert.equal(pickup.trigger, "member_comment");
+      assert.equal(pickup.proactiveReview, true);
+      assert.equal(pickup.mailDeliveryMode, "review");
+      assert.equal(pickup.authority, "employee", "as its last session ran");
+    });
+
+    test("so does Stop waiting", async () => {
+      const todo = await heldAndWaiting();
+      await stopWaitingOnTodo({
+        companyId: company.id,
+        todo,
+        userId: ruth.id,
+        sessionVersion: 0,
+        name: "Ruth",
+      });
+      const pickup = await queued(todo);
+      assert.equal(pickup.trigger, "wait_stopped");
+      assert.equal(pickup.proactiveReview, true);
+    });
+
+    test("until the person says to use their access", async () => {
+      const todo = await heldAndWaiting();
+      await stopWaitingOnTodo({
+        companyId: company.id,
+        todo,
+        userId: ruth.id,
+        sessionVersion: 0,
+        name: "Ruth",
+        withMyAccess: true,
+      });
+      const pickup = await queued(todo);
+      assert.equal(pickup.proactiveReview, false);
+      assert.equal(pickup.authority, "member");
+      assert.equal(pickup.requesterUserId, ruth.id);
+      assert.equal(pickup.tainted, true);
+    });
+  });
+
   test("a comment on a Todo waiting on something else doesn't wake it", async () => {
     const todo = await waitingOnCustomer();
     await wakeTodoForMemberComment({

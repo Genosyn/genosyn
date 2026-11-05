@@ -47,6 +47,13 @@ import {
 
 type Handler = (ctx: NodeContext) => Promise<NodeResult>;
 
+/** Whether this Run's trigger carries words from outside: anything but a schedule, a click or a Todo. */
+function startedByOutsideWords(ctx: NodeContext): boolean {
+  const { kind, payload } = ctx.env.trigger;
+  if (kind === "manual" || kind === "schedule") return false;
+  return !(kind === "event" && (payload as { event?: unknown } | null)?.event === "todo.created");
+}
+
 export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
   // ───── Triggers ────────────────────────────────────────────────────────
   // Trigger nodes are entry points; they don't run as steps. They appear in
@@ -129,7 +136,8 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     const priority = String(ctx.config.priority ?? "none") as Todo["priority"];
     const description = String(ctx.config.description ?? "");
     // A template can pull in anything, an email's body included, so no Member
-    // wrote this.
+    // wrote this. And a Run an email or a webhook started has outside words to pull
+    // in, so what it files is held to preparing until a person says otherwise.
     const todo = await insertTodo({
       project,
       title,
@@ -137,6 +145,9 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       status: "todo",
       priority,
       untrustedText: true,
+      ceilingJson: startedByOutsideWords(ctx)
+        ? JSON.stringify({ proactiveReview: true, mailDeliveryMode: "review" })
+        : null,
     });
     // A step can say where the Todo came from, usually the email that started
     // the Pipeline: `{{trigger.message.threadId}}`. A value that names nothing
@@ -167,6 +178,9 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
         console.error(`[pipelines] task event failed for ${todo.id}:`, err);
       });
     ctx.log(`created todo ${project.key}-${todo.number}: ${title}`);
+    if (todo.ceilingJson) {
+      ctx.log("its words may be from outside, so it's held to preparing and starts no other Pipeline");
+    }
     return {
       outputs: {
         todoId: todo.id,

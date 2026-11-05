@@ -250,6 +250,9 @@ export function proactiveReviewToolError(
     return `This change exceeds the allowed preparation fields for ${toolName}. ${boundary}`;
   if (toolName === "log_activity" && args.kind !== "note")
     return `Proactive preparation may record evidence as an Activity note only. ${boundary}`;
+  // Urgent work goes to the front of the queue, so outside words don't get to say so.
+  if ((toolName === "create_todo" || toolName === "update_todo") && args.priority === "urgent")
+    return `Proactive preparation can't mark a Todo urgent. Use high, and say why. ${boundary}`;
   return null;
 }
 

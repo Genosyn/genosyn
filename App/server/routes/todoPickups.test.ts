@@ -8,6 +8,7 @@ import express from "express";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
@@ -17,6 +18,7 @@ import { TodoComment } from "../db/entities/TodoComment.js";
 import { TodoPickup } from "../db/entities/TodoPickup.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
+import { agentRuntime } from "../services/agent/runtime.js";
 import { issueMcpToken, markTokenTainted, revokeMcpToken } from "../services/mcpTokens.js";
 import {
   setTodoPickupAutoStartForTests,
@@ -256,6 +258,150 @@ describe("Start now and Stop", () => {
     assert.equal(started.status, 200);
     assert.equal(started.body.active.status, "queued");
     assert.equal(started.body.active.requester.name, member.email);
+  });
+
+  describe("on a Todo held to limits", () => {
+    const limits = JSON.stringify({
+      proactiveReview: true,
+      mailDeliveryMode: "review",
+      trustedSender: false,
+    });
+
+    async function held(changes: Partial<Todo> = {}): Promise<Todo> {
+      return insert(Todo, {
+        projectId: project.id,
+        number: 77,
+        title: "From a stranger's email",
+        status: "todo",
+        priority: "none",
+        assigneeEmployeeId: ada.id,
+        untrustedText: true,
+        ceilingJson: limits,
+        ...changes,
+      });
+    }
+
+    test("the board says so, and never says what the limits are", async () => {
+      const todo = await held();
+      const list = await as<{ todos: Array<Record<string, unknown>> }>(
+        member.id,
+        "GET",
+        `/projects/${project.slug}/todos`,
+      );
+      const row = (list.body.todos ?? (list.body as unknown as Array<Record<string, unknown>>)).find(
+        (item) => item.id === todo.id,
+      );
+      assert.equal(row?.heldToLimits, true);
+      assert.equal("ceilingJson" in (row ?? {}), false);
+    });
+
+    test("Start now stays within them", async () => {
+      const todo = await held();
+      assert.equal((await as(member.id, "POST", `/todos/${todo.id}/pickups`, {})).status, 200);
+      const [row] = await pickups().findBy({ todoId: todo.id });
+      assert.equal(row.proactiveReview, true);
+      assert.equal(row.mailDeliveryMode, "review");
+    });
+
+    test("using your access goes past them, says so in the log, and starts tainted", async () => {
+      const todo = await held();
+      const started = await as(member.id, "POST", `/todos/${todo.id}/pickups`, {
+        withMyAccess: true,
+      });
+      assert.equal(started.status, 200);
+      const [row] = await pickups().findBy({ todoId: todo.id });
+      assert.equal(row.proactiveReview, false);
+      assert.equal(row.mailDeliveryMode, null);
+      assert.equal(row.authority, "member");
+      assert.equal(row.requesterUserId, member.id);
+      assert.equal(row.tainted, true);
+      const audit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
+        action: "todo.pickup.start",
+        targetId: todo.id,
+      });
+      assert.match(audit.metadataJson, /"withMyAccess":true/);
+    });
+
+    test("nothing else in the body gets past them", async () => {
+      const todo = await held();
+      const refused = await as(member.id, "POST", `/todos/${todo.id}/pickups`, {
+        withMyAccess: true,
+        proactiveReview: false,
+      });
+      assert.equal(refused.status, 400);
+    });
+
+    test("reassigning it stays within them", async () => {
+      const todo = await held();
+      const moved = await as(member.id, "PATCH", `/todos/${todo.id}`, {
+        assigneeEmployeeId: ben.id,
+      });
+      assert.equal(moved.status, 200, JSON.stringify(moved.body));
+      await settleTodoPickupsForTests();
+      const row = await pickups().findOneByOrFail({ todoId: todo.id, employeeId: ben.id });
+      assert.equal(row.proactiveReview, true);
+    });
+
+    test("answering it on the thread stays within them", async () => {
+      const todo = await held({ waitingOn: "member", status: "in_progress" });
+      const answered = await as(member.id, "POST", `/todos/${todo.id}/comments`, { body: "No." });
+      assert.equal(answered.status, 200, JSON.stringify(answered.body));
+      await settleTodoPickupsForTests();
+      const row = await pickups().findOneByOrFail({ todoId: todo.id });
+      assert.equal(row.trigger, "member_comment");
+      assert.equal(row.proactiveReview, true);
+    });
+
+    test("Stop waiting stays within them unless you say otherwise", async () => {
+      const todo = await held({ waitingOn: "member", status: "in_progress" });
+      assert.equal((await as(member.id, "POST", `/todos/${todo.id}/stop-waiting`, {})).status, 200);
+      const [row] = await pickups().findBy({ todoId: todo.id });
+      assert.equal(row.proactiveReview, true);
+
+      await pickups().update({ todoId: todo.id }, { status: "done" });
+      await AppDataSource.getRepository(Todo).update({ id: todo.id }, { waitingOn: "member" });
+      const lent = await as(member.id, "POST", `/todos/${todo.id}/stop-waiting`, {
+        withMyAccess: true,
+      });
+      assert.equal(lent.status, 200);
+      const active = await pickups().findOneByOrFail({ todoId: todo.id, status: "queued" });
+      assert.equal(active.proactiveReview, false);
+      assert.equal(active.authority, "member");
+    });
+
+    test("mentioning an AI Employee is a prepare-only turn, told so", async (t) => {
+      const todo = await held();
+      let params: Parameters<typeof agentRuntime.run>[0] | null = null;
+      t.mock.method(
+        agentRuntime,
+        "run",
+        async (given: Parameters<typeof agentRuntime.run>[0]) => {
+          params = given;
+          return { finalText: "Noted.", steps: 1, stopReason: "end_turn" };
+        },
+      );
+      const asked = await as<Array<{ id: string; pending: boolean }>>(
+        member.id,
+        "POST",
+        `/todos/${todo.id}/comments`,
+        { body: "What do you make of this?", mentionEmployeeId: ada.id },
+      );
+      assert.equal(asked.status, 200, JSON.stringify(asked.body));
+      const pending = asked.body.find((comment) => comment.pending);
+      assert.ok(pending);
+      for (let tries = 0; tries < 100; tries += 1) {
+        const row = await AppDataSource.getRepository(TodoComment).findOneByOrFail({
+          id: pending.id,
+        });
+        if (!row.pending) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const seen = params as Parameters<typeof agentRuntime.run>[0] | null;
+      assert.ok(seen, "the turn ran");
+      assert.match(seen.system, /This is proactive preparation/);
+      assert.notEqual(seen.nativeCoding, true);
+      assert.match(JSON.stringify(seen.messages), /can read and prepare, not act/);
+    });
   });
 
   test("Start now says why it can't", async () => {
