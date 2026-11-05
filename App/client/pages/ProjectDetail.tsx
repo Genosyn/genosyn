@@ -190,7 +190,7 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
   const todoMutationSeq = React.useRef(new Map<string, number>());
 
   // Every write affordance below hangs off this one value. `myAccessLevel` is
-  // optional on `Project` (the list endpoint omits it) but always present on
+  // optional on `Project` (what a create or an edit answers omits it) but always present on
   // the todos response we render from, so in practice it is set. When it IS
   // missing we deliberately fall back to ALLOWING edits: an open project is
   // editable by the whole company, and guessing "read" would strip the UI from

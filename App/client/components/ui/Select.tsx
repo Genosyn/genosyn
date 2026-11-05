@@ -173,7 +173,10 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(function 
     [options, searchTerms],
   );
 
-  React.useEffect(() => {
+  // A layout effect, so the highlight has caught up before the next key: from a
+  // plain effect, Enter straight after typing could land while it still pointed
+  // past the end of the narrowed list, and choose nothing.
+  React.useLayoutEffect(() => {
     if (!open) return;
     const selectedIndex = filteredOptions.findIndex(
       (option) => selectedSet.has(option.value) && !option.disabled,

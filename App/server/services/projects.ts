@@ -79,38 +79,50 @@ export async function hasProjectAccess(
 }
 
 /**
- * Every project id in the company the actor can at least read. Used by the
- * list endpoints, which filter rather than 403 — you can't be forbidden from
- * something you were never told about.
+ * The actor's level on every project in the company it can reach, the same
+ * answer {@link findProjectAccess} gives one project at a time. A project it
+ * can't reach has no entry.
  *
  * Two queries regardless of project count: the company's projects (id +
  * mode only), and the actor's rows.
+ */
+export async function listProjectAccessLevels(
+  companyId: string,
+  actor: ProjectActor,
+): Promise<Map<string, ProjectAccessLevel>> {
+  const projects = await AppDataSource.getRepository(Project).find({
+    where: { companyId },
+    select: ["id", "accessMode"],
+  });
+  const levels = new Map<string, ProjectAccessLevel>();
+  const isAdmin = actor.kind === "user" && roleAtLeast("admin", actor.role);
+  const restricted: string[] = [];
+  for (const p of projects) {
+    if (isAdmin || p.accessMode === "open") levels.set(p.id, "write");
+    else if (p.accessMode === "restricted") restricted.push(p.id);
+  }
+  if (restricted.length === 0) return levels;
+
+  const rows = await AppDataSource.getRepository(ProjectMember).find({
+    where:
+      actor.kind === "user"
+        ? { projectId: In(restricted), userId: actor.id }
+        : { projectId: In(restricted), employeeId: actor.id },
+  });
+  for (const r of rows) levels.set(r.projectId, r.accessLevel);
+  return levels;
+}
+
+/**
+ * Every project id in the company the actor can at least read. Used by the
+ * list endpoints, which filter rather than 403 — you can't be forbidden from
+ * something you were never told about.
  */
 export async function listAccessibleProjectIds(
   companyId: string,
   actor: ProjectActor,
 ): Promise<Set<string>> {
-  const projects = await AppDataSource.getRepository(Project).find({
-    where: { companyId },
-    select: ["id", "accessMode"],
-  });
-  if (actor.kind === "user" && roleAtLeast("admin", actor.role)) {
-    return new Set(projects.map((p) => p.id));
-  }
-
-  const open = projects.filter((p) => p.accessMode === "open");
-  const restricted = projects.filter((p) => p.accessMode === "restricted");
-  const ids = new Set(open.map((p) => p.id));
-  if (restricted.length === 0) return ids;
-
-  const rows = await AppDataSource.getRepository(ProjectMember).find({
-    where:
-      actor.kind === "user"
-        ? { projectId: In(restricted.map((p) => p.id)), userId: actor.id }
-        : { projectId: In(restricted.map((p) => p.id)), employeeId: actor.id },
-  });
-  for (const r of rows) ids.add(r.projectId);
-  return ids;
+  return new Set((await listProjectAccessLevels(companyId, actor)).keys());
 }
 
 export async function listProjectMembers(

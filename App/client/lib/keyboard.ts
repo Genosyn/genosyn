@@ -72,6 +72,35 @@ export function submitFormOnModEnter(event: ModEnterEvent): boolean {
   return true;
 }
 
+const IS_APPLE =
+  typeof navigator !== "undefined" &&
+  /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent || "");
+
+/** Label for {@link isCreateTaskShortcut}, for hints and the keyboard guide. */
+export const CREATE_TASK_SHORTCUT = IS_APPLE ? "⌥T" : "Alt T";
+
+/** Just what {@link isCreateTaskShortcut} reads from a keyboard event. */
+export type ShortcutKeyEvent = Pick<
+  KeyboardEvent,
+  "key" | "code" | "altKey" | "metaKey" | "ctrlKey" | "shiftKey"
+>;
+
+/**
+ * ⌥T / Alt+T opens Create a task. It works from inside a field, so it needs a
+ * modifier rather than a letter, and ⌘T / Ctrl+T belong to the browser, which
+ * never hands them to a page.
+ *
+ * A letter in `key` is the answer, so a Dvorak T counts as a T. Otherwise fall
+ * back to the physical key: a Mac reports ⌥T as `†`, and a Cyrillic layout
+ * reports its own letter. Ctrl+Alt is AltGr on Windows, someone typing a
+ * character, and never this.
+ */
+export function isCreateTaskShortcut(event: ShortcutKeyEvent): boolean {
+  if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return false;
+  const key = event.key.toLowerCase();
+  return /^[a-z]$/.test(key) ? key === "t" : event.code === "KeyT";
+}
+
 /**
  * The common bail-out for a page-level single-key shortcut: ignore keystrokes
  * that a modifier claims, that repeat from a held key, that something nearer
