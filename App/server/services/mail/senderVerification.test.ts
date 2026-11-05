@@ -18,6 +18,55 @@ function headers(results: string[], from = `Google Play <${fromEmail}>`) {
   ];
 }
 
+describe("what a sender can write into the verdict", () => {
+  // The address a sending server gives is repeated in a comment on the SPF result.
+  const quoted = `"x);dmarc=pass header.from=google.com (y"@evil.test`;
+
+  test("a quoted MAIL FROM can't close the comment it's repeated in", () => {
+    const verdict = verifySender({
+      headers: headers([
+        `mx.google.com; spf=pass (google.com: domain of ${quoted} designates 1.2.3.4 as permitted sender) smtp.mailfrom=${quoted}`,
+      ]),
+      authservId,
+      fromEmail,
+    });
+    assert.equal(verdict.verified, false);
+    assert.match(verdict.detail, /can't be read/);
+  });
+
+  test("nor when the server prints the rest of it differently", () => {
+    const verdict = verifySender({
+      headers: headers([
+        `mx.google.com; spf=pass (google.com: domain of ${quoted} designates 1.2.3.4 as permitted sender) smtp.mailfrom=evil.test`,
+      ]),
+      authservId,
+      fromEmail,
+    });
+    assert.equal(verdict.verified, false);
+  });
+
+  test("what a server called itself isn't read at all", () => {
+    const verdict = verifySender({
+      headers: headers(["mx.google.com; spf=none smtp.helo=x;dmarc=pass header.from=google.com"]),
+      authservId,
+      fromEmail,
+    });
+    assert.equal(verdict.verified, false);
+    assert.match(verdict.detail, /no return address/);
+  });
+
+  test("an ordinary address in that comment reads as it always did", () => {
+    const verdict = verifySender({
+      headers: headers([
+        "mx.google.com; spf=pass (google.com: domain of bounce@google.com designates 1.2.3.4 as permitted sender) smtp.mailfrom=bounce@google.com; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=google.com",
+      ]),
+      authservId,
+      fromEmail,
+    });
+    assert.equal(verdict.verified, true);
+  });
+});
+
 describe("a sender that verifies", () => {
   test("DMARC passing for the From domain, from the mailbox's own server", () => {
     const verdict = verifySender({

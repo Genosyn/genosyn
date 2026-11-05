@@ -26,7 +26,11 @@ import {
   preparationMayReply,
   proactiveReviewToolScope,
 } from "../services/proactive/workReviewPolicy.js";
-import { setTodoPickupAutoStartForTests } from "../services/todoPickups.js";
+import { MAX_SUBTASKS_FROM_EMAIL } from "../services/proactive/preparationScope.js";
+import {
+  MAX_HELD_TODOS_PER_COMPANY_PER_DAY,
+  setTodoPickupAutoStartForTests,
+} from "../services/todoPickups.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
@@ -429,6 +433,19 @@ describe("how far a verified sender's session reaches", () => {
     assert.deepEqual(await res.json(), { tools: [] });
   });
 
+  test("nor when reading what was sent is slow", async (t) => {
+    await repliedAlready(2);
+    const messages = AppDataSource.getRepository(MailMessage);
+    const find = messages.find.bind(messages);
+    t.mock.method(messages, "find", async (...args: Parameters<typeof messages.find>) => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return find(...args);
+    });
+    const answers = await Promise.all(Array.from({ length: 6 }, () => reply(replying())));
+    assert.equal(answers.filter((answer) => answer.status === 200).length, 1);
+    assert.equal(sent.length, 1);
+  });
+
   test("a parallel burst can't pass the cap", async () => {
     await repliedAlready(2);
     const answers = await Promise.all([reply(replying()), reply(replying()), reply(replying())]);
@@ -549,10 +566,97 @@ describe("a session an email started stays on its own work", () => {
     );
   });
 
+  test("anything it files is a subtask of its own Todo, and only so many", async () => {
+    const loose = await tool<{ error: string }>(token, "create_todo", {
+      projectSlug: project.slug,
+      title: "A follow-up",
+    });
+    assert.equal(loose.status, 403);
+    assert.match(loose.body.error, /parentTodoId/);
+
+    for (let index = 0; index < MAX_SUBTASKS_FROM_EMAIL; index += 1) {
+      await insert(Todo, {
+        projectId: project.id,
+        number: 100 + index,
+        title: "Filed already",
+        status: "todo",
+        priority: "none",
+        parentTodoId: own.id,
+      });
+    }
+    const over = await tool<{ error: string }>(token, "create_todo", {
+      projectSlug: project.slug,
+      title: "One too many",
+      parentTodoId: own.id,
+    });
+    assert.equal(over.status, 403);
+    assert.match(over.body.error, /as many as/);
+  });
+
+  test("a subtask starts nothing: it can't wait on one", async () => {
+    const child = await insert(Todo, {
+      projectId: project.id,
+      number: 50,
+      title: "Its subtask",
+      status: "todo",
+      priority: "none",
+      parentTodoId: own.id,
+      assigneeEmployeeId: ada.id,
+    });
+    const waited = await tool<{ error: string }>(token, "wait_on_todo", {
+      todoId: child.id,
+      on: "date",
+      reason: "x",
+      checkAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    assert.equal(waited.status, 403);
+    assert.match(waited.body.error, /its own Todo/);
+  });
+
+  test("it can't send anything to the front of the queue", async () => {
+    const marked = await tool<{ error: string }>(token, "update_todo", {
+      todoId: own.id,
+      priority: "urgent",
+    });
+    assert.equal(marked.status, 403);
+    assert.match(marked.body.error, /urgent/);
+    const made = await tool<{ error: string }>(token, "create_todo", {
+      projectSlug: project.slug,
+      title: "x",
+      priority: "urgent",
+      parentTodoId: own.id,
+    });
+    assert.equal(made.status, 403);
+    assert.equal(
+      (await tool(token, "update_todo", { todoId: own.id, priority: "high" })).status,
+      200,
+    );
+  });
+
+  test("what preparing turns file stops at a company's limit for a day", async () => {
+    for (let index = 0; index < MAX_HELD_TODOS_PER_COMPANY_PER_DAY; index += 1) {
+      await insert(Todo, {
+        projectId: elsewhere.id,
+        number: 1000 + index,
+        title: "Held",
+        status: "todo",
+        priority: "none",
+        ceilingJson: '{"proactiveReview":true}',
+      });
+    }
+    const over = await tool<{ error: string }>(token, "create_todo", {
+      projectSlug: project.slug,
+      title: "One too many",
+      parentTodoId: own.id,
+    });
+    assert.equal(over.status, 429);
+  });
+
   test("a Todo it files in its own Project is held to the same limits", async () => {
     const made = await tool<{ todo: { id: string } }>(token, "create_todo", {
       projectSlug: project.slug,
       title: "A follow-up",
+      parentTodoId: own.id,
     });
     assert.equal(made.status, 200, JSON.stringify(made.body));
     const row = await AppDataSource.getRepository(Todo).findOneByOrFail({ id: made.body.todo.id });
@@ -768,5 +872,88 @@ describe("only this session gets it", () => {
     assert.equal(preparationMayReply({ ...base, mailThreadId: null }), false);
     assert.equal(preparationMayReply({ ...base, todoPickupId: null }), false);
     assert.equal(preparationMayReply(null), false);
+  });
+});
+
+describe("a preparing turn's words on a Todo it didn't file", () => {
+  let project: Project;
+  let todo: Todo;
+
+  beforeEach(async () => {
+    project = await insert(Project, {
+      companyId: company.id,
+      name: "Ops",
+      slug: "ops",
+      key: "OPS",
+      todoCounter: 1,
+    });
+    todo = await insert(Todo, {
+      projectId: project.id,
+      number: 1,
+      title: "A person's Todo",
+      status: "in_progress",
+      priority: "none",
+      assigneeEmployeeId: ada.id,
+    });
+  });
+
+  // Reading mail on its own, with no pickup behind it.
+  const preparing = () => replying({ mailDeliveryMode: "review", todoPickupId: undefined });
+  const floorOf = async (id: string) =>
+    JSON.parse(
+      (await AppDataSource.getRepository(Todo).findOneByOrFail({ id })).ceilingJson ?? "null",
+    ) as Record<string, unknown> | null;
+
+  test("a comment holds that Todo to its limits from then on", async () => {
+    const answer = await tool(preparing(), "add_todo_comment", { todoId: todo.id, body: "Words." });
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
+    const floor = await floorOf(todo.id);
+    assert.equal(floor?.proactiveReview, true);
+    assert.equal(floor?.mailDeliveryMode, "review");
+    assert.equal(floor?.trustedSender, false);
+  });
+
+  test("so does an edit, and the save doesn't put it back", async () => {
+    const answer = await tool(preparing(), "update_todo", {
+      todoId: todo.id,
+      description: "Words from outside.",
+    });
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
+    assert.equal((await floorOf(todo.id))?.proactiveReview, true);
+  });
+
+  test("and it takes a sender's trust off a Todo that had it", async () => {
+    await AppDataSource.getRepository(Todo).update(
+      { id: todo.id },
+      {
+        ceilingJson: JSON.stringify({
+          proactiveReview: true,
+          mailDeliveryMode: "review",
+          trustedSender: true,
+        }),
+      },
+    );
+    await tool(preparing(), "add_todo_comment", { todoId: todo.id, body: "Words." });
+    assert.equal((await floorOf(todo.id))?.trustedSender, false);
+  });
+
+  test("finishing a recurring one hands its limits on, and fires nothing", async () => {
+    await AppDataSource.getRepository(Todo).update({ id: todo.id }, { recurrence: "weekly" });
+    const answer = await tool(preparing(), "update_todo", { todoId: todo.id, status: "done" });
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
+    const next = await AppDataSource.getRepository(Todo).findOneByOrFail({
+      recurrenceParentId: todo.id,
+    });
+    const floor = JSON.parse(next.ceilingJson ?? "null") as Record<string, unknown> | null;
+    assert.equal(floor?.proactiveReview, true);
+    assert.equal(floor?.trustedSender, false);
+  });
+
+  test("a turn with no limits leaves a Todo as it found it", async () => {
+    await tool(tokenWith({ authority: "employee" }), "add_todo_comment", {
+      todoId: todo.id,
+      body: "Fine.",
+    });
+    assert.equal(await floorOf(todo.id), null);
   });
 });

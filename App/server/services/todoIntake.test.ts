@@ -27,6 +27,7 @@ import {
   MAX_PROJECTS_TAKING_EMAIL,
   ProjectIntakeError,
   eventPickupCeiling,
+  eventCeilingForTodo,
   fileIntakeProposal,
   intakeChoicesFor,
   intakePromptSection,
@@ -367,7 +368,7 @@ describe("what the read proposes", () => {
 describe("how far a session may go", () => {
   const verified = { verified: true, how: "dmarc" as const, detail: "no-reply@google.com" };
   const unverified = { verified: false, how: null, detail: "No." };
-  const base = { fromEmail: "no-reply@google.com", threadId: "thread" };
+  const base = { fromEmail: "no-reply@google.com", threadId: "thread", othersOnThread: false };
   const intake = { enabled: true, replyMode: "review" as const, trustedSenders: "" };
 
   test("with no intake it can only prepare, and a person sends", () => {
@@ -623,16 +624,102 @@ describe("filing", () => {
       assert.equal((await latest(todo)).mailDeliveryMode, "review");
     });
 
-    test("a person asking runs under them, and doesn't lift it for what follows", async () => {
+    test("a person assigning it or answering stays within them", async () => {
       const todo = await filed();
       await finishAll();
       await wake(todo, {}, true);
       const asked = await latest(todo);
       assert.equal(asked.authority, "member");
-      assert.equal(asked.proactiveReview, false);
+      assert.equal(asked.startedByMember, true);
+      assert.equal(asked.proactiveReview, true);
+      assert.equal(asked.mailDeliveryMode, "review");
+    });
+
+    test("a person lending their access goes past them, for that session and tainted", async () => {
+      const todo = await filed();
+      await finishAll();
+      const started = await requestTodoPickup({
+        companyId: company.id,
+        todoId: todo.id,
+        employeeId: worker.id,
+        trigger: "start_now",
+        authority: { kind: "member", userId: owner.id, sessionVersion: 0 },
+        byMember: true,
+        overLimits: true,
+      });
+      assert.equal(started.started, true);
+      const lent = await latest(todo);
+      assert.equal(lent.proactiveReview, false);
+      assert.equal(lent.mailDeliveryMode, null);
+      assert.equal(lent.tainted, true, "the email's words are still on its thread");
       await finishAll();
       await wake(todo, {});
-      assert.equal((await latest(todo)).proactiveReview, true);
+      assert.equal((await latest(todo)).proactiveReview, true, "and it's held again after");
+    });
+  });
+
+  describe("a thread with someone else's words on it", () => {
+    const trustedPickup = async () => {
+      const [pickup] = await pickups().find({ order: { acceptedAt: "DESC", id: "DESC" } });
+      return pickup;
+    };
+
+    test("a trusted sender replying to all doesn't make a stranger's words theirs", async () => {
+      await intakeOn({ trustedSenders: "@google.com" });
+      await arrived({ fromEmail: "stranger@evil.test", fromName: "A Stranger" });
+      const message = await arrived();
+      await fileIntakeProposal(account, message, (await proposed(message)).id, fences, withHeaders(verifiedGoogle));
+      const pickup = await trustedPickup();
+      assert.equal(pickup.trustedSender, false);
+      assert.match(pickup.note, /can only prepare/);
+    });
+
+    test("closing the Todo doesn't clear what its thread was held to", async () => {
+      await intakeOn({ trustedSenders: "" });
+      const first = await arrived();
+      await fileIntakeProposal(account, first, (await proposed(first)).id, fences, withHeaders(verifiedGoogle));
+      await todos().update({ projectId: project.id }, { status: "done" });
+      await pickups().update({ status: "queued" }, { status: "done" });
+      await AppDataSource.getRepository(ProjectIntake).update(
+        { projectId: project.id },
+        { trustedSenders: "@google.com" },
+      );
+
+      const second = await arrived();
+      await fileIntakeProposal(account, second, (await proposed(second)).id, fences, withHeaders(verifiedGoogle));
+      const held = await todos().find({ where: { projectId: project.id } });
+      assert.equal(held.length, 2, "it's filed");
+      const pickup = await trustedPickup();
+      assert.equal(pickup.trustedSender, false);
+    });
+
+    test("this mailbox's own replies and other trusted senders aren't anyone else", async () => {
+      await intakeOn({ trustedSenders: "@google.com" });
+      await arrived({ fromEmail: account.address, fromName: "Team" });
+      await arrived({ fromEmail: "other@google.com", fromName: "Google" });
+      const message = await arrived();
+      await fileIntakeProposal(account, message, (await proposed(message)).id, fences, withHeaders(verifiedGoogle));
+      assert.equal((await trustedPickup()).trustedSender, true);
+    });
+
+    test("a wake reads the thread the same way", async () => {
+      await intakeOn({ trustedSenders: "@google.com" });
+      const message = await arrived();
+      const clean = await eventCeilingForTodo(
+        { projectId: project.id },
+        message,
+        account,
+        withHeaders(verifiedGoogle),
+      );
+      assert.equal(clean.trustedSender, true);
+      await arrived({ fromEmail: "stranger@evil.test", fromName: "A Stranger" });
+      const after = await eventCeilingForTodo(
+        { projectId: project.id },
+        message,
+        account,
+        withHeaders(verifiedGoogle),
+      );
+      assert.equal(after.trustedSender, false);
     });
   });
 

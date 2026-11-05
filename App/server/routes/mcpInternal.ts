@@ -93,7 +93,10 @@ import {
 import { insertTodo, spawnNextRecurrence } from "../services/todos.js";
 import { pageMyTodos } from "../services/todoWorkQueue.js";
 import {
+  MAX_HELD_TODOS_PER_COMPANY_PER_DAY,
   ceilingJsonFor,
+  heldTodosSince,
+  holdTodoToTurn,
   markTodoTainted,
   requestTodoPickup,
   type TodoPickupAuthority,
@@ -1324,10 +1327,9 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
         companyId: req.mcpCompany!.id,
         employeeId: req.mcpEmployee!.id,
         routineId: req.mcpRoutineId,
-        emailWork:
-          req.mcpTodoPickupId && req.mcpMailThreadId
-            ? { pickupId: req.mcpTodoPickupId, threadId: req.mcpMailThreadId }
-            : null,
+        emailWork: req.mcpTodoPickupId
+          ? { pickupId: req.mcpTodoPickupId, threadId: req.mcpMailThreadId ?? null }
+          : null,
       },
       name!,
       req.body ?? {},
@@ -12808,6 +12810,7 @@ mcpInternalRouter.post(
       return res.status(403).json({ error: "No access to that project" });
     }
     if (isTokenTainted(req.mcpToken!)) await markTodoTainted(todo.id);
+    await holdTodoToTurn(todo, await ownWorkCeilingOf(req, todo.id));
     const repo = AppDataSource.getRepository(TodoComment);
     const comment = await repo.save(
       repo.create({
@@ -12866,7 +12869,7 @@ function pickupCeilingOf(req: McpRequest): TodoPickupCeiling {
  */
 async function ownWorkCeilingOf(req: McpRequest, todoId: string): Promise<TodoPickupCeiling> {
   const ceiling = pickupCeilingOf(req);
-  if (!req.mcpTodoPickupId) return ceiling;
+  if (!req.mcpTodoPickupId) return { ...ceiling, trustedSender: false };
   const pickup = await AppDataSource.getRepository(TodoPickup).findOne({
     where: { id: req.mcpTodoPickupId },
     select: { id: true, employeeId: true, todoId: true, trustedSender: true },
@@ -13005,6 +13008,18 @@ mcpInternalRouter.post(
       return res.status(403).json({ error: "No access to that project" });
     }
 
+    // What preparing turns file is bounded like the email they come from, however
+    // many Todos one email talks them into.
+    if (
+      req.mcpProactiveReview &&
+      (await heldTodosSince(co.id, new Date(Date.now() - 24 * 60 * 60 * 1000))) >=
+        MAX_HELD_TODOS_PER_COMPANY_PER_DAY
+    ) {
+      return res.status(429).json({
+        error: `This company has ${MAX_HELD_TODOS_PER_COMPANY_PER_DAY} Todos from outside words filed today, so this wasn't. Put it in your report.`,
+      });
+    }
+
     // Default assignee = the employee who called us. Humans can explicitly
     // pass null to unassign, or a different slug to delegate.
     let assigneeId: string | null = self.id;
@@ -13095,13 +13110,10 @@ mcpInternalRouter.post(
       });
     }
 
-    // The saved Todo remains useful follow-up work, but an event Pipeline
-    // starts a separate worker that cannot inherit this turn's mail ceiling.
-    if (mailDeliveryAllowsDeferredWork(req.mcpMailDeliveryMode)) {
-      void dispatchTodoCreated(co.id, t.id).catch((err) => {
-        console.error(`[pipelines] task event failed for ${t.id}:`, err);
-      });
-    }
+    // A restricted turn's Todo keeps its limits, and fires nothing because of them.
+    void dispatchTodoCreated(co.id, t.id).catch((err) => {
+      console.error(`[pipelines] task event failed for ${t.id}:`, err);
+    });
 
     await recordAudit({
       companyId: co.id,
@@ -13220,6 +13232,7 @@ mcpInternalRouter.post(
     // taint every session that replays them.
     if (body.title !== undefined || body.description !== undefined) t.untrustedText = true;
     if (isTokenTainted(req.mcpToken!)) t.tainted = true;
+    await holdTodoToTurn(t, await ownWorkCeilingOf(req, t.id));
     if (body.priority !== undefined) t.priority = body.priority;
     if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
     if (body.parentTodoId !== undefined) {
@@ -23561,18 +23574,19 @@ mcpInternalRouter.post(
       let replyTo: { to: string; cc: string } | null = null;
       if (pickupReply) {
         // A model can call this in parallel, and a reply isn't counted until it's sent.
+        // So it's reserved before anything is awaited, or they'd all see none reserved.
         const reserved = repliesInFlight.get(thread!.id) ?? 0;
-        if ((await repliesSentRecently(thread!)) + reserved >= MAX_PICKUP_REPLIES_PER_THREAD) {
-          return res.status(403).json({
-            error: `This thread has had ${MAX_PICKUP_REPLIES_PER_THREAD} replies in the last 24 hours, which is as many as this work may send. Use request_mail_review so a person can send this one.`,
-          });
-        }
-        repliesInFlight.set(thread!.id, (repliesInFlight.get(thread!.id) ?? 0) + 1);
+        repliesInFlight.set(thread!.id, reserved + 1);
         releaseReply = () => {
           const left = (repliesInFlight.get(thread!.id) ?? 1) - 1;
           if (left > 0) repliesInFlight.set(thread!.id, left);
           else repliesInFlight.delete(thread!.id);
         };
+        if ((await repliesSentRecently(thread!)) + reserved >= MAX_PICKUP_REPLIES_PER_THREAD) {
+          return res.status(403).json({
+            error: `This thread has had ${MAX_PICKUP_REPLIES_PER_THREAD} replies in the last 24 hours, which is as many as this work may send. Use request_mail_review so a person can send this one.`,
+          });
+        }
         replyTo = await replyAllRecipients(account, thread!);
         if (!replyTo.to) {
           return res.status(400).json({ error: "Nobody else is on this thread to reply to." });

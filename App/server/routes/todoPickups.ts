@@ -91,18 +91,22 @@ todoPickupsRouter.get(
   },
 );
 
+/** `withMyAccess` is the one thing that goes past a Todo's limits, and it's asked for by name. */
+const sendBackSchema = z.object({ withMyAccess: z.boolean().optional() }).strict();
+
 /**
- * Start now: send this Todo's AI assignee back to it under the caller's
- * authority. For a Todo that sat in `todo` after a blocked pass, or one assigned
- * before its AI Employee had a model.
+ * Start now: send this Todo's AI assignee back to it, for a Todo that sat in `todo`
+ * after a blocked pass, or one assigned before its AI Employee had a model. It runs
+ * under the caller, within whatever limits the Todo is held to.
  */
 todoPickupsRouter.post(
   "/todos/:tid/pickups",
   requireBrowserSession,
   validateParams(todoParamsSchema),
-  validateBody(noBodySchema),
+  validateBody(sendBackSchema),
   async (req, res) => {
     const { cid, tid } = req.params as z.infer<typeof todoParamsSchema>;
+    const { withMyAccess } = req.body as z.infer<typeof sendBackSchema>;
     const found = await reachableTodo(req, res, cid, tid, "write");
     if (!found) return;
     if (!found.todo.assigneeEmployeeId) {
@@ -119,6 +123,7 @@ todoPickupsRouter.post(
         sessionVersion: req.session!.sessionVersion!,
       },
       byMember: true,
+      overLimits: withMyAccess === true,
     });
     if (!outcome.started) {
       const refusal: Record<typeof outcome.reason, string> = {
@@ -139,6 +144,7 @@ todoPickupsRouter.post(
       targetType: "todo",
       targetId: tid,
       targetLabel: `${found.project.key}-${found.todo.number}: ${found.todo.title}`,
+      metadata: { withMyAccess: withMyAccess === true },
     });
     res.json(await listTodoPickups({ companyId: cid, todoId: tid, viewerUserId: req.userId! }));
   },
@@ -178,16 +184,18 @@ todoPickupsRouter.post(
 );
 
 /**
- * Stop waiting: the assignee carries on now under the caller's access, whatever
- * it was waiting for. Starts AI work, so a signed-in browser only.
+ * Stop waiting: the assignee carries on now, whatever it was waiting for, within the
+ * Todo's limits unless `withMyAccess` says otherwise. Starts AI work, so a signed-in
+ * browser only.
  */
 todoPickupsRouter.post(
   "/todos/:tid/stop-waiting",
   requireBrowserSession,
   validateParams(todoParamsSchema),
-  validateBody(noBodySchema),
+  validateBody(sendBackSchema),
   async (req, res) => {
     const { cid, tid } = req.params as z.infer<typeof todoParamsSchema>;
+    const { withMyAccess } = req.body as z.infer<typeof sendBackSchema>;
     const found = await reachableTodo(req, res, cid, tid, "write");
     if (!found) return;
     if (!found.todo.waitingOn) return res.status(400).json({ error: "This Todo isn't waiting" });
@@ -201,6 +209,7 @@ todoPickupsRouter.post(
       userId: req.userId!,
       sessionVersion: req.session!.sessionVersion!,
       name: user ? user.name || user.email : "A Member",
+      withMyAccess: withMyAccess === true,
     });
     await recordAudit({
       companyId: cid,
@@ -209,6 +218,7 @@ todoPickupsRouter.post(
       targetType: "todo",
       targetId: tid,
       targetLabel: `${found.project.key}-${found.todo.number}: ${found.todo.title}`,
+      metadata: { withMyAccess: withMyAccess === true },
     });
     res.json(await listTodoPickups({ companyId: cid, todoId: tid, viewerUserId: req.userId! }));
   },

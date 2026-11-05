@@ -235,10 +235,13 @@ trusted-origin check, is in `App/server/index.ts`.
   choosing a Project off the closed list; any session an email started or woke using
   a tool outside preparation, other than a trusted sender's browser and Vault logins
   or the opted-in reply; a later automatic session on such a Todo going further than
-  it did (`Todo.ceilingJson` only narrows); an API key, a plain Member or an AI tool
+  it did (`Todo.ceilingJson` only narrows); a Member's comment, assignment, @-mention or
+  Stop waiting lifting those limits, since only Use my access on the Todo does, for one
+  session; a held Todo starting a Pipeline; an API key, a plain Member or an AI tool
   changing an intake; or `verifySender` accepting a sender the mailbox's own receiving
   server didn't verify (a forged lower `Authentication-Results`, or a result quoted
-  inside a comment, say). It vouches for a domain, not an address, by design. "Send
+  inside a comment, say). It vouches for a domain, not an address, by design, and a
+  trusted sender forwarding someone else's words is still a trusted sender's email. "Send
   replies without review" reaching the thread's existing participants, including
   anyone a sender put on CC, is the opt-in as it warns; a reply reaching anyone else or
   carrying an attachment is a finding.

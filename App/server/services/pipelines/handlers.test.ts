@@ -6,6 +6,8 @@ import { Base } from "../../db/entities/Base.js";
 import { BaseField } from "../../db/entities/BaseField.js";
 import { BaseRecord } from "../../db/entities/BaseRecord.js";
 import { BaseTable } from "../../db/entities/BaseTable.js";
+import { Project } from "../../db/entities/Project.js";
+import { Todo } from "../../db/entities/Todo.js";
 import {
   closeTestDb,
   initTestDb,
@@ -202,4 +204,62 @@ describe("action.createBaseRecord", () => {
       /Table "old-leads" not found/,
     );
   });
+});
+
+describe("action.createTodo", () => {
+  async function filedBy(trigger: {
+    kind: "manual" | "schedule" | "webhook" | "event";
+    payload: unknown;
+  }): Promise<Todo> {
+    await insert(Project, {
+      companyId: cid,
+      name: "Compliance",
+      slug: "compliance",
+      key: "COMP",
+      todoCounter: 0,
+    });
+    const handler = HANDLERS["action.createTodo"];
+    assert.ok(handler);
+    const config = { projectSlug: "compliance", title: "From a Pipeline" };
+    const node: PipelineNode = { id: "n_todo", type: "action.createTodo", x: 0, y: 0, config };
+    const result = await handler({
+      companyId: cid,
+      pipelineId: testId("pipeline"),
+      pipelineName: "Pipeline",
+      runId: testId("run"),
+      env: { trigger, nodeOutputs: {} },
+      config,
+      node,
+      log: () => undefined,
+    });
+    return AppDataSource.getRepository(Todo).findOneByOrFail({
+      id: String(result.outputs.todoId),
+    });
+  }
+
+  test("what an email's Run files is held to preparing", async () => {
+    const todo = await filedBy({ kind: "event", payload: { event: "email.received" } });
+    const floor = JSON.parse(todo.ceilingJson ?? "{}") as Record<string, unknown>;
+    assert.equal(floor.proactiveReview, true);
+    assert.equal(floor.mailDeliveryMode, "review");
+    assert.equal(todo.untrustedText, true);
+  });
+
+  test("so is what a webhook's files", async () => {
+    const todo = await filedBy({ kind: "webhook", payload: {} });
+    assert.ok(todo.ceilingJson);
+  });
+
+  for (const trigger of [
+    { kind: "schedule", payload: {} },
+    { kind: "manual", payload: {} },
+    { kind: "event", payload: { event: "todo.created" } },
+  ] as const) {
+    const named = trigger.kind === "event" ? "a new Todo" : `a ${trigger.kind} Run`;
+    test(`${named} has no outside words to hold it to`, async () => {
+      const todo = await filedBy(trigger);
+      assert.equal(todo.ceilingJson, null);
+      assert.equal(todo.untrustedText, true, "and a template's words still aren't a Member's");
+    });
+  }
 });

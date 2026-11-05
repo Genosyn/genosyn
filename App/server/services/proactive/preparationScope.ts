@@ -12,15 +12,18 @@ type PreparationContext = {
   employeeId: string;
   routineId?: string | null;
   /**
-   * The pickup and thread this turn was started for, when an email started it. Then
-   * it works that Todo and that thread and nothing else: the words behind it are a
-   * stranger's, so they don't get to reach other people's work.
+   * The pickup this turn was started for, and the thread when it has one. A pickup held
+   * to preparing works that Todo and that thread and nothing else: the words behind it
+   * are from outside, so they don't get to reach other people's work.
    */
-  emailWork?: { pickupId: string; threadId: string } | null;
+  emailWork?: { pickupId: string; threadId: string | null } | null;
 };
 
+/** Subtasks a session working from outside words may file on its Todo. They start nobody. */
+export const MAX_SUBTASKS_FROM_EMAIL = 10;
+
 const EMAIL_WORK_BOUNDARY =
-  "A session an email started can only work on its own Todo and the thread it came from. Say what else you'd do in your report, or use request_work_review.";
+  "A session working from outside words can only work on its own Todo and the thread it came from. Say what else you'd do in your report, or use request_work_review.";
 
 /** Why this call reaches past the Todo and thread an email started this turn for. */
 async function emailWorkError(
@@ -51,8 +54,16 @@ async function emailWorkError(
       where: { companyId: context.companyId, slug: String(args.projectSlug ?? "") },
       select: { id: true },
     });
-    return project?.id === own.projectId ? null : EMAIL_WORK_BOUNDARY;
+    if (project?.id !== own.projectId || args.parentTodoId !== own.id) {
+      return `${EMAIL_WORK_BOUNDARY} Anything you file here is a subtask of your Todo: pass its id as parentTodoId.`;
+    }
+    const subtasks = await AppDataSource.getRepository(Todo).countBy({ parentTodoId: own.id });
+    return subtasks >= MAX_SUBTASKS_FROM_EMAIL
+      ? `This Todo has ${MAX_SUBTASKS_FROM_EMAIL} subtasks, which is as many as this work can file. Say what's left in your report.`
+      : null;
   }
+  // A wait is what starts a later session, so that stays with the Todo the email filed.
+  if (toolName === "wait_on_todo" && args.todoId !== own.id) return EMAIL_WORK_BOUNDARY;
   if (args.todoId !== own.id) {
     const parsed = idSchema.safeParse(args.todoId);
     const row = parsed.success
