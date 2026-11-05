@@ -181,7 +181,8 @@ export async function gatherEmployeeTools(params: {
           routineId: params.routineId,
           conversationId: params.conversationId,
           runId: params.runId,
-          sessionKey: params.browserSessionKey,
+          todoId: params.browserSessionKey,
+          todoPickupId: tokenInfo?.todoPickupId,
         })
       : Promise.resolve<BrowserConfig>({
           enabled: false,

@@ -42,6 +42,18 @@ export class BrowserSession {
   @Column({ type: "varchar", nullable: true })
   conversationId!: string | null;
 
+  /**
+   * The Todo this session is for, when a pickup spawned it. Turns of one Todo come
+   * back to the same page, as a conversation's do, and its recording is filed here.
+   */
+  @Index()
+  @Column({ type: "varchar", nullable: true })
+  todoId!: string | null;
+
+  /** The pickup using it most recently: whose report its recording belongs with. */
+  @Column({ type: "varchar", nullable: true })
+  todoPickupId!: string | null;
+
   /** Run that triggered the spawn (when routine-spawned). */
   @Index()
   @Column({ type: "varchar", nullable: true })

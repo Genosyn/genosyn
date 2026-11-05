@@ -135,6 +135,7 @@ function contract(input: TodoPickupBriefInput): string[] {
       ? []
       : [
           "- If a browser action is queued for approval, stop there and end this session. This todo starts again when a person decides, and you call `browser_resume` then.",
+          "- If you used the browser, say in your report what you did there and what the page said at the end. A recording of it is kept with your report.",
         ]),
     `- If you need an answer before you can finish, ask for it (an email to the customer, or a question on this thread), then call \`wait_on_todo\` with todoId "${todo.id}" saying what you're waiting on and when to check back. This Todo wakes you when the reply arrives; don't stay in this session waiting.`,
     `- If you're blocked with nobody to ask, or the brief is too vague to act on, move the status back to "todo" via \`update_todo\` (todoId "${todo.id}") and say exactly what you need.`,

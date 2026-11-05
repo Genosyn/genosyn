@@ -82,7 +82,7 @@ const FFMPEG_FINISH_TIMEOUT_MS = 5_000;
 const STDERR_LIMIT = 4_096;
 const activeRecordings = new Map<string, ActiveRecording>();
 const beginPromises = new Map<string, Promise<BrowserRecordingInfo | null>>();
-const beginScopes = new Map<string, Pick<BrowserSession, "companyId" | "runId">>();
+const beginScopes = new Map<string, Pick<BrowserSession, "companyId" | "runId" | "todoId">>();
 // Sessions whose capture is being thrown away because the Run, Routine, or
 // Company that owns it is going away. This is cancellation, not privacy: a
 // recording is never withheld from the humans allowed to watch it.
@@ -109,14 +109,15 @@ function runFinalizing(runId: string): boolean {
 }
 
 function deletionBlocked(
-  session: Pick<BrowserSession, "companyId" | "runId">,
+  session: Pick<BrowserSession, "companyId" | "runId"> & { todoId?: string | null },
   allowFinalizingRun = false,
 ): boolean {
   return (
     deletingCompanyIds.has(session.companyId) ||
     (session.runId !== null &&
       (deletingRunIds.has(session.runId) ||
-        (!allowFinalizingRun && runFinalizing(session.runId))))
+        (!allowFinalizingRun && runFinalizing(session.runId)))) ||
+    (session.todoId != null && deletingRunIds.has(session.todoId))
   );
 }
 
@@ -208,7 +209,12 @@ function assertSafeId(value: string): void {
   if (!SAFE_ID.test(value)) throw new Error("Invalid browser recording id");
 }
 
-function recordingPaths(session: Pick<BrowserSession, "id" | "companyId" | "runId">): {
+/** What a recording is filed under: the Run it's from, or the Todo whose session it is. */
+function recordingOwner(session: { runId: string | null; todoId?: string | null }): string | null {
+  return session.runId ?? session.todoId ?? null;
+}
+
+function recordingPaths(session: RecordingIds): {
   directory: string;
   finalPath: string;
   partPath: string;
@@ -216,20 +222,18 @@ function recordingPaths(session: Pick<BrowserSession, "id" | "companyId" | "runI
   /** Written by builds that withheld recordings. Only ever removed now. */
   legacyRestrictedMarkerPath: string;
 } {
-  if (!session.runId) throw new Error("Browser recording requires a Run");
+  const owner = recordingOwner(session);
+  if (!owner) throw new Error("Browser recording requires a Run or a Todo");
   assertSafeId(session.companyId);
-  assertSafeId(session.runId);
+  assertSafeId(owner);
   assertSafeId(session.id);
-  const finalPath = browserRecordingFile(session.companyId, session.runId, session.id);
+  const finalPath = browserRecordingFile(session.companyId, owner, session.id);
   return {
-    directory: browserRecordingRunDir(session.companyId, session.runId),
+    directory: browserRecordingRunDir(session.companyId, owner),
     finalPath,
     partPath: `${finalPath}.part`,
     legacyRestrictedMarkerPath: `${finalPath}.restricted`,
-    metadataPath: path.join(
-      browserRecordingRunDir(session.companyId, session.runId),
-      `${session.id}.json`,
-    ),
+    metadataPath: path.join(browserRecordingRunDir(session.companyId, owner), `${session.id}.json`),
   };
 }
 
@@ -256,7 +260,9 @@ async function ensurePrivateDirectory(directory: string): Promise<void> {
   await fs.chmod(directory, 0o700).catch(() => undefined);
 }
 
-type RecordingIds = Pick<BrowserSession, "id" | "companyId" | "runId">;
+type RecordingIds = Pick<BrowserSession, "id" | "companyId" | "runId"> & {
+  todoId?: string | null;
+};
 
 /**
  * Pass `createDirectory: false` to write only into a Run folder that still
@@ -545,7 +551,7 @@ async function beginImpl(
   allowFinalizingRun: boolean,
 ): Promise<BrowserRecordingInfo | null> {
   if (
-    !session.runId ||
+    !recordingOwner(session) ||
     abandonedSessionIds.has(session.id) ||
     frozenSessionIds.has(session.id) ||
     deletionBlocked(session, allowFinalizingRun)
@@ -554,7 +560,6 @@ async function beginImpl(
   }
   const currentSession = await AppDataSource.getRepository(BrowserSession).findOneBy({
     id: session.id,
-    runId: session.runId,
     status: In(["pending", "live"]),
   });
   if (
@@ -566,17 +571,16 @@ async function beginImpl(
     return null;
   }
   session = currentSession;
-  if (!session.runId) return null;
+  if (!recordingOwner(session)) return null;
   const existing = await readMetadata(session);
   // Do not retry-spawn an unavailable encoder on every browser action.
   if (existing) return existing;
-  const run = await AppDataSource.getRepository(Run).findOne({
-    where: { id: session.runId },
-    select: { id: true, status: true },
-  });
+  // A Todo's session has no Run to outlive. It ends when the session does.
+  const runStopped = async (runId: string | null): Promise<boolean> =>
+    runId !== null &&
+    !(await AppDataSource.getRepository(Run).existsBy({ id: runId, status: "running" }));
   if (
-    !run ||
-    run.status !== "running" ||
+    (await runStopped(session.runId)) ||
     abandonedSessionIds.has(session.id) ||
     frozenSessionIds.has(session.id) ||
     deletionBlocked(session, allowFinalizingRun)
@@ -597,12 +601,8 @@ async function beginImpl(
       height: capDimension(session.viewportHeight, BROWSER_RECORDING_MAX_HEIGHT),
       framesPerSecond: BROWSER_RECORDING_FPS,
     });
-    const runStillRunning = await AppDataSource.getRepository(Run).existsBy({
-      id: session.runId,
-      status: "running",
-    });
     if (
-      !runStillRunning ||
+      (await runStopped(session.runId)) ||
       abandonedSessionIds.has(session.id) ||
       frozenSessionIds.has(session.id) ||
       deletionBlocked(session, allowFinalizingRun)
@@ -650,7 +650,11 @@ export async function beginBrowserRecording(
   if (active) return baseInfo(session, active.status, active.startedAt, null);
   const pending = beginPromises.get(session.id);
   if (pending) return pending;
-  beginScopes.set(session.id, { companyId: session.companyId, runId: session.runId });
+  beginScopes.set(session.id, {
+    companyId: session.companyId,
+    runId: session.runId,
+    todoId: session.todoId,
+  });
   const promise = beginImpl(session, allowFinalizingRun).finally(() => {
     beginPromises.delete(session.id);
     beginScopes.delete(session.id);
@@ -670,24 +674,25 @@ export function browserRecordingDemand(sessionId: string): boolean {
  */
 export function getBrowserRecordingLiveFrame(
   session: BrowserSession,
-  run: Pick<Run, "id" | "routineId" | "status">,
+  /** The Run it belongs to. A Todo's session has none, and its own status decides. */
+  run: Pick<Run, "id" | "routineId" | "status"> | null,
 ): { frame: Buffer | null } | null {
   const active = activeRecordings.get(session.id);
   if (
-    !session.runId ||
-    session.runId !== run.id ||
-    run.status !== "running" ||
+    !recordingOwner(session) ||
+    (session.runId !== null && (session.runId !== run?.id || run?.status !== "running")) ||
     (session.status !== "pending" && session.status !== "live") ||
     !active ||
     active.status !== "recording" ||
     active.session.companyId !== session.companyId ||
     active.session.runId !== session.runId ||
+    active.session.todoId !== session.todoId ||
     active.session.employeeId !== session.employeeId ||
     active.session.memberBrowserId !== session.memberBrowserId ||
     abandonedSessionIds.has(session.id) ||
     frozenSessionIds.has(session.id) ||
     deletingEmployeeIds.has(session.employeeId) ||
-    deletingRoutineIds.has(run.routineId) ||
+    (run !== null && deletingRoutineIds.has(run.routineId)) ||
     deletionBlocked(session)
   ) {
     return null;
@@ -746,7 +751,7 @@ async function abandonImpl(sessionId: string): Promise<void> {
   const session =
     active?.session ??
     (await AppDataSource.getRepository(BrowserSession).findOneBy({ id: sessionId }));
-  if (!session?.runId) {
+  if (!session || !recordingOwner(session)) {
     abandonedSessionIds.delete(sessionId);
     frozenSessionIds.delete(sessionId);
     return;
@@ -988,8 +993,32 @@ export async function listBrowserRecordingsForRun(runId: string): Promise<Browse
     }),
   ]);
   const terminal = run !== null && run.status !== "running";
+  const infos = await Promise.all(sessions.map((session) => recordingInfo(session, terminal)));
+  return infos.filter((info): info is BrowserRecordingInfo => info !== null);
+}
+
+/** A Todo's recordings, oldest first. Each is finished once its own session has closed. */
+export async function listBrowserRecordingsForTodo(
+  todoId: string,
+): Promise<Array<BrowserRecordingInfo & { pickupId: string | null }>> {
+  const sessions = await AppDataSource.getRepository(BrowserSession).find({
+    where: { todoId },
+    order: { createdAt: "ASC", id: "ASC" },
+  });
   const infos = await Promise.all(
     sessions.map(async (session) => {
+      const info = await recordingInfo(session, session.status !== "pending" && session.status !== "live");
+      return info ? { ...info, pickupId: session.todoPickupId } : null;
+    }),
+  );
+  return infos.filter((info) => info !== null);
+}
+
+/** One session's recording as it stands, or null when it never started one. */
+async function recordingInfo(
+  session: BrowserSession,
+  terminal: boolean,
+): Promise<BrowserRecordingInfo | null> {
       if (abandonedSessionIds.has(session.id)) {
         const persisted = await readMetadata(session);
         return baseInfo(
@@ -1026,25 +1055,24 @@ export async function listBrowserRecordingsForRun(runId: string): Promise<Browse
       // attestation. Terminal Runs converge it through fail-closed recovery;
       // active Runs simply hide it until metadata is durably written.
       return terminal ? recoverOne(session) : null;
-    }),
-  );
-  return infos.filter((info): info is BrowserRecordingInfo => info !== null);
 }
 
 export async function getBrowserRecordingFile(
   session: BrowserSession,
 ): Promise<{ path: string; info: BrowserRecordingInfo } | null> {
-  if (!session.runId) return null;
-  const info = (await listBrowserRecordingsForRun(session.runId)).find(
-    (candidate) => candidate.id === session.id,
-  );
+  const owned = session.runId
+    ? await listBrowserRecordingsForRun(session.runId)
+    : session.todoId
+      ? await listBrowserRecordingsForTodo(session.todoId)
+      : [];
+  const info = owned.find((candidate) => candidate.id === session.id);
   if (!info || info.status !== "ready") return null;
   const filePath = recordingPaths(session).finalPath;
   if ((await statSize(filePath)) <= 0) return null;
   return { path: filePath, info };
 }
 
-type RecordingScope = Pick<BrowserSession, "companyId" | "runId">;
+type RecordingScope = Pick<BrowserSession, "companyId" | "runId"> & { todoId?: string | null };
 
 async function quiesceRecordings(matches: (scope: RecordingScope) => boolean): Promise<void> {
   for (;;) {
@@ -1128,6 +1156,41 @@ export async function deleteBrowserRecordingsForRunIds(runIds: string[]): Promis
   await repo.delete({ runId: In(uniqueRunIds) });
   for (const session of [...sessions, ...lateSessions]) abandonedSessionIds.delete(session.id);
   for (const session of [...sessions, ...lateSessions]) frozenSessionIds.delete(session.id);
+}
+
+/** Everything recorded for these Todos, and their sessions, gone with them. */
+export async function deleteBrowserRecordingsForTodoIds(todoIds: readonly string[]): Promise<void> {
+  const unique = [...new Set(todoIds.filter(Boolean))];
+  if (unique.length === 0) return;
+  // Before the first await, as for a Run: a session starting now can't recreate this.
+  for (const todoId of unique) deletingRunIds.add(todoId);
+  const repo = AppDataSource.getRepository(BrowserSession);
+  const sessions = await repo.findBy({ todoId: In(unique) });
+  await closeRecordingSessions(sessions);
+  await Promise.all(
+    [...abandonPromises.values()].map((promise) => promise.catch(() => undefined)),
+  );
+  const todoIdSet = new Set(unique);
+  await quiesceRecordings((scope) => scope.todoId != null && todoIdSet.has(scope.todoId));
+  // A create that entered just before the tombstone may commit after that snapshot.
+  const lateSessions = (await repo.findBy({ todoId: In(unique) })).filter(
+    (session) => !sessions.some((candidate) => candidate.id === session.id),
+  );
+  await closeRecordingSessions(lateSessions);
+  const allSessions = [...sessions, ...lateSessions];
+  await Promise.all(
+    allSessions.map((session) =>
+      fs.rm(browserRecordingRunDir(session.companyId, session.todoId as string), {
+        recursive: true,
+        force: true,
+      }),
+    ),
+  );
+  await repo.delete({ todoId: In(unique) });
+  for (const session of allSessions) {
+    abandonedSessionIds.delete(session.id);
+    frozenSessionIds.delete(session.id);
+  }
 }
 
 export async function deleteBrowserRecordingsForCompany(companyId: string): Promise<void> {
