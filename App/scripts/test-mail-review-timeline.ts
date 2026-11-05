@@ -847,6 +847,10 @@ try {
         }
         return json({ thread: projection });
       }
+      // The thread asks what Todos it is linked to; this one has none.
+      if (method === "GET" && url.pathname === "/api/companies/company/todo-links") {
+        return json({ total: 0, hasMore: false, nextCursor: null, todos: [] });
+      }
       unexpected.push(`${method} ${url.pathname}`);
       return json({ error: "Unexpected fixture request" }, 500);
     });

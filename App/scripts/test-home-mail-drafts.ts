@@ -354,6 +354,10 @@ async function open(options: Options = {}) {
         },
       });
     }
+    // The thread asks what Todos it is linked to; this one has none.
+    if (endpoint === "/todo-links") {
+      return route.fulfill({ json: { total: 0, hasMore: false, nextCursor: null, todos: [] } });
+    }
     unexpected.push(`Unexpected read: ${url.pathname}${url.search}`);
     return route.fulfill({ status: 500, json: { error: "Unexpected fixture request" } });
   });
