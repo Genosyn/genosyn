@@ -23,6 +23,7 @@ import {
   Eye,
   History as HistoryIcon,
 } from "lucide-react";
+import { TODO_WAIT_LABEL } from "../../shared/todoPickups";
 import {
   api,
   Company,
@@ -1099,6 +1100,7 @@ function TodoRow({
         {project.key}-{todo.number}
       </span>
       <TodoSourceChip todo={todo} />
+      <TodoWaitChip todo={todo} />
       <PriorityPicker
         value={todo.priority}
         onChange={(p) => onPatch({ priority: p })}
@@ -1327,6 +1329,18 @@ function TodoSourceChip({ todo }: { todo: Todo }) {
   );
 }
 
+/** It is waiting on someone, which the list and board should say at a glance. */
+function TodoWaitChip({ todo }: { todo: Todo }) {
+  if (!todo.waitingOn) return null;
+  return (
+    <span className="shrink-0" title={todo.waitingReason || TODO_WAIT_LABEL[todo.waitingOn]}>
+      <Badge tone="warning" size="sm">
+        {TODO_WAIT_LABEL[todo.waitingOn]}
+      </Badge>
+    </span>
+  );
+}
+
 function BoardCard({
   todo,
   project,
@@ -1380,6 +1394,7 @@ function BoardCard({
           )}
           {stats && <SubtaskCountChip stats={stats} />}
           <TodoSourceChip todo={todo} />
+          <TodoWaitChip todo={todo} />
           {isReview && (
             <span
               className="ml-auto flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"

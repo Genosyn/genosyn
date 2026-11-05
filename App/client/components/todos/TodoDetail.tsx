@@ -13,6 +13,7 @@ import {
   CornerDownRight,
   CornerUpLeft,
   ListTree,
+  Mail,
   MessageSquare,
   Plus,
   RefreshCw,
@@ -1074,6 +1075,17 @@ function CommentRow({
   const name = optimistic ? "You" : (author?.name ?? "Unknown");
   const isAi = author?.kind === "ai";
   const when = formatWhen(comment.createdAt);
+
+  // A line from the server: a new email arrived, not anyone saying anything.
+  if (comment.systemNote) {
+    return (
+      <div className="flex items-center gap-2 pl-9 text-xs text-slate-500 dark:text-slate-400">
+        <Mail size={12} aria-hidden className="shrink-0" />
+        <span className="min-w-0 break-words">{comment.body}</span>
+        <span className="shrink-0 text-slate-400 dark:text-slate-500">· {when}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="group flex gap-2.5">

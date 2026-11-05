@@ -11,6 +11,7 @@ import { applyAutomaticAnalysisActions } from "./analysisAutomation.js";
 import { hasBlockedSender } from "./blockedSenders.js";
 import { runRulesForNewMessage } from "./rules.js";
 import { reconcileProactiveDefaults } from "../proactive/defaults.js";
+import { wakeTodosForInboundMail } from "../todoWaits.js";
 
 const DISCOVERY_INTERVAL_MS = 5_000;
 const ACCOUNT_LEASE_MS = 12 * 60 * 60 * 1_000;
@@ -47,6 +48,7 @@ type MailDefaultEffectsDependencies = {
   applyInstructions?: typeof applyAutomaticAnalysisActions;
   applyRules?: typeof runRulesForNewMessage;
   dispatchReceived?: typeof dispatchEmailReceived;
+  wakeTodos?: typeof wakeTodosForInboundMail;
 };
 
 export async function runDefaultMailEffects(
@@ -143,6 +145,17 @@ export async function runDefaultMailEffects(
   );
   await assertRunnable();
   if (!(await hasBlockedSender(account, message))) {
+    // A reply on a thread a Todo is linked to sends its assignee back to work.
+    // Follow-through is worth keeping apart from this message's other effects, so
+    // anything but a pause only costs that, and the Pipelines still run.
+    await beforeEffect();
+    await (dependencies.wakeTodos ?? wakeTodosForInboundMail)(account, message).catch(
+      async (error) => {
+        await assertRunnable();
+        // eslint-disable-next-line no-console
+        console.error(`[mail] waking Todos for message ${message.id} failed:`, error);
+      },
+    );
     await (dependencies.dispatchReceived ?? dispatchEmailReceived)(message.id, {
       failOnRejected: true,
       beforeEffect,

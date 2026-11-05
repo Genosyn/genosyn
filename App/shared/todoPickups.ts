@@ -15,7 +15,37 @@ export type TodoPickupTrigger =
   /** The Todo entered review and this AI Employee is its reviewer. */
   | "review"
   /** The previous pickup ended with the Todo neither finished nor waiting. */
-  | "left_open";
+  | "left_open"
+  /** The time it said it would check back on a wait came. */
+  | "wait_over"
+  /** A new email arrived on a thread linked to the Todo. */
+  | "email_reply"
+  /** A Member answered on the thread while it waited on a person. */
+  | "member_comment"
+  /** A Member ended the wait from the Todo's panel. */
+  | "wait_stopped"
+  /** The Decision it was waiting on was answered or dismissed. */
+  | "decision_answered"
+  /** The email or work it proposed for review was discarded, declined, or finished. */
+  | "review_outcome";
+
+/** What an `in_progress` Todo can be waiting on. */
+export type TodoWaitKind =
+  | "customer"
+  | "member"
+  | "decision"
+  | "mail_review"
+  | "work_review"
+  | "date";
+
+export const TODO_WAIT_LABEL: Record<TodoWaitKind, string> = {
+  customer: "Waiting on customer",
+  member: "Waiting on a person",
+  decision: "Waiting on a Decision",
+  mail_review: "Waiting on email review",
+  work_review: "Waiting on work review",
+  date: "Waiting until a date",
+};
 
 export type TodoPickupStatus = "queued" | "running" | "done" | "failed" | "stopped" | "skipped";
 
@@ -33,6 +63,12 @@ export const TODO_PICKUP_TRIGGER_LABEL: Record<TodoPickupTrigger, string> = {
   start_now: "Started by hand",
   review: "Up for review",
   left_open: "Left unfinished",
+  wait_over: "Checking back",
+  email_reply: "New email",
+  member_comment: "A person answered",
+  wait_stopped: "Told to carry on",
+  decision_answered: "Decision answered",
+  review_outcome: "Review came back",
 };
 
 /** What a queued pickup is held by, in words for its Todo's panel. */

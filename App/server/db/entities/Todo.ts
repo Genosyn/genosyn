@@ -1,4 +1,5 @@
 import { dateTimeColumnType } from "./columnTypes.js";
+import type { TodoWaitKind } from "../../../shared/todoPickups.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -34,6 +35,9 @@ export type TodoRecurrence =
  */
 @Entity("todos")
 @Index(["projectId", "number"], { unique: true })
+// What a Decision, a reviewed email or an email thread looks up to find the Todo
+// waiting on it.
+@Index(["waitingOn", "waitingRefId"])
 export class Todo {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -134,6 +138,32 @@ export class Todo {
    */
   @Column({ type: "boolean", default: false })
   tainted!: boolean;
+
+  /**
+   * What this `in_progress` Todo is waiting on, or null when it isn't. A state of
+   * `in_progress` rather than a status of its own (`services/todoWaits.ts`).
+   */
+  @Column({ type: "varchar", nullable: true })
+  waitingOn!: TodoWaitKind | null;
+
+  /** What it is waiting on exactly: a mail thread, a Decision, an Approval. */
+  @Column({ type: "varchar", nullable: true })
+  waitingRefId!: string | null;
+
+  /** Why, in the AI Employee's words. */
+  @Column({ type: "text", default: "" })
+  waitingReason!: string;
+
+  @Column({ type: dateTimeColumnType, nullable: true })
+  waitingSince!: Date | null;
+
+  /** When it checks back. A queued pickup holds the actual turn in the queue. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  waitingCheckAt!: Date | null;
+
+  /** Times it has checked back with no reply since someone last answered. */
+  @Column({ type: "int", default: 0 })
+  followUpCount!: number;
 
   /**
    * How many AI hand-offs led here. A Todo created or handed on inside a pickup

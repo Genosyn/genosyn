@@ -10,6 +10,7 @@ import { requireAuth, requireBrowserSession, requireCompanyMember } from "../mid
 import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { hasProjectAccess, type ProjectActor } from "../services/projects.js";
+import { stopWaitingOnTodo } from "../services/todoWaits.js";
 import {
   followTodoPickup,
   listTodoPickups,
@@ -173,6 +174,43 @@ todoPickupsRouter.post(
       });
     }
     res.json({ stopped });
+  },
+);
+
+/**
+ * Stop waiting: the assignee carries on now under the caller's access, whatever
+ * it was waiting for. Starts AI work, so a signed-in browser only.
+ */
+todoPickupsRouter.post(
+  "/todos/:tid/stop-waiting",
+  requireBrowserSession,
+  validateParams(todoParamsSchema),
+  validateBody(noBodySchema),
+  async (req, res) => {
+    const { cid, tid } = req.params as z.infer<typeof todoParamsSchema>;
+    const found = await reachableTodo(req, res, cid, tid, "write");
+    if (!found) return;
+    if (!found.todo.waitingOn) return res.status(400).json({ error: "This Todo isn't waiting" });
+    const user = await AppDataSource.getRepository(User).findOne({
+      where: { id: req.userId! },
+      select: { id: true, name: true, email: true },
+    });
+    await stopWaitingOnTodo({
+      companyId: cid,
+      todo: found.todo,
+      userId: req.userId!,
+      sessionVersion: req.session!.sessionVersion!,
+      name: user ? user.name || user.email : "A Member",
+    });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "todo.wait.stop",
+      targetType: "todo",
+      targetId: tid,
+      targetLabel: `${found.project.key}-${found.todo.number}: ${found.todo.title}`,
+    });
+    res.json(await listTodoPickups({ companyId: cid, todoId: tid, viewerUserId: req.userId! }));
   },
 );
 

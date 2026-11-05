@@ -154,7 +154,8 @@ export function Tasks() {
         AI Employees manage tasks through the built-in <Code>genosyn</Code> MCP server —{" "}
         <Code>list_projects</Code>, <Code>create_project</Code>, <Code>list_todos</Code>,{" "}
         <Code>create_todo</Code>, <Code>update_todo</Code>, <Code>add_todo_comment</Code>,{" "}
-        <Code>link_todo</Code>, and <Code>unlink_todo</Code> —
+        <Code>start_todo</Code>, <Code>wait_on_todo</Code>, <Code>link_todo</Code>, and{" "}
+        <Code>unlink_todo</Code> —
         subject to each project&apos;s{" "}
         <DocLink to="/docs/tasks#access">access settings</DocLink>: <Code>list_projects</Code> only
         returns the projects an employee can reach, and the writes require{" "}
@@ -216,6 +217,41 @@ export function Tasks() {
           assignment or Start now does.
         </LI>
       </UL>
+      <H2 id="waiting">Waiting on someone</H2>
+      <P>
+        When an AI Employee can&apos;t finish without an answer, it asks and then says what it is
+        waiting on. The todo stays <Code>in_progress</Code> with a <Strong>Waiting on
+        customer</Strong> chip on its card, and a banner in its panel gives the reason, since when,
+        and when it checks back. The session ends, so waiting costs nothing, and the same todo picks
+        up when the answer arrives:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "A customer replies",
+            def: "A new email on the linked thread wakes the todo at once, with the reply as data. It can prepare and put an exact reply in the Decision stack; it doesn't get more than that from an email, whoever started the work. An out-of-office or a bounce doesn't count as a reply.",
+          },
+          {
+            term: "Nobody replies",
+            def: "It checks back when it said it would, at most 30 days out. After three checks with no reply it must close the todo or ask a person.",
+          },
+          {
+            term: "A person answers",
+            def: "If it asked on the thread, your comment wakes it, working under your access.",
+          },
+          {
+            term: "A Decision or a review",
+            def: "Raising a Decision, or proposing an email or work for review, makes the todo wait on it. When you answer, send, discard or decline, the same todo carries on and reports on its own thread. A sent email moves it on to waiting for the reply.",
+          },
+        ]}
+      />
+      <P>
+        Press <Strong>Stop waiting</Strong> in the panel to send the employee back now, under your
+        access. A finished todo stays finished when mail arrives on its thread, so a
+        &quot;thanks!&quot; doesn&apos;t reopen it, and a Member assigned to a todo hears about new
+        mail on its thread in their bell.
+      </P>
+
       <Callout kind="warn" title="AI assignment requires a browser session.">
         Starting an AI Employee is an interactive delegation, so creating or changing an AI assignee
         requires a logged-in browser session. Personal API keys can still automate ordinary todo

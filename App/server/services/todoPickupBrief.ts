@@ -91,6 +91,13 @@ function headline(input: TodoPickupBriefInput): string {
       return `${name} in project "${project.name}" has been moved to review, and you are its reviewer.`;
     case "left_open":
       return `You worked on ${name} in project "${project.name}" ${details} and it is still open.`;
+    case "wait_over":
+    case "email_reply":
+    case "member_comment":
+    case "wait_stopped":
+    case "decision_answered":
+    case "review_outcome":
+      return `You are working on ${name} in project "${project.name}" ${details}. The thread above is what has happened so far.`;
     case "start_now":
     case "assigned":
       return `You have just been assigned ${name} in project "${project.name}" ${details}.`;
@@ -122,7 +129,8 @@ function contract(input: TodoPickupBriefInput): string[] {
       ? "Do what you can on this todo now. This session may only prepare: do the research and record keeping your tools allow, and use request_work_review for anything that needs more."
       : "Work on this todo now. Actually do the work with your tools — don't just plan or acknowledge.",
     `- The todo is already in \`${todo.status}\`. When you finish, call \`update_todo\` with todoId "${todo.id}" and set status to ${finish}.`,
-    `- If you're blocked or the brief is too vague to act on, move the status back to "todo" via \`update_todo\` (todoId "${todo.id}") and say exactly what you need.`,
+    `- If you need an answer before you can finish, ask for it (an email to the customer, or a question on this thread), then call \`wait_on_todo\` with todoId "${todo.id}" saying what you're waiting on and when to check back. This Todo wakes you when the reply arrives; don't stay in this session waiting.`,
+    `- If you're blocked with nobody to ask, or the brief is too vague to act on, move the status back to "todo" via \`update_todo\` (todoId "${todo.id}") and say exactly what you need.`,
     "- Your reply is posted as a comment on the todo's thread for the team to read. Make it a crisp report: what you did, where the output lives, anything that needs a decision.",
   ];
 }

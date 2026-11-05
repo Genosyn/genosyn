@@ -223,7 +223,12 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
 // of its own because "bill" also means billing a customer, and a footer that
 // listed only invoices read as the company paying nobody. About 1,600 characters
 // remain at the minimum result cap.
-const DOMAIN_FOOTER_CHARS_MAX = 6_400;
+// Raised to 6,500 for the Todo tools that make Tasks work end to end: linking a
+// Todo to what it came from, starting one, waiting on someone, and listing an
+// employee's own queue. "Wait for the customer" must be findable by name, or the
+// session sits on an open Todo or claims it finished. About 1,500 characters
+// remain at the minimum result cap.
+const DOMAIN_FOOTER_CHARS_MAX = 6_500;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

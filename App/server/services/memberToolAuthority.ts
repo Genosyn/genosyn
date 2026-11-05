@@ -528,6 +528,7 @@ const PROJECT_TOOLS = [
   "update_todo",
   "add_todo_comment",
   "start_todo",
+  "wait_on_todo",
   "link_todo",
   "unlink_todo",
 ] as const;
