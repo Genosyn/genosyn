@@ -29,6 +29,10 @@ import {
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { RecordHistory } from "@/components/RecordHistory";
 import { TodoLinksList } from "@/components/todos/TodoLinks";
+import {
+  PickupBrowserRecording,
+  useTodoBrowserRecordings,
+} from "@/components/todos/TodoBrowserRecordings";
 import { TodoPickupPanel } from "@/components/todos/TodoPickupPanel";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { shouldShowTurnSummary, TurnWorkSummary } from "@/components/chat/TurnActivity";
@@ -764,6 +768,12 @@ export function CommentThread({
     }
   }, [companyId, todo.id]);
 
+  // A report with a video under it. Nothing to ask until a session has worked this.
+  const reports = comments?.filter((comment) => comment.pickup).length ?? 0;
+  const recordings = useTodoBrowserRecordings(companyId, todo.id, reports, {
+    enabled: reports > 0,
+  });
+
   React.useEffect(() => {
     setComments(null);
     setLoadError(null);
@@ -961,6 +971,7 @@ export function CommentThread({
               todoId={todo.id}
               canEdit={canEdit}
               onDelete={remove}
+              recordings={recordings}
             />
           ))
         )}
@@ -1104,6 +1115,7 @@ function CommentRow({
   comment,
   canEdit,
   onDelete,
+  recordings,
 }: {
   comment: TodoComment;
   companyId: string;
@@ -1111,6 +1123,7 @@ function CommentRow({
   todoId: string;
   canEdit: boolean;
   onDelete: (c: TodoComment) => void;
+  recordings: ReturnType<typeof useTodoBrowserRecordings>;
 }) {
   const author = comment.author;
   const optimistic = comment.id.startsWith("optimistic-");
@@ -1184,6 +1197,14 @@ function CommentRow({
                 />
               )}
             <ChatMarkdown content={comment.body} blockImages={comment.pickup?.preparationOnly} />
+            {comment.pickup && (
+              <PickupBrowserRecording
+                companyId={companyId}
+                todoId={todoId}
+                pickupId={comment.pickup.id}
+                recordings={recordings}
+              />
+            )}
             <ChatAttachments
               attachments={comment.attachments ?? []}
               urlFor={(id) =>

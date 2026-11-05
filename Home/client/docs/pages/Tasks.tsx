@@ -194,7 +194,8 @@ export function Tasks() {
         priority first, so a busy morning is a queue and not twenty sessions at once. The todo moves
         to <Code>in_progress</Code>, the panel shows the employee working step by step with a{" "}
         <Strong>Stop</Strong> button, and its report lands as a comment on the thread, with the
-        steps behind a <Strong>Worked for…</Strong> line. When it finishes, it moves the todo to{" "}
+        steps behind a <Strong>Worked for…</Strong> line. If it used the browser, the{" "}
+        <DocLink to="/docs/browser#live-view">recording</DocLink> is under its report. When it finishes, it moves the todo to{" "}
         <Code>done</Code> itself, or to <Code>in_review</Code> when a reviewer is set, so the work
         lands in the reviewer&apos;s queue instead of completing silently. If the brief is too vague
         to act on, it moves the todo back to <Code>todo</Code> and asks for what it needs.

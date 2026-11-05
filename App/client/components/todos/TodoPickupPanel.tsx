@@ -3,6 +3,10 @@ import { Clock3, Hourglass, Play, Square } from "lucide-react";
 
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { LiveTurnCard } from "@/components/chat/TurnActivity";
+import {
+  PickupBrowserRecording,
+  useTodoBrowserRecordings,
+} from "@/components/todos/TodoBrowserRecordings";
 import { useFollowedTurn } from "@/components/chat/useFollowedTurn";
 import { Avatar } from "@/components/todos/todoShared";
 import { Button } from "@/components/ui/Button";
@@ -159,6 +163,8 @@ export function TodoPickupPanel({
       {shownActive?.status === "running" && (
         <RunningPickup
           key={shownActive.id}
+          companyId={companyId}
+          todoId={todo.id}
           pickup={shownActive}
           base={base}
           companySlug={companySlug}
@@ -241,16 +247,21 @@ function QueuedPickup({
 function RunningPickup({
   pickup,
   base,
+  companyId,
+  todoId,
   companySlug,
   canEdit,
   onEnded,
 }: {
   pickup: TodoPickupView;
   base: string;
+  companyId: string;
+  todoId: string;
   companySlug: string;
   canEdit: boolean;
   onEnded: () => void;
 }) {
+  const recordings = useTodoBrowserRecordings(companyId, todoId, pickup.id, { live: true });
   const [stopping, setStopping] = React.useState(false);
   const [stopError, setStopError] = React.useState<string | null>(null);
   const streamUrl = React.useCallback(
@@ -295,6 +306,12 @@ function RunningPickup({
         }
         note={stepsNote(pickup)}
         stopError={stopError}
+      />
+      <PickupBrowserRecording
+        companyId={companyId}
+        todoId={todoId}
+        pickupId={pickup.id}
+        recordings={recordings}
       />
     </div>
   );

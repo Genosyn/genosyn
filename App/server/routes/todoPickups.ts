@@ -9,6 +9,13 @@ import { User } from "../db/entities/User.js";
 import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
+import { BrowserSession } from "../db/entities/BrowserSession.js";
+import { mayWatchBrowserRecording } from "../services/browserRecordingAccess.js";
+import {
+  getBrowserRecordingFile,
+  getBrowserRecordingLiveFrame,
+  listBrowserRecordingsForTodo,
+} from "../services/browserRecordings.js";
 import { hasProjectAccess, type ProjectActor } from "../services/projects.js";
 import { stopWaitingOnTodo } from "../services/todoWaits.js";
 import {
@@ -285,5 +292,117 @@ todoPickupsRouter.get(
       writeEvent("error", { message: "Lost track of this work. It continues on the server." });
     }
     if (!res.writableEnded && !res.destroyed) res.end();
+  },
+);
+
+// ───────────────────────────── browser recordings
+
+const recordingParamsSchema = todoParamsSchema.extend({ sessionId: z.string().uuid() });
+const recordingFileQuerySchema = z.object({
+  disposition: z.enum(["inline", "attachment"]).default("inline"),
+});
+
+/**
+ * The recordings of the browser sessions a Todo's work used, by the pickup each
+ * belongs with. Anyone who can open the Todo learns that one exists, because the
+ * report talks about it. Only those allowed to watch it get anything more.
+ */
+todoPickupsRouter.get(
+  "/todos/:tid/browser-recordings",
+  requireBrowserSession,
+  validateParams(todoParamsSchema),
+  async (req, res) => {
+    const { cid, tid } = req.params as Record<string, string>;
+    const found = await reachableTodo(req, res, cid, tid, "read");
+    if (!found) return;
+    res.setHeader("Cache-Control", "private, no-store");
+    const [recordings, sessions] = await Promise.all([
+      listBrowserRecordingsForTodo(found.todo.id),
+      AppDataSource.getRepository(BrowserSession).findBy({ todoId: found.todo.id, companyId: cid }),
+    ]);
+    const byId = new Map(sessions.map((session) => [session.id, session]));
+    const reader = { userId: req.userId, role: (req as Request & { role: Role }).role };
+    const visible: typeof recordings = [];
+    const withheld = new Set<string>();
+    for (const recording of recordings) {
+      const session = byId.get(recording.id);
+      if (!session) continue;
+      if (await mayWatchBrowserRecording(reader, session)) visible.push(recording);
+      else if (recording.pickupId) withheld.add(recording.pickupId);
+    }
+    res.json({ recordings: visible, withheldPickupIds: [...withheld] });
+  },
+);
+
+async function watchableSession(req: Request, res: Response): Promise<BrowserSession | null> {
+  const { cid, tid, sessionId } = req.params as Record<string, string>;
+  const found = await reachableTodo(req, res, cid, tid, "read");
+  if (!found) return null;
+  const session = await AppDataSource.getRepository(BrowserSession).findOneBy({
+    id: sessionId,
+    todoId: found.todo.id,
+    companyId: cid,
+  });
+  const reader = { userId: req.userId, role: (req as Request & { role: Role }).role };
+  if (!session || !(await mayWatchBrowserRecording(reader, session))) {
+    res.status(404).json({ error: "Not found" });
+    return null;
+  }
+  return session;
+}
+
+/** One current frame, with who may watch checked on every poll. */
+todoPickupsRouter.get(
+  "/todos/:tid/browser-recordings/:sessionId/live",
+  requireBrowserSession,
+  validateParams(recordingParamsSchema),
+  async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+    const session = await watchableSession(req, res);
+    if (!session) return;
+    const live = getBrowserRecordingLiveFrame(session, null);
+    if (!live) return res.status(404).json({ error: "Not found" });
+    if (!live.frame) return res.status(204).end();
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Content-Length", live.frame.length);
+    return res.end(live.frame);
+  },
+);
+
+/** Seekable inline stream or download: `sendFile` handles the byte ranges. */
+todoPickupsRouter.get(
+  "/todos/:tid/browser-recordings/:sessionId",
+  requireBrowserSession,
+  validateParams(recordingParamsSchema),
+  validateQuery(recordingFileQuerySchema),
+  async (req, res, next) => {
+    const session = await watchableSession(req, res);
+    if (!session) return;
+    const recording = await getBrowserRecordingFile(session);
+    if (!recording) return res.status(404).json({ error: "Not found" });
+    const { disposition } = req.query as unknown as z.infer<typeof recordingFileQuerySchema>;
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Content-Type", recording.info.mimeType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+    res.setHeader("Content-Disposition", `${disposition}; filename="${recording.info.filename}"`);
+    return res.sendFile(recording.path, (error) => {
+      if (!error) return;
+      if (!res.headersSent) {
+        res.removeHeader("Content-Disposition");
+        res.removeHeader("Content-Type");
+        res.removeHeader("Content-Length");
+        if (typeof error === "object" && "status" in error && error.status === 416) {
+          res.status(416).json({ error: "Range Not Satisfiable" });
+          return;
+        }
+      }
+      next(error);
+    });
   },
 );

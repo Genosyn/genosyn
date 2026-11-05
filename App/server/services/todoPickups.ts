@@ -13,6 +13,7 @@ import { config } from "../../config.js";
 import { recordAudit } from "./audit.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { Company } from "../db/entities/Company.js";
 import { ConversationActivityEvent } from "../db/entities/ConversationActivityEvent.js";
 import { Membership, type FinanceAccess } from "../db/entities/Membership.js";
@@ -1248,6 +1249,27 @@ async function postReport(
  * retry for work left open, a page when it needs a person, and any run that was
  * asked for while this one ran.
  */
+/**
+ * Close this Todo's browser and finish its recording when the session ends, unless
+ * it's waiting on a browser approval, which fires on that page. Its video then ends
+ * when the page does, and covers the submit. It never fails the session it follows.
+ */
+async function finishTodoBrowserWork(todoId: string): Promise<void> {
+  try {
+    if (!(await AppDataSource.getRepository(BrowserSession).existsBy({ todoId }))) return;
+    const todo = await AppDataSource.getRepository(Todo).findOne({
+      where: { id: todoId },
+      select: { id: true, waitingOn: true },
+    });
+    if (todo?.waitingOn === "browser_approval") return;
+    const { closeBrowserSessionsForTodo } = await import("./browserSessions.js");
+    await closeBrowserSessionsForTodo(todoId);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`[todo-pickups] could not finish browser work on ${todoId}`, error);
+  }
+}
+
 /** What a Todo's History says about a session. It never fails the session it records. */
 async function auditPickup(
   pickup: TodoPickup,
@@ -1314,6 +1336,7 @@ async function finishPickup(args: {
   if (recorder && summary) await recorder.finish(summary);
   await releaseChatWorkloadLeaseByOwner(pickup.id).catch(() => undefined);
   if (outcome.status !== "skipped") await auditPickup(pickup, outcome.status);
+  await finishTodoBrowserWork(pickup.todoId);
 
   if (outcome.tainted === true) await markTodoTainted(pickup.todoId);
   if (outcome.status === "done") {
@@ -1645,6 +1668,8 @@ export async function deleteTodoPickups(todoIds: readonly string[]): Promise<voi
     select: { id: true },
   });
   for (const row of running) localRuns.get(row.id)?.abort();
+  const { deleteBrowserRecordingsForTodoIds } = await import("./browserRecordings.js");
+  await deleteBrowserRecordingsForTodoIds(todoIds);
   await repo().delete({ todoId: In([...todoIds]) });
   await AppDataSource.getRepository(ConversationActivityEvent).delete({
     conversationId: In([...todoIds]),

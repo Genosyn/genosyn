@@ -273,12 +273,17 @@ export async function createBrowserSession(args: {
   employeeId: string;
   conversationId: string | null;
   runId: string | null;
+  /** The Todo and pickup this is for: its turns share a page, and its recording is filed there. */
+  todoId?: string | null;
+  todoPickupId?: string | null;
   /** The Member's browser to drive, or null for the App's own Chromium. */
   memberBrowserId?: string | null;
   viewportWidth?: number;
   viewportHeight?: number;
 }): Promise<BrowserSession> {
-  if (browserSessionCreationBlocked(args.companyId, args.runId)) {
+  // What it's filed under, if anything: a Run's or a Todo's recordings go with it.
+  const owner = args.runId ?? args.todoId ?? null;
+  if (browserSessionCreationBlocked(args.companyId, owner)) {
     throw new Error("This browser session belongs to a resource that is being removed.");
   }
   const runStillRunning = async (): Promise<boolean> =>
@@ -290,17 +295,17 @@ export async function createBrowserSession(args: {
   const repo = AppDataSource.getRepository(BrowserSession);
 
   // Reuse an existing live/pending session when one already covers this
-  // conversation or run. The conversation-keyed lookup is the primary
+  // conversation, Todo or run. The conversation-keyed lookup is the primary
   // path — a routine spawn never reuses (each Run gets its own session).
-  if (args.conversationId) {
-    const existing = await repo
+  if (args.conversationId || args.todoId) {
+    const lookup = repo
       .createQueryBuilder("s")
       .where("s.companyId = :companyId", { companyId: args.companyId })
       .andWhere("s.employeeId = :employeeId", { employeeId: args.employeeId })
-      .andWhere("s.conversationId = :conversationId", { conversationId: args.conversationId })
-      .andWhere("s.status IN (:...statuses)", { statuses: ["pending", "live"] })
-      .orderBy("s.createdAt", "DESC")
-      .getOne();
+      .andWhere("s.status IN (:...statuses)", { statuses: ["pending", "live"] });
+    if (args.todoId) lookup.andWhere("s.todoId = :todoId", { todoId: args.todoId });
+    else lookup.andWhere("s.conversationId = :conversationId", { conversationId: args.conversationId });
+    const existing = await lookup.orderBy("s.createdAt", "DESC").getOne();
     // A session is only reusable if it drives the same browser. Someone who
     // switched the thread from Genosyn's browser to their own mid-conversation
     // must get a new session, not keep driving the old one.
@@ -310,6 +315,11 @@ export async function createBrowserSession(args: {
       // in-memory map is empty, and without this line every tool call in a
       // resumed conversation 401s until the token's 7h TTL lapses.
       tokenToSessionId.set(existing.mcpToken, existing.id);
+      // Its recording belongs with the report of whichever session finishes it.
+      if (args.todoPickupId && existing.todoPickupId !== args.todoPickupId) {
+        await repo.update({ id: existing.id }, { todoPickupId: args.todoPickupId });
+        existing.todoPickupId = args.todoPickupId;
+      }
       return existing;
     }
   }
@@ -319,6 +329,8 @@ export async function createBrowserSession(args: {
     employeeId: args.employeeId,
     conversationId: args.conversationId,
     runId: args.runId,
+    todoId: args.todoId ?? null,
+    todoPickupId: args.todoPickupId ?? null,
     memberBrowserId: args.memberBrowserId ?? null,
     mcpToken: newToken(),
     mcpTokenExpiresAt: new Date(Date.now() + MCP_TOKEN_TTL_MS),
@@ -329,12 +341,12 @@ export async function createBrowserSession(args: {
     viewportWidth: args.viewportWidth ?? BROWSER_WINDOW_WIDTH,
     viewportHeight: args.viewportHeight ?? BROWSER_WINDOW_HEIGHT,
   });
-  if (browserSessionCreationBlocked(args.companyId, args.runId) || !(await runStillRunning())) {
+  if (browserSessionCreationBlocked(args.companyId, owner) || !(await runStillRunning())) {
     throw new Error("This browser session belongs to a resource that is being removed.");
   }
   await beforeBrowserSessionSaveForTests?.();
   await repo.save(row);
-  if (browserSessionCreationBlocked(args.companyId, args.runId) || !(await runStillRunning())) {
+  if (browserSessionCreationBlocked(args.companyId, owner) || !(await runStillRunning())) {
     await repo.delete({ id: row.id }).catch(() => undefined);
     throw new Error("This browser session belongs to a resource that is being removed.");
   }
@@ -401,7 +413,7 @@ export async function closeBrowserSession(
       }
     }
   }
-  if (row.runId) {
+  if (row.runId || row.todoId) {
     await finishBrowserRecording(row).catch(() => undefined);
   } else {
     clearBrowserRecordingFreeze(sessionId);
@@ -495,7 +507,7 @@ export async function markSessionLive(
     row = await repo.findOneBy({ id: sessionId });
     if (!row || row.status !== "live") return;
   }
-  if (row.runId) {
+  if (row.runId || row.todoId) {
     const recording = await beginBrowserRecording(row, options).catch(() => null);
     if (recording?.status === "recording") {
       const state = ensureState(sessionId);
@@ -993,6 +1005,29 @@ async function historyFromViewer(
  * Finalize every browser recording belonging to a Run. Every failure is
  * returned as a log warning; it never changes the Run verdict or retry policy.
  */
+/**
+ * A Todo's session has ended and nothing is coming back to its page, so close it
+ * and let its recording finish. Called when a pickup ends, unless the Todo is waiting
+ * on an approval that will fire on that page.
+ */
+export async function closeBrowserSessionsForTodo(todoId: string): Promise<void> {
+  const rows = await AppDataSource.getRepository(BrowserSession).find({
+    where: { todoId, status: In(["pending", "live"]) },
+  });
+  await Promise.all(
+    rows.map(async (row) => {
+      await waitForBrowserRpcActivity(row.id);
+      freezeBrowserRecording(row.id);
+      await flushBrowserRecordingFrameIntake(row.id);
+      await finishBrowserRecording(row).catch(() => undefined);
+      const state = sessions.get(row.id);
+      if (state && !shouldScreencast(state)) await stopScreencast(state);
+      if (getRuntime(row.id)) await releasePage(row.id, "manual").catch(() => undefined);
+      else await closeBrowserSession(row.id, "manual").catch(() => undefined);
+    }),
+  );
+}
+
 export async function finalizeBrowserRecordingsForRun(runId: string): Promise<string[]> {
   // Install before the first await: a BrowserSession create already in flight
   // will fail its post-save check, while future creates/begins are refused.
