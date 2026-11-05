@@ -113,8 +113,9 @@ export function Support() {
         </LI>
         <LI>
           Mail a Support inbox takes is read by Support and not again by the mailbox&apos;s{" "}
-          <DocLink to="/docs/email#analysis">AI analysis</DocLink>. Its{" "}
-          <DocLink to="/docs/email#rules">rules</DocLink> and Pipelines still run.
+          <DocLink to="/docs/email#analysis">AI analysis</DocLink>, so a Project&apos;s{" "}
+          <DocLink to="/docs/tasks#email-intake">email intake</DocLink> does not file it as a Todo
+          as well. Its <DocLink to="/docs/email#rules">rules</DocLink> and Pipelines still run.
         </LI>
       </UL>
 

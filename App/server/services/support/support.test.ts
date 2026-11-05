@@ -37,6 +37,7 @@ import {
 } from "./ai.js";
 import { autoReplyHolds, type AutoReplyFacts } from "./holds.js";
 import { createInbox, listInboxes, matchInbox, updateInbox } from "./inboxes.js";
+import { runDefaultMailEffects } from "../mail/automationQueue.js";
 import {
   captureMessage,
   messageBelongsToSupport,
@@ -629,6 +630,45 @@ describe("a conversation over time", () => {
     assert.equal((await ticketOf(answered.id)).status, "waiting");
     await drainQueue();
     assert.equal(seen.length, 0);
+  });
+
+  test("an email a Support inbox takes never also becomes a Project's Todo, and its rules still run", async () => {
+    await inbox();
+    const run = async (message: MailMessage) => {
+      const steps: string[] = [];
+      await runDefaultMailEffects(
+        account,
+        message,
+        async () => {},
+        async () => {},
+        {
+          reconcileDefaults: (async () => undefined) as never,
+          analyzeInbound: (async () => {
+            steps.push("read");
+            return { id: "analysis" };
+          }) as never,
+          applyInstructions: (async () => undefined) as never,
+          applyRules: (async () => {
+            steps.push("rules");
+          }) as never,
+          wakeTodos: async () => {},
+          fileIntake: async () => {
+            steps.push("filed");
+          },
+          dispatchReceived: (async () => {
+            steps.push("pipelines");
+          }) as never,
+        },
+      );
+      return steps;
+    };
+    assert.deepEqual(await run(await mirrored()), ["rules", "pipelines"]);
+    assert.deepEqual(await run(await mirrored({ toEmails: "team@acme.com", subject: "Lunch?" })), [
+      "read",
+      "rules",
+      "filed",
+      "pipelines",
+    ]);
   });
 
   test("the mail read once rule: Support's mail is not read again by the mailbox's analysis", async () => {
