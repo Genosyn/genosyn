@@ -736,7 +736,7 @@ export function Email() {
         analysis on each email says what it was filed as, or why it wasn&apos;t. Mailbox instructions
         can&apos;t do this, because any Member can write those and this starts work. An owner or
         admin sets it on the Project: see <DocLink to="/docs/tasks#email-intake">Email that becomes
-        work</DocLink>.
+        work</DocLink> and <DocLink to="/docs/tasks#email-to-done">From email to done</DocLink>.
       </P>
 
       <H2 id="hand-to-ai">Handing a thread to an AI Employee</H2>

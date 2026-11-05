@@ -20,6 +20,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { RunLesson } from "../db/entities/RunLesson.js";
 import { Todo } from "../db/entities/Todo.js";
+import { TodoPickup } from "../db/entities/TodoPickup.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../test/dbHarness.js";
 import {
@@ -1361,5 +1362,106 @@ describe("what each entry was about", () => {
       firedAt: ago(HOUR),
     });
     assert.equal((await timeline()).entries[0].subject, "");
+  });
+});
+
+describe("Todo pickups in the work timeline", () => {
+  async function pickupOn(
+    changes: Partial<Project> = {},
+    pickup: Partial<TodoPickup> = {},
+  ): Promise<Todo> {
+    const project = await insert(Project, {
+      companyId: company.id,
+      name: "Compliance",
+      slug: "compliance",
+      key: "COMP",
+      todoCounter: 1,
+      ...changes,
+    });
+    const todo = await insert(Todo, {
+      projectId: project.id,
+      number: 1,
+      title: "Accept the agreement",
+      status: "done",
+      priority: "none",
+      assigneeEmployeeId: employee.id,
+    });
+    await insert(TodoPickup, {
+      companyId: company.id,
+      todoId: todo.id,
+      employeeId: employee.id,
+      trigger: "email_intake",
+      status: "done",
+      authority: "employee",
+      acceptedAt: ago(HOUR),
+      endedAt: ago(HOUR / 2),
+      replyText: "Accepted it on the Play Console.",
+      ...pickup,
+    });
+    return todo;
+  }
+
+  test("says which Todo, what started it, how it ended, and its report, to any Member", async () => {
+    const todo = await pickupOn();
+    const { entries } = await timeline();
+    const [entry] = entries.filter((row) => row.kind === "pickup");
+    assert.equal(entry.title, "Worked on COMP-1");
+    assert.equal(entry.subject, "Accept the agreement");
+    assert.equal(entry.detail, "Filed from email · finished");
+    assert.equal(entry.report, "Accepted it on the Play Console.");
+    assert.deepEqual(entry.todo, { id: todo.id, ref: "COMP-1", projectSlug: "compliance" });
+    assert.equal(entry.active, false);
+  });
+
+  test("a report is bounded and redacted", async () => {
+    await pickupOn({}, { replyText: `The token is sk-ant-abcdefghijklmnopqrstuvwxyz0123456789. ${"x".repeat(5_000)}` });
+    const { entries } = await timeline();
+    const [entry] = entries.filter((row) => row.kind === "pickup");
+    assert.ok((entry.report ?? "").length <= 280);
+    assert.doesNotMatch(entry.report ?? "", /sk-ant-abcdefghijkl/);
+  });
+
+  test("a failure says why, and a running one says so", async () => {
+    await pickupOn({}, { status: "failed", errorMessage: "The site refused the login.", replyText: "" });
+    const failed = (await timeline()).entries.find((row) => row.kind === "pickup");
+    assert.equal(failed?.detail, "Filed from email · The site refused the login.");
+    assert.equal(failed?.report, null);
+  });
+
+  test("working now counts as the employee's current work", async () => {
+    await pickupOn({}, { status: "running", endedAt: null, replyText: "" });
+    const result = await timeline();
+    const entry = result.entries.find((row) => row.kind === "pickup");
+    assert.equal(entry?.active, true);
+    const summary = result.employeeSummaries.find((row) => row.employeeId === employee.id);
+    assert.equal(summary?.current?.kind, "pickup");
+  });
+
+  test("a queued pickup hasn't happened yet", async () => {
+    await pickupOn({}, { status: "queued", endedAt: null });
+    assert.equal((await timeline()).entries.filter((row) => row.kind === "pickup").length, 0);
+  });
+
+  test("a Project the Member can't open isn't on their timeline", async () => {
+    await pickupOn({ accessMode: "restricted" });
+    assert.equal((await timeline()).entries.filter((row) => row.kind === "pickup").length, 0);
+    const asOwner = await timeline({ userId: owner.id, role: "owner" });
+    assert.equal(asOwner.entries.filter((row) => row.kind === "pickup").length, 1);
+  });
+
+  test("the audit rows behind a Todo's History don't show a second time", async () => {
+    const todo = await pickupOn();
+    await insert(AuditEvent, {
+      companyId: company.id,
+      actorKind: "ai",
+      actorEmployeeId: employee.id,
+      action: "todo.pickup.done",
+      targetType: "todo",
+      targetId: todo.id,
+      targetLabel: "COMP-1: Accept the agreement",
+      createdAt: ago(HOUR / 2),
+    });
+    const { entries } = await timeline();
+    assert.deepEqual(kinds(entries), ["pickup"]);
   });
 });

@@ -224,6 +224,10 @@ export function Vault() {
         and unsupported challenges can still use the Browser&apos;s human take-over flow.
       </P>
       <P>
+        The same works on a <DocLink to="/docs/tasks#email-to-done">todo an email started</DocLink>,
+        once you have listed that email&apos;s sender as trusted and granted the login.
+      </P>
+      <P>
         Browser snapshots and screenshots are unfiltered: they include the full page content and
         pixels Chrome exposes, including textbox values and content inside frames. The Vault fill
         action does not return a password or authenticator value itself, but a value the website

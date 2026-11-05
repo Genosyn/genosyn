@@ -13,6 +13,7 @@ import { TodoComment } from "../db/entities/TodoComment.js";
 import { TodoLink } from "../db/entities/TodoLink.js";
 import { TodoPickup } from "../db/entities/TodoPickup.js";
 import type { TodoWaitKind, TodoPickupTrigger } from "../../shared/todoPickups.js";
+import { recordAudit } from "./audit.js";
 import { jsonBoundedString } from "./mail/promptBounds.js";
 import { mailboxForAccount } from "./mail/mailbox/index.js";
 import { isInboundReviewMessage } from "./mail/reviewStatus.js";
@@ -114,6 +115,16 @@ export async function waitOnTodo(args: {
       waitingCheckAt: args.checkAt,
     },
   );
+  const project = await AppDataSource.getRepository(Project).findOneBy({ id: todo.projectId });
+  await recordAudit({
+    companyId: args.companyId,
+    actorEmployeeId: todo.assigneeEmployeeId,
+    action: "todo.wait",
+    targetType: "todo",
+    targetId: todo.id,
+    targetLabel: project ? `${project.key}-${todo.number}: ${todo.title}` : todo.title,
+    metadata: { on: args.on },
+  });
   if (args.checkAt) {
     await requestTodoPickup({
       companyId: args.companyId,

@@ -75,6 +75,11 @@ const LEGACY_TYPE_PREFIXES: Record<string, string> = {
  * generic verb table so a compound like `email.resend` reads naturally.
  */
 const PHRASES: Record<string, string> = {
+  "pickup.start": "started working on {noun}",
+  "pickup.done": "finished a session on {noun}",
+  "pickup.failed": "couldn't finish a session on {noun}",
+  "pickup.stopped": "was stopped working on {noun}",
+  wait: "marked {noun} as waiting",
   create: "created {noun}",
   add: "added {noun}",
   update: "updated {noun}",

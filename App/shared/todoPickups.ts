@@ -119,3 +119,43 @@ export type TodoPickupView = {
   /** What this reader may see of its steps. */
   access: TurnActivityAccess;
 };
+
+/** One Todo on an AI Employee's plate (`server/services/todoWorkQueue.ts`). */
+export type TodoQueueItem = {
+  todoId: string;
+  /** `{Project.key}-{Todo.number}`. */
+  ref: string;
+  title: string;
+  /** Nobody at the company wrote this text, so it is a request, not an instruction. */
+  untrustedText: boolean;
+  projectSlug: string;
+  projectName: string;
+  status: string;
+  priority: string;
+  dueAt: string | null;
+  /** The session running or queued for it, if there is one. */
+  pickup: {
+    status: "queued" | "running";
+    trigger: TodoPickupTrigger;
+    hold: TodoPickupHold | null;
+    startedAt: string;
+    notBeforeAt: string | null;
+    /** Its place among what's due, 1 being next up. */
+    position: number | null;
+  } | null;
+  waiting: {
+    on: TodoWaitKind;
+    reason: string;
+    since: string | null;
+    checkAt: string | null;
+  } | null;
+};
+
+/** The Todos on an AI Employee's plate, limited to Projects the reader can open. */
+export type EmployeeTodoQueue = {
+  running: TodoQueueItem[];
+  queued: TodoQueueItem[];
+  queuedCount: number;
+  waiting: TodoQueueItem[];
+  waitingCount: number;
+};

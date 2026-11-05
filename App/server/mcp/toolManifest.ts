@@ -1825,6 +1825,20 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_my_todos",
+    description:
+      "List your own open Todos across every Project you can open: assigned to you, or up for your review. Each says its status, priority, due date, what it is waiting on and its place in your work queue, so you can see what is already looked after. A queued Todo starts by itself and a waiting one wakes itself, so don't start them twice. " +
+      PAGING_SENTENCE,
+    readOnly: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...pageProperties("Todos", 25, 100),
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_todo",
     description:
       "Read one Todo and its latest discussion before working on it or reviewing it. Requires current Project access. Returns exact status and owners, a redacted description window, and three comments with pending state and body windows. Read older comments using commentsOffset; read a long comment using commentId and commentBodyOffset. Text nextOffset values refer to the redacted source. Attachment counts are included, not file contents.",
