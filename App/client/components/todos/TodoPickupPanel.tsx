@@ -166,31 +166,31 @@ export function TodoPickupPanel({
               {todo.waitingSince && `Since ${shortWhen(todo.waitingSince)}.`}
               {todo.waitingCheckAt && ` Checks back ${shortWhen(todo.waitingCheckAt)}.`}
             </div>
-          </div>
-          {canEdit && (
-            <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-              {held && (
+            {canEdit && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
                 <Button
                   size="sm"
                   variant="secondary"
                   loading={starting}
-                  onClick={() => void stopWaiting(true)}
-                  title="Send its AI Employee back to this now, with what you can do, for this session"
+                  onClick={() => void stopWaiting()}
+                  title={`Send its AI Employee back to this now, ${access}`}
                 >
-                  Use my access
+                  Stop waiting
                 </Button>
-              )}
-              <Button
-                size="sm"
-                variant="secondary"
-                loading={starting}
-                onClick={() => void stopWaiting()}
-                title={`Send its AI Employee back to this now, ${access}`}
-              >
-                Stop waiting
-              </Button>
-            </div>
-          )}
+                {held && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    loading={starting}
+                    onClick={() => void stopWaiting(true)}
+                    title="Send its AI Employee back to this now, with what you can do, for this session"
+                  >
+                    Use my access
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
       {held && canEdit && (canStart || waiting) && (
