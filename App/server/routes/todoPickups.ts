@@ -34,7 +34,6 @@ import {
   readTodoPickupActivity,
   requestTodoPickup,
   stopTodoPickup,
-  todoLimits,
 } from "../services/todoPickups.js";
 
 /**
@@ -180,8 +179,8 @@ todoPickupsRouter.get(
     const { cid, tid } = req.params as z.infer<typeof todoParamsSchema>;
     const found = await reachableTodo(req, res, cid, tid, "write");
     if (!found) return;
-    // A Todo held to limits can't start one, so there's nothing to offer.
-    if (!found.todo.assigneeEmployeeId || todoLimits(found.todo)) {
+    // A Todo with outside words on it can't start one, so there's nothing to offer.
+    if (!found.todo.assigneeEmployeeId || hasOutsideWords(found.todo)) {
       return res.json({ repositories: [] });
     }
     const grants = await AppDataSource.getRepository(EmployeeRepositoryGrant).find({
@@ -199,12 +198,20 @@ todoPickupsRouter.get(
   },
 );
 
+/**
+ * Held to limits, or tainted by a turn that read something from outside. A work session
+ * runs commands with this Todo's words as its instruction, so neither gets to start one.
+ */
+function hasOutsideWords(todo: Todo): boolean {
+  return todo.tainted || Boolean(todo.ceilingJson);
+}
+
 const startWorkSessionSchema = z.object({ repositoryId: z.string().uuid() }).strict();
 
 /**
  * Start work session: the assignee works on this Todo's text in a Repository it's
- * granted, under the caller's access, linked to this Todo. Never on a Todo held to
- * limits: a work session runs commands, and those words came from outside.
+ * granted, under the caller's access, linked to this Todo. Never on a Todo with outside
+ * words on it: a work session runs commands.
  */
 todoPickupsRouter.post(
   "/todos/:tid/work-session",
@@ -220,10 +227,10 @@ todoPickupsRouter.post(
     if (!todo.assigneeEmployeeId) {
       return res.status(400).json({ error: "Assign an AI Employee first" });
     }
-    if (todoLimits(todo)) {
+    if (hasOutsideWords(todo)) {
       return res.status(403).json({
         error:
-          "This Todo started from outside words, so it can't start a work session. Create a task in your own words first.",
+          "This Todo has outside words on it, so it can't start a work session. Create a task in your own words first.",
       });
     }
     const repository = await AppDataSource.getRepository(Repository).findOneBy({

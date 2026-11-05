@@ -621,6 +621,18 @@ describe("Start work session on a Todo", () => {
     assert.deepEqual(offered.body.repositories, []);
   });
 
+  test("nor on one a tainted turn wrote on, which isn't held but still has outside words", async () => {
+    const todo = await todoFor({ tainted: true });
+    const refused = await start(todo.id);
+    assert.equal(refused.status, 403);
+    assert.equal(await sessions().count(), 0);
+    const offered = await as<{ repositories: unknown[] }>(
+      "GET",
+      `/todos/${todo.id}/work-session-repositories`,
+    );
+    assert.deepEqual(offered.body.repositories, []);
+  });
+
   test("not with nobody to do it, or an assignee with no Grant", async () => {
     const nobody = await todoFor({ assigneeEmployeeId: null });
     assert.equal((await start(nobody.id)).status, 400);
