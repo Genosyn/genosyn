@@ -197,6 +197,10 @@ const server = await createServer({
             state.sent = true;
             return json({ message: { ...state.draft, isDraft: false } });
           }
+          // The thread asks what Todos it is linked to; this one has none.
+          if (call.method === "GET" && url.pathname === "/api/companies/company/todo-links") {
+            return json({ total: 0, hasMore: false, nextCursor: null, todos: [] });
+          }
           unexpected.push(`${call.method} ${url.pathname}`);
           return json({ error: "Unexpected fixture request" }, 500);
         });

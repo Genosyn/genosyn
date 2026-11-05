@@ -247,6 +247,10 @@ export function Vocabulary() {
             def: "Tasks (the human kind). Projects hold Todos; Todos have comments. Distinct from Routines.",
           },
           {
+            term: "Todo link",
+            def: "A Todo's link to the record it came from or is about: an email thread, a Customer, Contact, Deal, Decision, Meeting or Run. It reads both ways and grants nothing.",
+          },
+          {
             term: "Resource",
             def: "External material an employee studies — articles, ebooks, transcripts. Distinct from Notes (team-authored) and Memory (atomic facts).",
           },

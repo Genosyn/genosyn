@@ -252,6 +252,7 @@ code, UI copy, commits, and docs.
 | **Work session** (one request to an AI Employee to do work in a Repository — `RepositoryWorkSession`) | Job, Task, Agent run |
 | **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
+| **Todo link** (a Todo's link to the record it came from or is about — an email thread, Customer, Contact, Deal, Decision, Meeting or Run; `TodoLink`, one of which may be its **source**) | Relation, Reference, Attachment |
 | **Goal** (a measurable objective — `Goal`, linked from `Routine.goalId`) | Objective, OKR, KPI, Target (as a noun) |
 | **Lesson** (a graded Run's structured takeaway — `RunLesson`) | Learning (Resources' old name), Insight, Retro |
 | **Letter** (the monthly letter to the board — `BoardLetter`; owners and admins read it) | Report, Digest, Newsletter, Recap (a TLDR is the recap) |
@@ -273,6 +274,17 @@ code, UI copy, commits, and docs.
 
 **"Tasks" is reserved** for the task-manager feature (Projects + Todos), which
 has shipped. Do not use "Task" for scheduled AI work, ever.
+
+**A Todo link grants nothing.** It records that a Todo and a record belong
+together and reads both ways (`services/todoLinks.ts`). Every read asks the
+reader's own bar on the record: an AI Employee reads a link's name only with the
+Grant that record's tools ask for, a Member a Customer's only with Finance
+access, and a record lists only Todos in Projects its reader can open, filtered
+inside the query. A link keeps a copy of the record's name, so a Todo still says
+which email it came from once that thread is gone; for an email that name is
+words a stranger wrote, and it reaches a model only as data. Where the server
+knows a Todo's provenance it writes the link itself: a Todo created in a turn
+working an email links that thread as its source, so the model never names it.
 
 **"Connection" stays reserved** for one authenticated account inside an
 Integration. An app a Member approved through OAuth to use the Genosyn MCP

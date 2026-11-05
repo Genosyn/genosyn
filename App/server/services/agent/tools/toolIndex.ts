@@ -122,6 +122,8 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "create_todo",
       "update_todo",
       "add_todo_comment",
+      "link_todo",
+      "unlink_todo",
     ],
   },
   meetings: {
@@ -1823,6 +1825,8 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   update_todo: ["task", "ticket", "complete", "close", "done"],
   list_todos: ["task", "ticket", "action item"],
   get_todo: ["task details", "ticket discussion", "review evidence", "todo comments"],
+  link_todo: ["link task", "task source", "connect email to task", "ticket from email"],
+  unlink_todo: ["remove task link", "unlink ticket"],
   add_journal_entry: ["log", "diary", "record what i did", "decision log"],
   list_journal: ["log", "diary", "history"],
   get_journal_entry: ["journal", "diary", "full entry", "audit note", "older evidence"],

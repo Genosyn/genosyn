@@ -21,6 +21,7 @@
  */
 
 import { BASE_FILTER_OPERATORS } from "../../shared/baseFilters.js";
+import { TODO_LINK_KINDS } from "../../shared/todoLinks.js";
 import {
   BASE_CHART_AGGREGATES,
   BASE_CHART_DATE_BUCKETS,
@@ -1899,6 +1900,36 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["projectSlug", "title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "link_todo",
+    description:
+      "Link a Todo to a record you can read, so each shows the other: the email thread it came from (`mail_thread`), or the Customer, Contact, Deal, Decision, Meeting or Run it is about. A Todo created while working an email already links that thread. Needs write access to the Todo's project. Pass `isSource` when this is where the Todo came from.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        todoId: { type: "string" },
+        kind: { type: "string", enum: [...TODO_LINK_KINDS] },
+        id: { type: "string", description: "The record's UUID." },
+        isSource: { type: "boolean" },
+      },
+      required: ["todoId", "kind", "id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "unlink_todo",
+    description: "Remove a link from a Todo. Needs write access to the Todo's project.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        todoId: { type: "string" },
+        kind: { type: "string", enum: [...TODO_LINK_KINDS] },
+        id: { type: "string", description: "The record's UUID." },
+      },
+      required: ["todoId", "kind", "id"],
       additionalProperties: false,
     },
   },

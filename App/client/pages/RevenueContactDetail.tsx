@@ -26,6 +26,7 @@ import {
   type RevenueActivity,
 } from "../components/revenue/ActivityTimeline";
 import { RecordHistory } from "../components/RecordHistory";
+import { LinkedTodosCard } from "../components/todos/TodoLinks";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
@@ -610,6 +611,13 @@ export default function RevenueContactDetail() {
           resourceId={contact.id}
         />
       </div>
+      <LinkedTodosCard
+        className="mt-5"
+        companyId={company.id}
+        companySlug={company.slug}
+        kind="contact"
+        targetId={contact.id}
+      />
       <RecordHistory
         className="mt-5"
         companyId={company.id}

@@ -6,6 +6,7 @@ import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import {
   LayoutList,
   Columns3,
+  Mail,
   Plus,
   Trash2,
   Settings as SettingsIcon,
@@ -1097,6 +1098,7 @@ function TodoRow({
       <span className="w-14 shrink-0 font-mono text-[11px] text-slate-400 dark:text-slate-500">
         {project.key}-{todo.number}
       </span>
+      <TodoSourceChip todo={todo} />
       <PriorityPicker
         value={todo.priority}
         onChange={(p) => onPatch({ priority: p })}
@@ -1310,6 +1312,21 @@ function BoardView({
   );
 }
 
+/** A small mail mark when a Todo came from an email, naming it on hover. */
+function TodoSourceChip({ todo }: { todo: Todo }) {
+  const source = todo.links?.find((link) => link.isSource && link.kind === "mail_thread");
+  if (!source) return null;
+  return (
+    <span
+      title={source.label ? `From email: ${source.label}` : "From an email"}
+      aria-label="From an email"
+      className="flex shrink-0 items-center text-slate-400 dark:text-slate-500"
+    >
+      <Mail size={11} aria-hidden />
+    </span>
+  );
+}
+
 function BoardCard({
   todo,
   project,
@@ -1362,6 +1379,7 @@ function BoardCard({
             <ParentChip parent={parent} project={project} onOpen={() => onOpenTodo(parent.id)} />
           )}
           {stats && <SubtaskCountChip stats={stats} />}
+          <TodoSourceChip todo={todo} />
           {isReview && (
             <span
               className="ml-auto flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
