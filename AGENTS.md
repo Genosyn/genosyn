@@ -444,6 +444,21 @@ treats a caller as a Member, give those turns company tools, or hang texting
 tools off the Twilio Connection. Texting and calling are delivery: they sit
 beside `send_mail` in the taint sinks and the mail-delivery send ceiling.
 
+**A meeting can create a Customer; nothing creates a Contact on its own.** As soon
+as a meeting has someone from outside the company on it, `services/meetings/customerLink.ts`
+links it to one Customer, the account most of those attendees belong to, and creates
+a `prospect` when nobody is known: one row, for the largest group. A Contact stays
+something a person, an import or a Signal makes (`revenue/mailLink.ts` rule 1). The
+company itself never becomes a Customer, and neither do machines. Anyone can put an
+address on a calendar invite, so a new Customer's name comes from the domain, or the
+address for free mail, never from an event title or display name. Archiving an account
+is how a Member stops the next meeting recreating it, so a meeting links to an archived
+row rather than starting another. `Meeting.customerChosen` makes a Member's choice
+final, a removed link included. The link grants nothing: a Member reads a meeting's
+Customer only with Finance access. Do not create a Contact from an attendee, name a
+Customer from anything a stranger wrote, let an automatic pass change a chosen link,
+or backfill old meetings on upgrade.
+
 **A customer channel is read for the customer and answered for the
 customer.** Linking a Slack channel to a Customer (`services/customerChannels/`)
 is the only thing that makes the Slack app read a whole channel: every human

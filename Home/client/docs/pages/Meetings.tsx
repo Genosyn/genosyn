@@ -11,9 +11,11 @@ export function Meetings() {
             Connect a Google calendar and Genosyn mirrors your agenda, so you can see what is coming
             up and your <DocLink to="/docs/employees">AI Employees</DocLink> can too. For Google
             Meet, a disclosed notetaker can join and record the call; for any meeting, you can
-            upload audio or paste a transcript. Attendees who are already{" "}
-            <DocLink to="/docs/revenue">Contacts</DocLink> then get the call on their timeline, and
-            the assigned employee writes up what was decided and files the follow-ups it promised.
+            upload audio or paste a transcript. Every meeting links to its{" "}
+            <DocLink to="/docs/customers">Customer</DocLink>, created if you don&apos;t have one yet.
+            Attendees who are already <DocLink to="/docs/revenue">Contacts</DocLink> get the call on
+            their timeline, and the assigned employee writes up what was decided and files the
+            follow-ups it promised.
           </>
         }
       />
@@ -243,11 +245,57 @@ export function Meetings() {
         recording and obtaining whatever consent your policy and local law require.
       </Callout>
 
+      <H2 id="customer">The meeting&apos;s customer</H2>
+      <P>
+        As soon as a meeting has someone from outside the company on it, Genosyn links it to one{" "}
+        <DocLink to="/docs/customers">Customer</DocLink>, whether you created the meeting, added
+        attendees later, or the notetaker armed it from a calendar. The meeting&apos;s page names the
+        customer in its header and on a <Strong>Customer</Strong> card, and the customer&apos;s{" "}
+        <Strong>Meetings</Strong> tab lists the meeting, so you can go either way.
+      </P>
+      <P>It picks the account most of the outside attendees belong to, by looking for each of them:</P>
+      <UL>
+        <LI>a Contact linked to an account;</LI>
+        <LI>an account, or one of its billing contacts, with that exact address;</LI>
+        <LI>an account on their email domain, subdomains included.</LI>
+      </UL>
+      <P>
+        If nobody is known, Genosyn <Strong>creates one Customer</Strong>, for the company with the
+        most people on the call. It starts as a <Strong>Prospect</Strong>, so it means nothing to
+        Finance until you invoice it. <Code>sam@acme-corp.com</Code> creates{" "}
+        <Strong>Acme Corp</Strong> on <Code>acme-corp.com</Code>; a free-mail address like{" "}
+        <Code>priya@gmail.com</Code> creates an account for that one person, named by their address,
+        because Gmail is nobody&apos;s company. Rename it whenever you like.
+      </P>
+      <P>
+        Your own company never becomes a customer: colleagues on your domains are left out, along
+        with the exact addresses of your Members, calendars, and mailboxes. So are no-reply senders,
+        Google&apos;s calendar addresses, and well-known notetaker bots. A meeting of only those
+        people stays unlinked.
+      </P>
+      <Callout kind="info" title="Not a customer? Archive it.">
+        Archiving an account is how you tell Genosyn a company isn&apos;t a customer. Later meetings
+        with them link to the archived account instead of creating a new one.
+      </Callout>
+      <P>
+        To set it yourself, press <Strong>Change</Strong> or <Strong>Link</Strong> on the card, and
+        choose a customer or <Strong>Remove link</Strong>. Your choice is final: Genosyn stops working
+        that meeting&apos;s customer out from its attendees, so a removed link stays removed. Merging
+        two customers takes their meetings along.
+      </P>
+      <P>
+        Meetings made before this existed keep what they had until someone adds an attendee, presses{" "}
+        <Strong>Re-link</Strong>, or links them on the card. Customers follow{" "}
+        <DocLink to="/docs/customers#access">Finance access</DocLink>: a Member with none still sees
+        the whole meeting and that it has a customer, but not which one.
+      </P>
+
       <H2 id="linking">How a call reaches the customer</H2>
       <P>
         When a transcript lands, Genosyn matches attendee addresses against your existing Contacts
         and writes the call onto the matching Contact, Deal, and account timelines as a{" "}
-        <Strong>meeting</Strong> activity.
+        <Strong>meeting</Strong> activity, with an <Strong>Open meeting</Strong> link back to it. When
+        no Contact&apos;s row reaches the meeting&apos;s customer, the customer gets a row of its own.
       </P>
       <P>
         It <Strong>links to Contacts that already exist and never creates one</Strong>. This is the

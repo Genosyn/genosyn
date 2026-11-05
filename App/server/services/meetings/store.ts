@@ -25,6 +25,7 @@ import { MeetingParticipant } from "../../db/entities/MeetingParticipant.js";
 import { MeetingTranscriptSegment } from "../../db/entities/MeetingTranscriptSegment.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
 import { providerForUrl } from "./conference.js";
+import { linkMeetingCustomerSafely } from "./customerLink.js";
 import { companyDomains, isInternalAddress } from "./domains.js";
 import type { StoredAttendee } from "./calendarSync.js";
 
@@ -150,6 +151,7 @@ export async function armMeetingsForAccount(
       }),
     );
     await syncParticipantsFromEvent(meeting, event, domains);
+    await linkMeetingCustomerSafely(account.companyId, meeting.id);
     armed += 1;
   }
   return armed;
@@ -236,7 +238,11 @@ export const meetingStatusFilter = z.enum(MEETING_STATUSES as [MeetingStatus, ..
 /** `GET /meetings`'s query: the filters `list_meetings` takes, and a page. */
 export const meetingListQuerySchema = z.object({
   status: meetingStatusFilter.optional(),
-  customerId: z.string().uuid().optional().describe("Only meetings linked to this account."),
+  customerId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe("Only meetings linked to this account, or that one of its Contacts attended."),
   contactId: z.string().uuid().optional().describe("Only meetings this Contact attended."),
   from: z
     .string()
@@ -279,7 +285,13 @@ function meetingListQuery(
     .where("meeting.companyId = :companyId", { companyId });
   if (filter.status) qb.andWhere("meeting.status = :status", { status: filter.status });
   if (filter.customerId) {
-    qb.andWhere("meeting.customerId = :customerId", { customerId: filter.customerId });
+    // Its own meetings, and any one of its Contacts attended: the same calls its
+    // timeline shows, whichever account the meeting itself links to.
+    const q = (name: string) => AppDataSource.driver.escape(name);
+    qb.andWhere(
+      `(meeting.customerId = :customerId OR ${asText("meeting.id")} IN (SELECT ${q("p")}.${q("meetingId")} FROM ${q("meeting_participants")} ${q("p")} WHERE ${q("p")}.${q("companyId")} = :companyId AND ${q("p")}.${q("contactId")} IN (SELECT CAST(${q("c")}.${q("id")} AS TEXT) FROM ${q("contacts")} ${q("c")} WHERE ${q("c")}.${q("companyId")} = :companyId AND ${q("c")}.${q("customerId")} = :customerId)))`,
+      { customerId: filter.customerId },
+    );
   }
   if (filter.contactId) {
     // A contact filter is a join through participants, which is exactly the
@@ -400,7 +412,8 @@ export async function listTranscriptSegments(
  * nothing for the linker to match, so an ad-hoc meeting with no attendees can
  * never reach a customer's timeline no matter how good its transcript is. It
  * is the whole reason this path can stand alone on an install with no calendar
- * connected.
+ * connected. It is also what finds or creates the meeting's Customer, which
+ * the returned row already carries.
  */
 export async function createAdHocMeeting(args: {
   companyId: string;
@@ -432,12 +445,14 @@ export async function createAdHocMeeting(args: {
   );
   if (args.attendeeEmails && args.attendeeEmails.length > 0) {
     await addParticipants(meeting, args.attendeeEmails);
+    return (await repo.findOneBy({ id: meeting.id })) ?? meeting;
   }
   return meeting;
 }
 
 /**
- * Put people on a meeting by address.
+ * Put people on a meeting by address, and work out its Customer from who is on
+ * it now.
  *
  * De-duplicated against what is already there, so calling it twice with an
  * overlapping list does not violate the `(meetingId, email)` unique index.
@@ -467,6 +482,7 @@ export async function addParticipants(meeting: Meeting, emails: string[]): Promi
     );
     added += 1;
   }
+  if (added > 0) await linkMeetingCustomerSafely(meeting.companyId, meeting.id);
   return added;
 }
 

@@ -11,7 +11,16 @@ import {
 
 describe("parseCustomerTab", () => {
   test("reads every tab the page offers", () => {
-    for (const tab of ["emails", "activity", "deals", "people", "meetings", "billing", "documents"]) {
+    for (const tab of [
+      "notes",
+      "emails",
+      "activity",
+      "deals",
+      "people",
+      "meetings",
+      "billing",
+      "documents",
+    ]) {
       assert.equal(parseCustomerTab(tab), tab);
     }
   });

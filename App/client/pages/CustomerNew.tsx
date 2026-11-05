@@ -506,7 +506,7 @@ function CustomerForm({ company }: { company: Company }) {
           </div>
           <div className="sm:col-span-2">
             <Textarea
-              label="Notes"
+              label="Account notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}

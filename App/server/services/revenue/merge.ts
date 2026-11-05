@@ -13,6 +13,7 @@ import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
 import { DealStage } from "../../db/entities/DealStage.js";
 import { Estimate } from "../../db/entities/Estimate.js";
 import { Invoice } from "../../db/entities/Invoice.js";
+import { Meeting } from "../../db/entities/Meeting.js";
 import { Partnership } from "../../db/entities/Partnership.js";
 import { PartnershipContact } from "../../db/entities/PartnershipContact.js";
 import { RecurringInvoice } from "../../db/entities/RecurringInvoice.js";
@@ -382,6 +383,7 @@ async function relationshipCounts(
       estimates,
       recurringInvoices,
       credits,
+      meetings,
       firmographicLookups,
       firmographicLookupConflicts,
     ] = await Promise.all([
@@ -397,6 +399,7 @@ async function relationshipCounts(
       countWhere(manager, Estimate, { companyId, customerId: sourceId }),
       countWhere(manager, RecurringInvoice, { companyId, customerId: sourceId }),
       countWhere(manager, CustomerCredit, { companyId, customerId: sourceId }),
+      countWhere(manager, Meeting, { companyId, customerId: sourceId }),
       countWhere(manager, RevenueFirmographicLookup, { companyId, customerId: sourceId }),
       manager
         .getRepository(RevenueFirmographicLookup)
@@ -425,6 +428,7 @@ async function relationshipCounts(
       estimates,
       recurringInvoices,
       credits,
+      meetings,
       firmographicLookups,
       firmographicLookupConflicts,
     };
@@ -1545,6 +1549,8 @@ async function applyRelationships(
     // A Slack channel linked to the merged-away account keeps writing its
     // notes, now onto the survivor's timeline.
     await move(CustomerChannel, "customer_channel", "customerId");
+    // Attendees create accounts, so a duplicate often holds nothing but meetings.
+    await move(Meeting, "meeting", "customerId");
     await mergeFirmographicLookups(manager, rows, companyId, sourceId, targetId);
   } else if (type === "contact") {
     await move(Activity, "activity", "contactId");

@@ -1,11 +1,15 @@
+import { IsNull } from "typeorm";
+
 import { AppDataSource } from "../../db/datasource.js";
 import { Activity } from "../../db/entities/Activity.js";
 import { Contact } from "../../db/entities/Contact.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { Meeting } from "../../db/entities/Meeting.js";
 import { MeetingParticipant } from "../../db/entities/MeetingParticipant.js";
+import { Customer } from "../../db/entities/Customer.js";
 import { recordMeetingActivity } from "../revenue/activities.js";
 import { findContactsByEmails } from "../revenue/contacts.js";
+import { linkMeetingCustomer, moveMeetingTimelineRow } from "./customerLink.js";
 import { listParticipants } from "./store.js";
 
 /**
@@ -21,7 +25,9 @@ import { listParticipants } from "./store.js";
  *    list of the people you sell to into thousands of junk rows, and every
  *    number downstream — contact counts, stale-contact nudges, sequence
  *    targeting — becomes noise with it. Creating a Contact stays an explicit
- *    act.
+ *    act. The meeting's one Customer, an account rather than a person, is
+ *    `customerLink.ts`'s to find or create, and it gets its own timeline row
+ *    when no Contact's row reaches it.
  *
  * 2. **Idempotency is keyed on the (meeting, subject) pair.** One call
  *    attended by three known Contacts is three timeline rows, and re-running
@@ -48,6 +54,13 @@ export type MeetingLinkResult = {
   dealId: string | null;
 };
 
+const NOTHING_LINKED: MeetingLinkResult = {
+  matched: 0,
+  activities: 0,
+  customerId: null,
+  dealId: null,
+};
+
 /**
  * What the timeline row says happened.
  *
@@ -72,12 +85,15 @@ function timelineBody(meeting: Meeting): string {
  * the live thing far more often than the archived one.
  *
  * Returns null rather than guessing when nothing matches — a meeting on no
- * Deal is an ordinary and correct outcome.
+ * Deal is an ordinary and correct outcome. A meeting with a customer only takes
+ * that customer's Deal, or one on no account: a champion from another account
+ * being in the room doesn't make it their Deal's meeting.
  */
 async function resolveDeal(
   companyId: string,
   contactIds: string[],
   customerIds: string[],
+  meetingCustomerId: string | null,
 ): Promise<Deal | null> {
   if (contactIds.length === 0 && customerIds.length === 0) return null;
   const qb = AppDataSource.getRepository(Deal)
@@ -95,6 +111,12 @@ async function resolveDeal(
     qb.andWhere("deal.customerId IN (:...customerIds)", { customerIds });
   }
 
+  if (meetingCustomerId) {
+    qb.andWhere("(deal.customerId = :meetingCustomerId OR deal.customerId IS NULL)", {
+      meetingCustomerId,
+    });
+  }
+
   return qb
     .orderBy("CASE WHEN deal.status = 'open' THEN 0 ELSE 1 END", "ASC")
     .addOrderBy("deal.updatedAt", "DESC")
@@ -102,8 +124,8 @@ async function resolveDeal(
 }
 
 /**
- * Resolve a meeting's participants to Contacts and put the call on their
- * timelines.
+ * Resolve a meeting's participants to Contacts and its Customer, and put the
+ * call on their timelines.
  *
  * Safe to call more than once, and meant to be: it runs when a transcript
  * lands, again after the AI write-up (so the row carries the summary), and
@@ -111,21 +133,15 @@ async function resolveDeal(
  */
 export async function linkMeeting(companyId: string, meetingId: string): Promise<MeetingLinkResult> {
   const meeting = await AppDataSource.getRepository(Meeting).findOneBy({ id: meetingId, companyId });
-  if (!meeting) return { matched: 0, activities: 0, customerId: null, dealId: null };
+  if (!meeting) return NOTHING_LINKED;
 
   const participants = await listParticipants(companyId, meetingId);
   const addresses = participants.map((row) => row.email);
-  if (addresses.length === 0) {
-    return { matched: 0, activities: 0, customerId: null, dealId: null };
-  }
 
-  // The one query that decides everything. Anything not in here is a stranger,
-  // and a stranger stays a stranger — see rule 1.
+  // The one query that decides who the people are. Anyone not in here is a
+  // stranger, and stays one: a stranger's account may be created below, but
+  // never a Contact for them — see rule 1.
   const byEmail = await findContactsByEmails(companyId, addresses);
-  if (byEmail.size === 0) {
-    await AppDataSource.getRepository(Meeting).update({ id: meetingId }, { linkedAt: new Date() });
-    return { matched: 0, activities: 0, customerId: null, dealId: null };
-  }
 
   // Remember the resolution on the participant row so "who was in the room"
   // stays answerable without redoing the match.
@@ -142,17 +158,31 @@ export async function linkMeeting(companyId: string, meetingId: string): Promise
     seen.add(contact.id);
     contacts.push(contact);
   }
-  if (contacts.length === 0) {
-    await AppDataSource.getRepository(Meeting).update({ id: meetingId }, { linkedAt: new Date() });
-    return { matched: 0, activities: 0, customerId: null, dealId: null };
+
+  const { customerId } = await linkMeetingCustomer(companyId, meetingId);
+  if (contacts.length === 0 && !customerId) {
+    // With nobody to go on there is no Deal either, whatever an earlier
+    // customer this meeting had pointed at.
+    await AppDataSource.getRepository(Meeting).update(
+      { id: meetingId },
+      { linkedAt: new Date(), dealId: null },
+    );
+    return NOTHING_LINKED;
   }
 
-  const customerIds = [...new Set(contacts.map((c) => c.customerId).filter((id): id is string => !!id))];
-  const deal = await resolveDeal(
-    companyId,
-    contacts.map((c) => c.id),
-    customerIds,
-  );
+  const customerIds = customerId
+    ? [customerId]
+    : [...new Set(contacts.map((c) => c.customerId).filter((id): id is string => !!id))];
+  // A Member who removed the customer said this meeting is on no account.
+  const deal =
+    meeting.customerChosen && !customerId
+      ? null
+      : await resolveDeal(
+          companyId,
+          contacts.map((c) => c.id),
+          customerIds,
+          customerId,
+        );
 
   const occurredAt =
     meeting.startedAt ?? meeting.scheduledStartAt ?? meeting.endedAt ?? meeting.createdAt;
@@ -168,19 +198,24 @@ export async function linkMeeting(companyId: string, meetingId: string): Promise
   // What is already on a timeline for this meeting, read once. `recordMeetingActivity`
   // returns the existing row and a fresh row identically, so "how many did we
   // actually write" has to be answered before writing rather than inferred after.
-  const alreadyLinked = new Set(
-    (
-      await AppDataSource.getRepository(Activity).find({
-        where: { companyId, meetingId: meeting.id },
-        select: { contactId: true, dealId: true },
-      })
-    ).map((row) => `${row.contactId ?? ""}|${row.dealId ?? ""}`),
-  );
+  const activityRepo = AppDataSource.getRepository(Activity);
+  const existingRows = await activityRepo.find({ where: { companyId, meetingId: meeting.id } });
 
   let activities = 0;
   for (const contact of contacts) {
     const dealId = deal && deal.primaryContactId === contact.id ? deal.id : null;
-    if (!alreadyLinked.has(`${contact.id}|${dealId ?? ""}`)) activities += 1;
+    // One row per Contact however its Deal changes, carrying the summary once
+    // there is one. Keying on the Deal would write the call on their timeline
+    // again each time the meeting's customer moved.
+    const existing = existingRows.find((row) => row.contactId === contact.id);
+    if (existing) {
+      const body = bodyText || existing.bodyText;
+      if (existing.dealId !== dealId || existing.bodyText !== body) {
+        await activityRepo.update({ id: existing.id }, { dealId, bodyText: body });
+      }
+      continue;
+    }
+    activities += 1;
     await recordMeetingActivity(
       companyId,
       {
@@ -217,11 +252,37 @@ export async function linkMeeting(companyId: string, meetingId: string): Promise
     );
   }
 
+  // The account's own row, only while nobody's row above reaches its timeline:
+  // an account Genosyn just created from the attendees has no Contacts yet, and
+  // once it does the call must not read twice.
+  const reachedByOthers =
+    existingRows.some((row) => row.contactId && row.customerId === customerId) ||
+    contacts.some((c) => c.customerId === customerId) ||
+    deal?.customerId === customerId;
+  const hadAccountRow = existingRows.some((row) => !row.contactId && !row.dealId);
+  if (customerId && reachedByOthers) {
+    await activityRepo.delete({ companyId, meetingId, contactId: IsNull(), dealId: IsNull() });
+  } else if (customerId) {
+    await recordMeetingActivity(
+      companyId,
+      {
+        kind: "meeting",
+        subject,
+        bodyText,
+        occurredAt,
+        customerId,
+        meetingId: meeting.id,
+        meta,
+      },
+      { employeeId: meeting.notetakerEmployeeId },
+    );
+    if (!hadAccountRow) activities += 1;
+  }
+
   await AppDataSource.getRepository(Meeting).update(
     { id: meetingId },
     {
       linkedAt: new Date(),
-      customerId: customerIds[0] ?? null,
       dealId: deal?.id ?? null,
     },
   );
@@ -229,9 +290,49 @@ export async function linkMeeting(companyId: string, meetingId: string): Promise
   return {
     matched: contacts.length,
     activities,
-    customerId: customerIds[0] ?? null,
+    customerId,
     dealId: deal?.id ?? null,
   };
+}
+
+export class MeetingCustomerError extends Error {}
+
+/**
+ * A Member's choice of customer for this meeting, or of none. It is final: the
+ * automatic passes leave the meeting alone from here on. Answers null when the
+ * company has no such meeting, and throws {@link MeetingCustomerError} for a
+ * customer it doesn't have.
+ */
+export async function setMeetingCustomer(
+  companyId: string,
+  meetingId: string,
+  customerId: string | null,
+): Promise<Meeting | null> {
+  const repo = AppDataSource.getRepository(Meeting);
+  const meeting = await repo.findOneBy({ id: meetingId, companyId });
+  if (!meeting) return null;
+  if (
+    customerId &&
+    !(await AppDataSource.getRepository(Customer).findOneBy({ id: customerId, companyId }))
+  ) {
+    throw new MeetingCustomerError("Customer not found.");
+  }
+
+  // A partial save rewrites only these columns, and still tells open pages.
+  const moved = meeting.customerId !== customerId;
+  await repo.save({
+    id: meeting.id,
+    customerId,
+    customerChosen: true,
+    // The old customer's Deal isn't this one's. The link pass finds its own.
+    ...(moved ? { dealId: null } : {}),
+  });
+  if (moved) {
+    await moveMeetingTimelineRow(companyId, meetingId, customerId);
+    // A meeting with something on a timeline belongs on its new customer's too.
+    if (meeting.transcriptText.trim()) await linkMeetingSafely(companyId, meetingId);
+  }
+  return repo.findOneBy({ id: meetingId, companyId });
 }
 
 /** {@link linkMeeting} with the failure policy attached: log and carry on. */
