@@ -1,3 +1,4 @@
+import { FROM_TODO_PARAM, linkSavedToTodo } from "@/components/todos/linkFromTodo";
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Mail, Plus, Trash2 } from "lucide-react";
@@ -290,6 +291,9 @@ function EstimateForm() {
               body,
             )
           : await api.post<Estimate>(`/api/companies/${company.id}/estimates`, body);
+      if (!isEdit) {
+        await linkSavedToTodo(company.id, searchParams.get(FROM_TODO_PARAM), "estimate", est.id);
+      }
       // The detail page opens its send dialog, where the recipients and a
       // note are confirmed before anything is emailed.
       const state: ResendRevisedState | undefined =

@@ -1,3 +1,4 @@
+import { RecordTasks } from "@/components/todos/RecordTasks";
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
@@ -1232,6 +1233,14 @@ export default function SupportTicketPage() {
         </div>
 
         <aside className="space-y-5" aria-label="Ticket details">
+          <RecordTasks
+            companyId={company.id}
+            companySlug={company.slug}
+            kind="ticket"
+            targetId={ticket.id}
+            what="this ticket"
+            suggestedTitle={ticket.subject}
+          />
           <Card className="space-y-3 p-4">
             <Select
               label="Status"

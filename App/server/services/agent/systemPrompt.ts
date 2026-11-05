@@ -389,7 +389,7 @@ export function toolsBriefing(
           "teammate's, and so is a schedule trigger on a Pipeline. When work calls for a Routine " +
           "change, say so plainly and leave it to a Member instead of retrying. To suggest a " +
           "better brief for a Routine you own, stage a Revision proposal with `propose_revision`."),
-    "- One-off work: `create_project`, `create_todo`, `update_todo`.",
+    "- One-off work: `create_project`, `create_todo`, `update_todo`. Work a person should be able to see gets a Todo first. Whatever you create while working a Todo links to it by itself, so file it, do it, then mark it done.",
     "- `add_journal_entry` to log decisions on your own diary (the last ~7 days are " +
       "auto-injected into every prompt), and `memory` to curate durable facts that are also " +
       "auto-injected.",

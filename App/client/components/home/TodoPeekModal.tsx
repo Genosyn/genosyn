@@ -1,8 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Check, CornerUpLeft, ExternalLink } from "lucide-react";
+import { Check, CornerUpLeft, ExternalLink, Maximize2 } from "lucide-react";
 
-import { TodoDetailBody } from "@/components/todos/TodoDetail";
+import { TodoDetailBody, todoPagePath } from "@/components/todos/TodoDetail";
 import { optimisticTodo, STATUS_LABEL } from "@/components/todos/todoShared";
 import { Button, buttonClassName } from "@/components/ui/Button";
 import { useBackgroundAction } from "@/components/ui/Dialog";
@@ -153,6 +153,13 @@ export function TodoPeekModal({
             onClick={onClose}
           >
             <ExternalLink size={14} /> Open the board
+          </Link>
+          <Link
+            to={todoPagePath(company.slug, row.project.slug, row.number)}
+            className={buttonClassName({ variant: "secondary", size: "sm" })}
+            onClick={onClose}
+          >
+            <Maximize2 size={14} /> Open full page
           </Link>
           {/* Only on the todo you came here for. Walking into a subtask
               changes what "mark done" would mean, and a resolve button that

@@ -190,6 +190,16 @@ describe("a Member reading an AI Employee's queue", () => {
     assert.equal(asOwner.queuedCount, 1, "the employee itself can open it");
   });
 
+  test("a place in line counts only what the reader can see", async () => {
+    await pickup(await todo({ title: "Locked first", priority: "urgent", projectId: locked.id }));
+    await pickup(await todo({ title: "Open second", priority: "low" }));
+    const asMember = await employeeTodoQueue(company.id, ada.id, viewer);
+    assert.deepEqual(titles(asMember.queued), ["Open second"]);
+    assert.equal(asMember.queued[0].pickup?.position, 1, "no gap to say something's hidden");
+    const asEmployee = await employeeTodoQueue(company.id, ada.id, { kind: "ai", id: ada.id });
+    assert.equal(asEmployee.queued[1].pickup?.position, 2);
+  });
+
   test("somebody else's queue isn't mixed in", async () => {
     await pickup(await todo({ title: "Ben's", assigneeEmployeeId: ben.id }), {
       employeeId: ben.id,

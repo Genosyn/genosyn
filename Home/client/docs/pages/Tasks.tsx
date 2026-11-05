@@ -64,6 +64,11 @@ export function Tasks() {
         ]}
       />
 
+      <P>
+        Clicking a todo opens it beside the board. <Strong>Open full page</Strong> gives it a page of
+        its own, with an address you can share and room for a long thread.
+      </P>
+
       <H2 id="subtasks">Subtasks</H2>
       <P>
         Open any todo and use <Strong>Add a subtask</Strong> in its panel to break the work into
@@ -82,15 +87,54 @@ export function Tasks() {
         <LI>Deleting a parent deletes its subtasks with it.</LI>
       </UL>
 
+      <H2 id="home">What&apos;s happening</H2>
+      <P>
+        <Strong>Tasks</Strong> opens on what&apos;s happening across every Project you can open, so
+        you can tell at a glance without going into one:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "Needs you",
+            def: "Todos in review with you as reviewer, waiting on a person, or waiting on an approval or a Decision.",
+          },
+          {
+            term: "AI working now",
+            def: "Sessions running at this moment, who is on them and since when, and how many more are queued.",
+          },
+          {
+            term: "Waiting",
+            def: "Todos waiting on a customer, a work session or a date, and when they check back.",
+          },
+          {
+            term: "Done in the last day",
+            def: "What finished, with the first line of its report.",
+          },
+        ]}
+      />
+      <P>
+        To hand something over, type it in <Strong>What needs doing?</Strong> at the top, choose who
+        does it and where it goes, and press enter. It files the todo and starts them on it, and the
+        details can go on the todo afterwards. It remembers who and where you chose last.
+      </P>
+      <P>
+        A todo opens with one sentence saying where it stands, such as who is working on it or what
+        it&apos;s waiting on. Rows on a board say <Strong>Working</Strong> or{" "}
+        <Strong>Queued</Strong> next to the assignee.
+      </P>
+
       <H2 id="links">Where a todo came from</H2>
       <P>
         A todo can be linked to the record it came from or is about: an email thread, a{" "}
         <DocLink to="/docs/customers">Customer</DocLink>, a Contact or Deal in{" "}
         <DocLink to="/docs/revenue">Revenue</DocLink>, a{" "}
-        <DocLink to="/docs/decisions">Decision</DocLink>, a Meeting, or a Routine Run. It reads both
+        <DocLink to="/docs/decisions">Decision</DocLink>, a Meeting, a Routine Run, a{" "}
+        <DocLink to="/docs/repositories#work-sessions">work session</DocLink>, an estimate, an
+        invoice, a bill, or a Support ticket. It reads both
         ways: the todo&apos;s panel says <Strong>From email</Strong> with a link to the thread, and
-        the thread lists the todo under <Strong>Tasks</Strong>. Customer, Contact and Deal pages
-        show the same <Strong>Tasks</Strong> card when something is linked to them.
+        the thread lists the todo under <Strong>Tasks</Strong>. Customer, Contact, Deal, estimate,
+        invoice, bill and ticket pages show the same <Strong>Tasks</Strong> card when something is
+        linked to them.
       </P>
       <P>
         To make one from an email, open the thread and choose <Strong>Create task</Strong>. The
@@ -189,7 +233,8 @@ export function Tasks() {
         priority first, so a busy morning is a queue and not twenty sessions at once. The todo moves
         to <Code>in_progress</Code>, the panel shows the employee working step by step with a{" "}
         <Strong>Stop</Strong> button, and its report lands as a comment on the thread, with the
-        steps behind a <Strong>Worked for…</Strong> line. When it finishes, it moves the todo to{" "}
+        steps behind a <Strong>Worked for…</Strong> line. If it used the browser, the{" "}
+        <DocLink to="/docs/browser#live-view">recording</DocLink> is under its report. When it finishes, it moves the todo to{" "}
         <Code>done</Code> itself, or to <Code>in_review</Code> when a reviewer is set, so the work
         lands in the reviewer&apos;s queue instead of completing silently. If the brief is too vague
         to act on, it moves the todo back to <Code>todo</Code> and asks for what it needs.
@@ -222,10 +267,40 @@ export function Tasks() {
         </LI>
         <LI>
           <Strong>Start now</Strong> in the panel sends the assignee back to a todo that sat, under
-          your access. Nothing already assigned starts by itself when you upgrade; only a new
+          your access, within any limits the todo is held to. Nothing already assigned starts by itself when you upgrade; only a new
           assignment or Start now does.
         </LI>
       </UL>
+      <H2 id="finance">Todos and Finance</H2>
+      <P>
+        An AI Employee can file a todo, create the estimate and mark the todo done, and the two link
+        by themselves, without anyone naming the link. Whatever it creates while working a todo goes
+        on that todo: an estimate, an invoice, a bill, a Customer, a Contact or a Deal, and any
+        ticket it works. Filing, creating and sending stay under their own Grants, Policies and
+        Approvals, and a session held to limits still can&apos;t create an estimate.
+      </P>
+      <P>
+        You can work from either side. <Strong>Create task</Strong> on an estimate, invoice, bill or
+        ticket files a todo linked to it. On a todo, <Strong>Create</Strong> opens the usual estimate
+        or invoice form, and what you save links to the todo. Reading a Finance link takes Finance
+        access: without it you see that a link exists, and not what it&apos;s called.
+      </P>
+
+      <H2 id="code">Todos and code</H2>
+      <P>
+        When an AI Employee working a todo starts a{" "}
+        <DocLink to="/docs/repositories#work-sessions">Repository work session</DocLink>, the todo
+        links to it by itself. You can go from the todo to the session, and the session&apos;s page
+        has a <Strong>Tasks</Strong> card that comes back. When the session opens a pull request, a
+        line with the link goes on the todo&apos;s thread.
+      </P>
+      <P>
+        You can do the same by hand. On a todo assigned to an AI Employee with access to a
+        Repository, <Strong>Start work session</Strong> starts one with the todo&apos;s text as its
+        instruction, under your access. <Strong>Create task</Strong> on a session&apos;s page goes the
+        other way. A todo with outside words on it can&apos;t start a session, because a session runs commands
+        and those words came from outside. Create a task in your own words instead.
+      </P>
       <H2 id="waiting">Waiting on someone</H2>
       <P>
         When an AI Employee can&apos;t finish without an answer, it asks and then says what it is
@@ -246,7 +321,11 @@ export function Tasks() {
           },
           {
             term: "A person answers",
-            def: "If it asked on the thread, your comment wakes it, working under your access.",
+            def: "If it asked on the thread, your comment wakes it, working under your access unless the todo is held to limits.",
+          },
+          {
+            term: "A work session ends",
+            def: "If it started a Repository work session and is waiting on that, the todo picks up when the session's turn ends, told how it went and about any pull request. A session that failed wakes it too.",
           },
           {
             term: "A Decision or a review",
@@ -255,8 +334,8 @@ export function Tasks() {
         ]}
       />
       <P>
-        Press <Strong>Stop waiting</Strong> in the panel to send the employee back now, under your
-        access. A finished todo stays finished when mail arrives on its thread, so a
+        Press <Strong>Stop waiting</Strong> in the panel to send the employee back now, within any
+        limits the todo is held to. A finished todo stays finished when mail arrives on its thread, so a
         &quot;thanks!&quot; doesn&apos;t reopen it, and a Member assigned to a todo hears about new
         mail on its thread in their bell.
       </P>
@@ -282,7 +361,7 @@ export function Tasks() {
           },
           {
             term: "Trusted senders",
-            def: "Mail from an address or @domain you list, which the receiving mail server verifies, runs with this employee's tools and browser under its Grants, with no one approving first. Email still follows the Replies setting. Gmail mailboxes only for now, because an IMAP mailbox can't show who verified what.",
+            def: "Mail from an address or @domain you list, which the receiving mail server verifies, can also use this employee's browser and the Vault logins it's granted, with no one approving first. Everything else stays preparation, and replies still follow the setting above. The mail server vouches for the domain rather than the address, so only list domains where you trust everyone who can send. A thread someone else has also written on doesn't count, because a reply carries what it quotes. Gmail mailboxes only for now, because an IMAP mailbox can't show who verified what.",
           },
         ]}
       />
@@ -301,13 +380,28 @@ export function Tasks() {
         <Strong>Waiting on browser approval</Strong>, and your decision starts it again.
       </P>
       <P>
-        It also needs <DocLink to="/docs/email#analysis">AI analysis</DocLink> on for the mailbox,
-        and whoever works these needs Mail access to it. If they don&apos;t have it the todo is
-        filed unassigned and owners hear why. It reads each email once, as it arrives, and nothing
-        else files one: reading an email again, a mailbox&apos;s instructions, and older mail
-        don&apos;t. Spam, marketing, auto-replies, blocked senders and a thread with open work are
-        never filed. A reply on a thread with open work wakes that work instead, under these same
-        limits.
+        It also needs <DocLink to="/docs/email#analysis">AI analysis</DocLink> on for the mailbox, and
+        whoever works these needs Mail access to it. If they don&apos;t have it the todo is filed
+        unassigned and owners hear why. It reads each email once, as it arrives, and nothing else
+        files one: reading an email again, a mailbox&apos;s instructions, and older mail don&apos;t.
+        Spam, marketing, auto-replies, blocked senders and a thread with open work are never filed,
+        filing starts no Pipelines, and a Project takes at most 100 emails a day. A reply on a thread
+        with open work wakes that work instead, under these same limits.
+      </P>
+      <P>
+        Limits only tighten for a todo. Once a stranger&apos;s email has touched one, it stays
+        preparation-only for every session on it, even if a trusted sender writes on the thread
+        later. A session held to preparing can only change its own todo and that thread. Mentioning
+        the employee, answering it, reassigning the todo and Stop waiting all stay within those
+        limits, because none of them says the email&apos;s words are safe.
+      </P>
+      <P>
+        To take it further yourself, press <Strong>Use my access</Strong> in the panel. That one
+        session can do what you can, with the email&apos;s words still on its thread, so anything it
+        sends waits for approval. It goes back to its limits afterwards. New mail on the thread before that session starts ends it, and it stays within the limits.
+        Limits also follow the work: a todo held to them starts no Pipeline, its next occurrence
+        inherits them, and a todo an employee comments on while it&apos;s working from an email is
+        held from then on. A Routine posting a status on your todo doesn&apos;t hold it.
       </P>
 
       <H2 id="email-to-done">From email to done</H2>

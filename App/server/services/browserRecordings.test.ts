@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -23,6 +24,10 @@ import {
   BROWSER_RECORDING_MAX_WIDTH,
   acceptBrowserRecordingFrame,
   beginBrowserRecording,
+  deleteBrowserRecordingsForTodoIds,
+  expireBrowserRecordingsFinishedBefore,
+  getBrowserRecordingFile,
+  listBrowserRecordingsForTodo,
   browserRecordingDemand,
   browserRecordingProcessStateForTests,
   deleteBrowserRecordingsForCompany,
@@ -185,6 +190,93 @@ async function writeRecordingMetadata(
   );
 }
 
+
+describe("a Todo's browser recordings", () => {
+  async function todoSession(todoId = randomUUID(), pickupId = randomUUID()) {
+    const { session } = await fixture();
+    await AppDataSource.getRepository(BrowserSession).update(
+      { id: session.id },
+      { runId: null, todoId, todoPickupId: pickupId, status: "live" },
+    );
+    return {
+      todoId,
+      pickupId,
+      session: await AppDataSource.getRepository(BrowserSession).findOneByOrFail({ id: session.id }),
+    };
+  }
+
+  test("records with no Run, and finishes when the session does", async () => {
+    const { session, todoId, pickupId } = await todoSession();
+    const calls: Parameters<typeof fileEncoderFactory>[0] = [];
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory(calls));
+
+    await beginBrowserRecording(session);
+    assert.equal(calls.length, 1);
+    const running = await listBrowserRecordingsForTodo(todoId);
+    assert.equal(running[0]?.status, "recording");
+    assert.equal(running[0]?.pickupId, pickupId);
+
+    acceptBrowserRecordingFrame(session.id, Buffer.from("a-frame").toString("base64"));
+    assert.equal(getBrowserRecordingLiveFrame(session, null)?.frame?.toString(), "a-frame");
+
+    await finishBrowserRecording(session);
+    assert.equal(getBrowserRecordingLiveFrame(session, null), null);
+    await AppDataSource.getRepository(BrowserSession).update({ id: session.id }, { status: "closed" });
+    const closed = await AppDataSource.getRepository(BrowserSession).findOneByOrFail({ id: session.id });
+    const finished = await listBrowserRecordingsForTodo(todoId);
+    assert.equal(finished[0]?.status, "ready");
+    const file = await getBrowserRecordingFile(closed);
+    assert.equal(file?.info.id, session.id);
+  });
+
+  test("a session that never opened the browser has nothing to show", async () => {
+    const { todoId } = await todoSession();
+    assert.deepEqual(await listBrowserRecordingsForTodo(todoId), []);
+  });
+
+  test("one Todo's recordings aren't another's", async () => {
+    const { session } = await todoSession();
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    await beginBrowserRecording(session);
+    assert.deepEqual(await listBrowserRecordingsForTodo(randomUUID()), []);
+    await finishBrowserRecording(session);
+  });
+
+  test("a live frame needs a Run to match only when the session has one", async () => {
+    const { run, session } = await fixture();
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    await beginBrowserRecording(session);
+    assert.equal(getBrowserRecordingLiveFrame(session, null), null, "a Run's session needs its Run");
+    assert.deepEqual(getBrowserRecordingLiveFrame(session, run), { frame: null });
+    await finishBrowserRecording(session);
+  });
+
+  test("deleting the Todo removes its video and its session", async () => {
+    const { session, todoId } = await todoSession();
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    await beginBrowserRecording(session);
+    acceptBrowserRecordingFrame(session.id, Buffer.from("a-frame").toString("base64"));
+    await finishBrowserRecording(session);
+    const video = browserRecordingFile(session.companyId, todoId, session.id);
+    assert.ok(await fs.stat(video), "the video is on disk first");
+
+    await deleteBrowserRecordingsForTodoIds([todoId]);
+    assert.deepEqual(await listBrowserRecordingsForTodo(todoId), []);
+    assert.equal(await AppDataSource.getRepository(BrowserSession).countBy({ todoId }), 0);
+    await assert.rejects(fs.stat(video));
+  });
+
+  test("retention expires a Todo's video like any other", async () => {
+    const { session, todoId } = await todoSession();
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    await beginBrowserRecording(session);
+    acceptBrowserRecordingFrame(session.id, Buffer.from("a-frame").toString("base64"));
+    await finishBrowserRecording(session);
+    const { deleted } = await expireBrowserRecordingsFinishedBefore(new Date(Date.now() + 60_000));
+    assert.equal(deleted, 1);
+    assert.equal((await listBrowserRecordingsForTodo(todoId))[0]?.status, "expired");
+  });
+});
 
 describe("Routine browser recordings", () => {
 
