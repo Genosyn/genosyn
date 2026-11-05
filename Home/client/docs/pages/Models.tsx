@@ -538,9 +538,10 @@ export function Models() {
         <LI>
           <Strong>Background work</Strong> waits as well, instead of recording a result the outage
           made up: grading a Run against its acceptance criteria, an employee&apos;s Wakeups, TLDR
-          briefings and board letters, meeting write-ups, application screening, data-room answers
-          and Sequence drafts. A Run is never graded off goal or unverified because its model was
-          unavailable.
+          briefings and board letters, meeting write-ups, application screening, data-room answers,
+          Sequence drafts, and <DocLink to="/docs/support#unavailable">Support</DocLink>&apos;s
+          triage and draft replies. A Run is never graded off goal or unverified because its model
+          was unavailable.
         </LI>
         <LI>
           <Strong>An email that arrives</Strong> waits to be read, as the arrival it is; your

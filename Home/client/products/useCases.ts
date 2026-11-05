@@ -208,6 +208,54 @@ export const PRODUCT_USE_CASES: ProductUseCase[] = [
     primaryProductSlug: "recruiting",
     accent: "bg-indigo-100 text-indigo-700 ring-indigo-200",
   },
+  // Support's three sit at the end for the same reason, and the Customer Support
+  // Specialist above stays off the Support page: it reads account history, which
+  // the turn that answers a Ticket deliberately cannot.
+  {
+    role: "Head of Support",
+    team: "Support",
+    initials: "HS",
+    objective: "Answer overnight what is already written down, and read only what is left.",
+    steps: [
+      "Triage each new Ticket with a summary, a Topic and a priority",
+      "Draft the reply from published Articles, checking every quote",
+      "Hold what no Article answers for a person, with the reason",
+    ],
+    outcome: "A morning queue of the Tickets that truly need a person",
+    productSlugs: ["support", "email", "ai-employees", "workspace"],
+    primaryProductSlug: "support",
+    accent: "bg-blue-100 text-blue-700 ring-blue-200",
+  },
+  {
+    role: "Customer Success Manager",
+    team: "Support",
+    initials: "CM",
+    objective: "Stop customers having to ask the same question twice.",
+    steps: [
+      "Read what was asked this month that no Article answers",
+      "Publish the Article behind the most-asked gap",
+      "Watch how much the AI solves from it in Insights",
+    ],
+    outcome: "Fewer repeat questions, with the figures to show it",
+    productSlugs: ["support", "customers", "notes", "workspace"],
+    primaryProductSlug: "support",
+    accent: "bg-cyan-100 text-cyan-700 ring-cyan-200",
+  },
+  {
+    role: "Product Manager",
+    team: "Product",
+    initials: "PM",
+    objective: "Hear what customers are running into, counted rather than remembered.",
+    steps: [
+      "Read the week's themes, with the Tickets counted behind each",
+      "Hand the worst Ticket to an AI Employee to look into",
+      "File what it finds in Tasks against the Project that owns it",
+    ],
+    outcome: "A bug report with the customer's words and how many asked",
+    productSlugs: ["support", "tasks", "repositories", "notes"],
+    primaryProductSlug: "support",
+    accent: "bg-amber-100 text-amber-700 ring-amber-200",
+  },
 ];
 
 export const SHOWCASE_USE_CASES = PRODUCT_USE_CASES.slice(0, 5);

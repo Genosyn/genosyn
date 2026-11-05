@@ -109,7 +109,10 @@ pays them. Everyone it hires gets:
   checked against figures read from the books and read first by an auditor
   only the board appoints; Recruiting, where an AI Employee can post an Opening
   for a job or a contract on the company's own careers site and score every
-  applicant against written criteria, quoting the evidence.
+  applicant against written criteria, quoting the evidence; Support, where
+  customer email becomes Tickets an AI Employee triages and answers from the
+  company's published Articles, every quote checked, and whatever those Articles
+  do not answer waits for a person.
 - **Next:** AI executives that hire, coach and replace AI Employees; a CEO seat
   only the board can change, and the letter its CEO signs; a checking account
   for the AI CFO and a vault only directors hold keys to; work orders that hire

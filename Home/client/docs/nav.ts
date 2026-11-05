@@ -264,6 +264,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Connect Gmail, get every new email triaged with one-click action buttons and your own written instructions, review AI-written drafts, and automate the inbox with rules.",
       },
       {
+        path: "/docs/support",
+        title: "Support",
+        blurb:
+          "Customer email becomes Tickets an AI Employee triages and answers from your published Articles, with every check written on the draft.",
+      },
+      {
         path: "/docs/meetings",
         title: "Meetings",
         blurb:

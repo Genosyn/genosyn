@@ -623,21 +623,21 @@ export const ROLES: RoleDef[] = [
         time: "02:40",
         at: 2.67,
         title: "Answers while the office is dark",
-        body: "Four tickets arrive from Europe and Asia. Three are answered in under six minutes from the documented answer, with the exact link attached. The fourth has nothing documented behind it, so Pax says so and leaves it for a human.",
-        where: "Email",
+        body: "Four Tickets arrive from Europe and Asia. Three are answered in under six minutes from published Articles, every quote checked word for word. The fourth has no Article behind it, so Pax's draft says so and waits for a human.",
+        where: "Support",
       },
       {
         time: "07:10",
         at: 7.17,
-        title: "Re-opens what regressed",
-        body: "Finds the two threads a customer replied to after they were closed and links three duplicates onto the original. The one that got worse overnight goes to the top of the human queue.",
-        where: "Email",
+        title: "Sorts what came back",
+        body: "Two customers wrote again on solved Tickets, which reopened them. Pax notes three duplicates on the original for a Member to merge, and raises the priority of the one that got worse overnight.",
+        where: "Support",
       },
       {
         time: "09:30",
         at: 9.5,
         title: "Writes the doc that ends the question",
-        body: "The same import error has come up eleven times this month. Pax opens a documentation pull request carrying the fix, the cause, and the error string people actually paste into search.",
+        body: "The same import error has come up eleven times this month. Pax opens a documentation pull request carrying the fix, the cause, and the error string people actually paste into search, and drafts the Article a Member publishes so the twelfth is answered from it.",
         where: "Repositories",
       },
       {
@@ -659,8 +659,8 @@ export const ROLES: RoleDef[] = [
         time: "14:00",
         at: 14,
         title: "Keeps yesterday's promises",
-        body: "Goes back through every thread where somebody said 'I'll get back to you' and either gets back to them or explains why it is still open. Nothing ages silently.",
-        where: "Email",
+        body: "Goes back through every Ticket where somebody said 'I'll get back to you' and either drafts the reply that keeps the promise or notes why it is still open. Nothing ages silently.",
+        where: "Support",
       },
       {
         time: "16:40",
@@ -694,23 +694,24 @@ export const ROLES: RoleDef[] = [
       "weekly-theme-report",
     ],
     routines: [
-      { name: "Ticket sweep", when: "Every 15 minutes, around the clock" },
+      { name: "Ticket watch", when: "When a customer writes" },
       { name: "Promise chase", when: "Every day, 14:00" },
       { name: "Theme report", when: "Fridays, 16:40" },
       { name: "Shift handover", when: "Every day, 21:30" },
     ],
     grants: [
-      "Gmail Connection for the support mailbox",
+      "Prepare replies access under Support → AI access",
+      "The Support inbox it works, on your support mailbox",
       "The documentation Repository",
       "The Projects it may file bugs into",
       "Product docs and runbooks in Resources",
     ],
-    products: ["email", "tasks", "repositories", "resources", "workspace", "notes"],
+    products: ["support", "email", "tasks", "repositories", "resources", "workspace", "notes"],
     capabilities: [
       {
         icon: "bookOpenCheck",
         title: "Answers from your truth, not its memory",
-        body: "Replies are grounded in the docs, runbooks, and past threads you granted it, with the link attached. A question with no documented answer goes to a human, which is the correct answer to give.",
+        body: "A reply it sends on its own comes only from your published Articles, and every quote in it is checked word for word. A question no Article answers waits as a draft for a Member, which is the correct answer to give.",
       },
       {
         icon: "shieldAlert",
@@ -724,14 +725,14 @@ export const ROLES: RoleDef[] = [
       },
       {
         icon: "history",
-        title: "Every thread is one timeline",
-        body: "Duplicates are linked and re-opens are visible, with the whole history sitting on the Contact. The human who picks a thread up is not reading the story for the first time.",
+        title: "Every Ticket is one timeline",
+        body: "Duplicates are merged, reopened Tickets are visible, and the customer's other Tickets sit beside the conversation. The human who picks one up is not reading the story for the first time.",
       },
     ],
     faqs: [
       {
         q: "How do I stop it inventing an answer?",
-        a: "It answers from granted Resources and past threads and cites what it used. Its Soul carries the rule that an ungrounded answer becomes a Decision instead — and you can read any Run to see exactly which sources it had.",
+        a: "A reply goes out on its own only if it quotes a published Article, every quote is found word for word, and it reports high confidence that the Articles fully answer the question. Anything less waits as a draft for a Member, with the reason written on it.",
       },
       {
         q: "Can it issue refunds?",
@@ -739,7 +740,7 @@ export const ROLES: RoleDef[] = [
       },
       {
         q: "Does it work my existing inbox?",
-        a: "Yes — Email is a real mail client over your Gmail mailbox with two-way sync, so your team and the AI Employee work the same threads rather than a shadow queue.",
+        a: "Yes. Connect the mailbox customers write to and Support turns mail to support@, or any other address you name, into Tickets, leaving the rest of the mailbox alone. Your team and the AI Employee work the same queue, and replies go out through that mailbox.",
       },
     ],
     keywords: [
