@@ -236,6 +236,10 @@ await context.route("**/api/**", async (route) => {
     );
     return route.fulfill({ json: { analysis: analysis(), message: "Unstarred" } });
   }
+  // The thread asks what Todos it is linked to; this one has none.
+  if (method === "GET" && pathname === "/api/companies/company/todo-links") {
+    return route.fulfill({ json: { total: 0, hasMore: false, nextCursor: null, todos: [] } });
+  }
   unexpected.push(`${method} ${pathname}`);
   return route.fulfill({ status: 404, json: { error: `Unhandled ${method} ${pathname}` } });
 });
