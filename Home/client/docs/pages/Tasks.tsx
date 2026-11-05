@@ -222,7 +222,7 @@ export function Tasks() {
         </LI>
         <LI>
           <Strong>Start now</Strong> in the panel sends the assignee back to a todo that sat, under
-          your access. Nothing already assigned starts by itself when you upgrade; only a new
+          your access, within any limits the todo is held to. Nothing already assigned starts by itself when you upgrade; only a new
           assignment or Start now does.
         </LI>
       </UL>
@@ -255,8 +255,8 @@ export function Tasks() {
         ]}
       />
       <P>
-        Press <Strong>Stop waiting</Strong> in the panel to send the employee back now, under your
-        access. A finished todo stays finished when mail arrives on its thread, so a
+        Press <Strong>Stop waiting</Strong> in the panel to send the employee back now, within any
+        limits the todo is held to. A finished todo stays finished when mail arrives on its thread, so a
         &quot;thanks!&quot; doesn&apos;t reopen it, and a Member assigned to a todo hears about new
         mail on its thread in their bell.
       </P>
@@ -282,7 +282,7 @@ export function Tasks() {
           },
           {
             term: "Trusted senders",
-            def: "Mail from an address or @domain you list, which the receiving mail server verifies, can also use this employee's browser and the Vault logins it's granted, with no one approving first. Everything else stays preparation, and replies still follow the setting above. The mail server vouches for the domain rather than the address, so only list domains where you trust everyone who can send. Gmail mailboxes only for now, because an IMAP mailbox can't show who verified what.",
+            def: "Mail from an address or @domain you list, which the receiving mail server verifies, can also use this employee's browser and the Vault logins it's granted, with no one approving first. Everything else stays preparation, and replies still follow the setting above. The mail server vouches for the domain rather than the address, so only list domains where you trust everyone who can send. A thread someone else has also written on doesn't count, because a reply carries what it quotes. Gmail mailboxes only for now, because an IMAP mailbox can't show who verified what.",
           },
         ]}
       />
@@ -311,9 +311,17 @@ export function Tasks() {
       </P>
       <P>
         Limits only tighten for a todo. Once a stranger&apos;s email has touched one, it stays
-        preparation-only for every session that starts by itself, even if a trusted sender writes on
-        the thread later. A session an email started can only change its own todo and that thread.
-        You can always take it further yourself: Start now and Stop waiting run under your access.
+        preparation-only for every session on it, even if a trusted sender writes on the thread
+        later. A session held to preparing can only change its own todo and that thread. Mentioning
+        the employee, answering it, reassigning the todo and Stop waiting all stay within those
+        limits, because none of them says the email&apos;s words are safe.
+      </P>
+      <P>
+        To take it further yourself, press <Strong>Use my access</Strong> in the panel. That one
+        session can do what you can, with the email&apos;s words still on its thread, so anything it
+        sends waits for approval. It goes back to its limits afterwards. Limits also follow the work:
+        a todo held to them starts no Pipeline, its next occurrence inherits them, and a todo an
+        employee comments on while it&apos;s working from an email is held from then on.
       </P>
 
       <H2 id="email-to-done">From email to done</H2>

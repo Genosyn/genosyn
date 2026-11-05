@@ -118,6 +118,17 @@ export function nextOccurrence(from: Date, recurrence: TodoRecurrence): Date | n
   }
 }
 
+/** What a Todo was held to, for the next one: its limits carry on, one email's trust doesn't. */
+function limitsWithoutTrust(ceilingJson: string | null): string | null {
+  if (!ceilingJson) return null;
+  try {
+    return JSON.stringify({ ...JSON.parse(ceilingJson), trustedSender: false });
+  } catch {
+    // A floor nobody can read is read as the narrowest wherever it's used.
+    return ceilingJson;
+  }
+}
+
 /**
  * A recurring Todo was just completed: put the next one on the list for when
  * it's next due. It anchors to the completed Todo's due date, so a weekly report
@@ -144,6 +155,7 @@ export async function spawnNextRecurrence(project: Project, completed: Todo): Pr
     untrustedText: completed.untrustedText,
     tainted: completed.tainted,
     aiChainDepth: completed.aiChainDepth,
+    ceilingJson: limitsWithoutTrust(completed.ceilingJson),
   });
   // Imported here because Pipelines' own steps create Todos through this file.
   void import("./pipelines/events.js")

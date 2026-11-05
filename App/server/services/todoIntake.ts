@@ -7,7 +7,7 @@ import { Company } from "../db/entities/Company.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
 import type { MailAccount } from "../db/entities/MailAccount.js";
 import { MailInboundAnalysis } from "../db/entities/MailInboundAnalysis.js";
-import type { MailMessage } from "../db/entities/MailMessage.js";
+import { MailMessage } from "../db/entities/MailMessage.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Notification } from "../db/entities/Notification.js";
 import { Project } from "../db/entities/Project.js";
@@ -39,7 +39,12 @@ import { hasProjectAccess, listAccessibleProjectIds, type ProjectActor } from ".
 import { emitResourceChange } from "./resourceEvents.js";
 import { workBlocked } from "./standdowns.js";
 import { addTodoLink } from "./todoLinks.js";
-import { ceilingJsonFor, requestTodoPickup, type TodoPickupCeiling } from "./todoPickups.js";
+import {
+  ceilingJsonFor,
+  requestTodoPickup,
+  todoHeldWithoutTrust,
+  type TodoPickupCeiling,
+} from "./todoPickups.js";
 import { insertTodo } from "./todos.js";
 import { isAutomatedReply } from "./todoWaits.js";
 
@@ -104,6 +109,7 @@ const BODY_CHARS = 6_002;
 
 /** Categories the server won't file, whatever the reader proposes. */
 const NEVER_FILED = new Set(["spam", "marketing"]);
+const OPEN_STATUSES: Todo["status"][] = ["backlog", "todo", "in_progress", "in_review"];
 const DAY_MS = 24 * 60 * 60_000;
 
 /** Projects that can take email, which is also how many the read's prompt can list. */
@@ -340,6 +346,8 @@ export function eventPickupCeiling(args: {
   sender: SenderVerdict;
   fromEmail: string;
   threadId: string;
+  /** Someone else has written on this thread, or work on it was already held without trust. */
+  othersOnThread: boolean;
 }): TodoPickupCeiling {
   const { intake } = args;
   const mailDeliveryMode: MailDeliveryMode =
@@ -347,6 +355,7 @@ export function eventPickupCeiling(args: {
   const trusted =
     Boolean(intake?.enabled) &&
     args.sender.verified &&
+    !args.othersOnThread &&
     isTrustedSender(parseTrustedSenders(intake!.trustedSenders).entries, args.fromEmail);
   return {
     proactiveReview: true,
@@ -354,6 +363,28 @@ export function eventPickupCeiling(args: {
     mailDeliveryMode,
     mailThreadId: args.threadId,
   };
+}
+
+/**
+ * Whether anyone but this mailbox and the owner's trusted senders has written on this
+ * thread. A reply carries what it quotes, so one trusted sender replying to all doesn't
+ * make a stranger's words their own.
+ */
+async function othersWroteOnThread(
+  intake: ProjectIntake,
+  account: MailAccount,
+  threadId: string,
+): Promise<boolean> {
+  const { entries } = parseTrustedSenders(intake.trustedSenders);
+  const own = account.address.trim().toLowerCase();
+  const messages = await AppDataSource.getRepository(MailMessage).find({
+    where: { threadId },
+    select: { id: true, fromEmail: true },
+  });
+  return messages.some((row) => {
+    const from = row.fromEmail.trim().toLowerCase();
+    return from !== own && !isTrustedSender(entries, from);
+  });
 }
 
 /** Read this message's headers once, for every check that wants them. */
@@ -389,6 +420,7 @@ export async function eventCeilingForTodo(
     projectId: todo.projectId,
   });
   let sender: SenderVerdict = { verified: false, how: null, detail: "No intake to trust it by." };
+  let othersOnThread = false;
   if (intake?.enabled && intake.trustedSenders.trim()) {
     const headers = await headersOf(account, message, deps).catch(() => []);
     sender = verifySender({
@@ -396,12 +428,14 @@ export async function eventCeilingForTodo(
       authservId: trustedAuthservId(account),
       fromEmail: message.fromEmail,
     });
+    othersOnThread = await othersWroteOnThread(intake, account, message.threadId);
   }
   return eventPickupCeiling({
     intake,
     sender,
     fromEmail: message.fromEmail,
     threadId: message.threadId,
+    othersOnThread,
   });
 }
 
@@ -808,12 +842,14 @@ export async function fileIntakeProposal(
       where: { companyId: account.companyId, kind: "mail_thread", targetId: message.threadId },
       select: { id: true, todoId: true },
     });
-    if (links.length > 0) {
-      const open = await AppDataSource.getRepository(Todo).countBy({
-        id: In(links.map((link) => link.todoId)),
-        status: In(["backlog", "todo", "in_progress", "in_review"]),
-      });
-      if (open > 0) return await skip("This thread already has open work.");
+    const earlierWork = links.length
+      ? await AppDataSource.getRepository(Todo).find({
+          where: { id: In(links.map((link) => link.todoId)) },
+          select: { id: true, status: true, ceilingJson: true },
+        })
+      : [];
+    if (earlierWork.some((todo) => OPEN_STATUSES.includes(todo.status))) {
+      return await skip("This thread already has open work.");
     }
 
     // Filed from email only, so other work on the board can't use this up.
@@ -884,11 +920,15 @@ export async function fileIntakeProposal(
       authservId: trustedAuthservId(account),
       fromEmail: message.fromEmail,
     });
+    // Closing a Todo doesn't clear its thread: what it was held to still applies here.
     const ceiling = eventPickupCeiling({
       intake,
       sender,
       fromEmail: message.fromEmail,
       threadId: message.threadId,
+      othersOnThread:
+        earlierWork.some(todoHeldWithoutTrust) ||
+        (await othersWroteOnThread(intake, account, message.threadId)),
     });
     const todo = await insertTodo({
       project,

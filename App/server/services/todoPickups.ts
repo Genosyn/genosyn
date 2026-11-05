@@ -168,6 +168,12 @@ export type TodoPickupRequest = {
   ceiling?: TodoPickupCeiling;
   /** A person asked for this directly, so the automatic limits don't apply. */
   byMember?: boolean;
+  /**
+   * A person chose, on this Todo, to give one session their own access past what the
+   * Todo is held to (`Todo.ceilingJson`). Only that choice sets this. A comment, an
+   * assignment or ending a wait grants nothing, whoever does it.
+   */
+  overLimits?: boolean;
   note?: string;
   notBeforeAt?: Date;
   /**
@@ -265,6 +271,43 @@ function readFloor(todo: Pick<Todo, "ceilingJson">): TodoPickupCeiling | null {
 /** A restricted turn's limits, to hold what it creates to them. Null when it has none. */
 export function ceilingJsonFor(ceiling: TodoPickupCeiling): string | null {
   return isRestricted(ceiling) ? JSON.stringify(ceiling) : null;
+}
+
+/** What limits this Todo to preparing or to review, when it is. Taint alone isn't one. */
+export function todoLimits(todo: Pick<Todo, "ceilingJson">): TodoPickupCeiling | null {
+  const floor = readFloor(todo);
+  return floor && (floor.proactiveReview === true || Boolean(floor.mailDeliveryMode))
+    ? floor
+    : null;
+}
+
+/** Whether what this Todo was already held to has no sender's trust in it. */
+export function todoHeldWithoutTrust(todo: Pick<Todo, "ceilingJson">): boolean {
+  const floor = readFloor(todo);
+  return floor !== null && floor.trustedSender !== true;
+}
+
+/**
+ * A preparing turn's words are on this Todo now, and a later session replays them. So
+ * that session is held to the same limits, however this Todo started. Call it before
+ * saving `todo`, or the save puts back what it loaded.
+ */
+export async function holdTodoToTurn(todo: Todo, ceiling: TodoPickupCeiling): Promise<void> {
+  if (!ceiling.proactiveReview && !ceiling.mailDeliveryMode) return;
+  await heldToFloor(todo, ceiling);
+}
+
+/** Todos held to limits, filed in a company since then. What preparing turns may add stops here. */
+export const MAX_HELD_TODOS_PER_COMPANY_PER_DAY = 200;
+
+export async function heldTodosSince(companyId: string, since: Date): Promise<number> {
+  return AppDataSource.getRepository(Todo)
+    .createQueryBuilder("todo")
+    .innerJoin(Project, "project", "project.id = todo.projectId")
+    .where("project.companyId = :companyId", { companyId })
+    .andWhere("todo.ceilingJson IS NOT NULL")
+    .andWhere("todo.createdAt >= :since", { since })
+    .getCount();
 }
 
 /**
@@ -365,9 +408,12 @@ export async function requestTodoPickup(asked: TodoPickupRequest): Promise<TodoP
       })
     : null;
   if (!todo || !project) return { started: false, reason: "gone" };
-  // A person asking is theirs to ask. Everything else is held to the Todo's floor,
-  // before any limit below can return, so a capped reply still narrows it.
-  if (!request.byMember) {
+  // Everything is held to the Todo's floor, before any limit below can return, so a
+  // capped reply still narrows it. A person's explicit choice is what goes past it, and
+  // the words behind that floor are still on the thread, so that session starts tainted.
+  if (request.overLimits) {
+    if (todo.ceilingJson) request = { ...request, ceiling: { ...request.ceiling, tainted: true } };
+  } else {
     request = { ...request, ceiling: await heldToFloor(todo, request.ceiling ?? {}) };
   }
   if (request.trigger === "review") {
@@ -462,6 +508,7 @@ type StoredRerun = {
   authority: TodoPickupAuthority;
   ceiling: TodoPickupCeiling;
   byMember: boolean;
+  overLimits?: boolean;
   note: string;
   /** When it should start, for a check-back asked for while the session still runs. */
   notBeforeAt?: string;
@@ -478,6 +525,7 @@ function mergedRerun(held: StoredRerun | null, request: TodoPickupRequest): Stor
       authority: request.authority,
       ceiling: { ...ceiling, tainted: ceiling.tainted || held?.ceiling.tainted },
       byMember: request.byMember === true,
+      overLimits: request.overLimits === true,
       note: appendNote(held?.note ?? "", request.note),
       notBeforeAt: request.notBeforeAt?.toISOString(),
     };
@@ -1417,6 +1465,7 @@ async function afterPickupEnded(args: {
       authority: stored.authority,
       ceiling: stored.ceiling,
       byMember: stored.byMember,
+      overLimits: stored.overLimits === true,
       note: stored.note,
       notBeforeAt: stored.notBeforeAt ? new Date(stored.notBeforeAt) : undefined,
     });
