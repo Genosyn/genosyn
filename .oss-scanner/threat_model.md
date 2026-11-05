@@ -116,6 +116,15 @@ trusted-origin check, is in `App/server/index.ts`.
      The token in the link a customer was emailed is their only credential, kept
      only as a hash; it reaches one ticket's subject and a rating box, and no
      conversation. Guessing is throttled by source address.
+   - **Help center**: `/help/<company-slug>` and `/api/help`
+     (`App/server/routes/publicHelpCenter.ts`,
+     `App/server/services/support/helpCenter.ts`). No credential at all: once an
+     owner or admin turns it on, anyone can list, search and read that company's
+     published Articles. Off, a company that never existed, a malformed slug or
+     id, a draft and another company's Article all answer one identical 404.
+     Reads and searches start no AI work. Search and misses are throttled by
+     source address, a paging cursor is unsigned and checked before it reaches a
+     query, and every answer is `noindex` and never cached.
    - **Email to a Support inbox** (`App/server/services/support/`). Anyone can
      write to a support address, and From is spoofable, so a customer's email is
      untrusted input to the company's AI: it reaches an AI Employee only as bounded
@@ -292,6 +301,16 @@ trusted-origin check, is in `App/server/index.ts`.
   signing in as a Member of that company is a finding. Any Member may read
   and act on applications; owners and admins alone change Recruiting
   settings, the careers site, its domain, and AI access.
+- **A help center is public by choice.** A published Article's title, body and
+  edit date, the company's name, and the name of a Topic with a published Article
+  are meant for anyone. A draft or archived Article, a Ticket, a note, a knowledge
+  gap, an Article's source Ticket, authors or citation counts, and a Topic's other
+  settings are not, and reaching them without signing in is a finding. So is telling
+  a help center that is off from a company that never existed, a stranger's request
+  writing to a company's Support settings, or anything a stranger sends raising a
+  server error. Search engines are asked not to index it, which only a well-behaved
+  crawler honors; that is not an access control. Any Member can publish an Article.
+  An AI Employee in a turn that read a Ticket cannot, without a person approving it.
 - **A data room guest link is a bearer credential by design.** Anyone holding
   it opens the room as that guest until it is reissued or revoked. Watermarks
   and view-only rooms deter copying; they do not prevent it, since anything
@@ -434,7 +453,7 @@ Most, roughly in order:
    API to the AI's browser, even with a Member's cookies).
 9. **Public routes**: forms, signing, data room guests, webhooks, chat
    surfaces, phone number webhooks, unsubscribe, the careers site and its
-   custom-domain host guard, and OAuth callbacks (listed above).
+   custom-domain host guard, the help center, and OAuth callbacks (listed above).
 10. **Files and parsers**: upload limits and types, how stored files are
     served (Content-Type, Content-Disposition, sandboxing), document parsing,
     and archive extraction (`App/server/services/backups.ts`).
