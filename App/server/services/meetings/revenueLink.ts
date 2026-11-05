@@ -1,3 +1,5 @@
+import { IsNull } from "typeorm";
+
 import { AppDataSource } from "../../db/datasource.js";
 import { Activity } from "../../db/entities/Activity.js";
 import { Contact } from "../../db/entities/Contact.js";
@@ -83,12 +85,15 @@ function timelineBody(meeting: Meeting): string {
  * the live thing far more often than the archived one.
  *
  * Returns null rather than guessing when nothing matches — a meeting on no
- * Deal is an ordinary and correct outcome.
+ * Deal is an ordinary and correct outcome. A meeting with a customer only takes
+ * that customer's Deal, or one on no account: a champion from another account
+ * being in the room doesn't make it their Deal's meeting.
  */
 async function resolveDeal(
   companyId: string,
   contactIds: string[],
   customerIds: string[],
+  meetingCustomerId: string | null,
 ): Promise<Deal | null> {
   if (contactIds.length === 0 && customerIds.length === 0) return null;
   const qb = AppDataSource.getRepository(Deal)
@@ -104,6 +109,12 @@ async function resolveDeal(
     qb.andWhere("deal.primaryContactId IN (:...contactIds)", { contactIds });
   } else {
     qb.andWhere("deal.customerId IN (:...customerIds)", { customerIds });
+  }
+
+  if (meetingCustomerId) {
+    qb.andWhere("(deal.customerId = :meetingCustomerId OR deal.customerId IS NULL)", {
+      meetingCustomerId,
+    });
   }
 
   return qb
@@ -159,16 +170,19 @@ export async function linkMeeting(companyId: string, meetingId: string): Promise
     return NOTHING_LINKED;
   }
 
-  const customerIds = [
-    ...new Set(
-      [...contacts.map((c) => c.customerId), customerId].filter((id): id is string => !!id),
-    ),
-  ];
-  const deal = await resolveDeal(
-    companyId,
-    contacts.map((c) => c.id),
-    customerIds,
-  );
+  const customerIds = customerId
+    ? [customerId]
+    : [...new Set(contacts.map((c) => c.customerId).filter((id): id is string => !!id))];
+  // A Member who removed the customer said this meeting is on no account.
+  const deal =
+    meeting.customerChosen && !customerId
+      ? null
+      : await resolveDeal(
+          companyId,
+          contacts.map((c) => c.id),
+          customerIds,
+          customerId,
+        );
 
   const occurredAt =
     meeting.startedAt ?? meeting.scheduledStartAt ?? meeting.endedAt ?? meeting.createdAt;
@@ -184,18 +198,24 @@ export async function linkMeeting(companyId: string, meetingId: string): Promise
   // What is already on a timeline for this meeting, read once. `recordMeetingActivity`
   // returns the existing row and a fresh row identically, so "how many did we
   // actually write" has to be answered before writing rather than inferred after.
-  const existingRows = await AppDataSource.getRepository(Activity).find({
-    where: { companyId, meetingId: meeting.id },
-    select: { contactId: true, dealId: true, customerId: true },
-  });
-  const alreadyLinked = new Set(
-    existingRows.map((row) => `${row.contactId ?? ""}|${row.dealId ?? ""}`),
-  );
+  const activityRepo = AppDataSource.getRepository(Activity);
+  const existingRows = await activityRepo.find({ where: { companyId, meetingId: meeting.id } });
 
   let activities = 0;
   for (const contact of contacts) {
     const dealId = deal && deal.primaryContactId === contact.id ? deal.id : null;
-    if (!alreadyLinked.has(`${contact.id}|${dealId ?? ""}`)) activities += 1;
+    // One row per Contact however its Deal changes, carrying the summary once
+    // there is one. Keying on the Deal would write the call on their timeline
+    // again each time the meeting's customer moved.
+    const existing = existingRows.find((row) => row.contactId === contact.id);
+    if (existing) {
+      const body = bodyText || existing.bodyText;
+      if (existing.dealId !== dealId || existing.bodyText !== body) {
+        await activityRepo.update({ id: existing.id }, { dealId, bodyText: body });
+      }
+      continue;
+    }
+    activities += 1;
     await recordMeetingActivity(
       companyId,
       {
@@ -232,13 +252,17 @@ export async function linkMeeting(companyId: string, meetingId: string): Promise
     );
   }
 
-  // The account's own row, when nobody's row above reaches its timeline: an
-  // account Genosyn just created from the attendees has no Contacts yet.
-  const reachesCustomer =
-    existingRows.some((row) => row.customerId === customerId) ||
+  // The account's own row, only while nobody's row above reaches its timeline:
+  // an account Genosyn just created from the attendees has no Contacts yet, and
+  // once it does the call must not read twice.
+  const reachedByOthers =
+    existingRows.some((row) => row.contactId && row.customerId === customerId) ||
     contacts.some((c) => c.customerId === customerId) ||
     deal?.customerId === customerId;
-  if (customerId && !reachesCustomer) {
+  const hadAccountRow = existingRows.some((row) => !row.contactId && !row.dealId);
+  if (customerId && reachedByOthers) {
+    await activityRepo.delete({ companyId, meetingId, contactId: IsNull(), dealId: IsNull() });
+  } else if (customerId) {
     await recordMeetingActivity(
       companyId,
       {
@@ -252,7 +276,7 @@ export async function linkMeeting(companyId: string, meetingId: string): Promise
       },
       { employeeId: meeting.notetakerEmployeeId },
     );
-    activities += 1;
+    if (!hadAccountRow) activities += 1;
   }
 
   await AppDataSource.getRepository(Meeting).update(

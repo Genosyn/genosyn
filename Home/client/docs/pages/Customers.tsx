@@ -238,8 +238,8 @@ export function Customers() {
         </LI>
         <LI>
           <Strong>Meetings</Strong> — the{" "}
-          <DocLink to="/docs/meetings#customer">meetings linked to the account</DocLink>, with their
-          recordings, transcripts, and summaries. Open one and its page links straight back here, and
+          <DocLink to="/docs/meetings#customer">meetings linked to the account</DocLink>, and any that
+          one of its contacts attended, with their recordings, transcripts, and summaries. Open one and its page links straight back here, and
           a meeting on the <Strong>Activity</Strong> tab has an <Strong>Open meeting</Strong> link.
         </LI>
         <LI>

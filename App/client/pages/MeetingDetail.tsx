@@ -29,6 +29,7 @@ import { useLiveRefetch } from "../components/CompanySocket";
 import { RecordHistory } from "../components/RecordHistory";
 import { Panel, ProviderChip, StatusChip } from "../components/meetings/MeetingChips";
 import { api, type Company, type Customer } from "../lib/api";
+import { ACCOUNT_STATUS_LABEL } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
 import {
   formatDuration,
@@ -582,12 +583,6 @@ export default function MeetingDetail() {
     </div>
   );
 }
-
-const ACCOUNT_STATUS_LABEL: Record<MeetingCustomer["accountStatus"], string> = {
-  prospect: "Prospect",
-  customer: "Customer",
-  former: "Former customer",
-};
 
 /**
  * Which Customer this meeting is with, and the way to it. A link grants nothing,

@@ -1,5 +1,11 @@
 import type { Customer } from "./api";
 
+export const ACCOUNT_STATUS_LABEL: Record<Customer["accountStatus"], string> = {
+  prospect: "Prospect",
+  customer: "Customer",
+  former: "Former customer",
+};
+
 /**
  * One line that tells customers apart in a picker, so two accounts with
  * similar names are never confused: "Acme Corp — acme.com · ap@acme.com".

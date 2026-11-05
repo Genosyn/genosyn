@@ -10,6 +10,8 @@ import { CompanyFinanceSettings } from "../../db/entities/CompanyFinanceSettings
 import { Contact } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { CustomerContact } from "../../db/entities/CustomerContact.js";
+import { Deal } from "../../db/entities/Deal.js";
+import { DealStage } from "../../db/entities/DealStage.js";
 import { Meeting } from "../../db/entities/Meeting.js";
 import { MeetingParticipant } from "../../db/entities/MeetingParticipant.js";
 import { Membership } from "../../db/entities/Membership.js";
@@ -20,7 +22,7 @@ import { mergeRevenueAccounts, previewRevenueAccountMerge } from "../revenue/acc
 import { rollbackRevenueOperation } from "../revenue/operations.js";
 import { linkMeetingCustomer } from "./customerLink.js";
 import { linkMeeting, setMeetingCustomer } from "./revenueLink.js";
-import { addParticipants, armMeetingsForAccount, createAdHocMeeting } from "./store.js";
+import { addParticipants, armMeetingsForAccount, createAdHocMeeting, pageMeetings } from "./store.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
@@ -102,6 +104,25 @@ describe("creating a Customer from a meeting", () => {
     const rows = await customers();
     assert.deepEqual(rows.map((row) => row.name).sort(), ["Contoso", "Fabrikam"]);
     assert.notEqual((await reload(one.id)).customerId, (await reload(two.id)).customerId);
+  });
+
+  test("a suffix registries sell under is never one company", async () => {
+    const one = await meetingWith(["sam@acme.ltd.uk"]);
+    const two = await meetingWith(["pat@other.ltd.uk"]);
+    await linkMeetingCustomer(CO, one.id);
+    await linkMeetingCustomer(CO, two.id);
+
+    const rows = await customers();
+    assert.deepEqual(rows.map((row) => row.domain).sort(), ["acme.ltd.uk", "other.ltd.uk"]);
+    assert.ok(rows.some((row) => row.name === "Acme"));
+  });
+
+  test("everyone at a consumer ISP is their own person", async () => {
+    const one = await meetingWith(["a@comcast.net"]);
+    const two = await meetingWith(["b@comcast.net"]);
+    await linkMeetingCustomer(CO, one.id);
+    await linkMeetingCustomer(CO, two.id);
+    assert.deepEqual((await customers()).map((row) => row.domain), ["", ""]);
   });
 
   test("free mail starts an account for that one person, named by address", async () => {
@@ -431,6 +452,71 @@ describe("archived and merged accounts", () => {
   });
 });
 
+describe("the account's timeline", () => {
+  test("a Contact added later replaces the account's row, so the call reads once", async () => {
+    const meeting = await meetingWith(["sam@acme.test"], { transcriptText: "Sam: hello." });
+    await linkMeeting(CO, meeting.id);
+    const [customer] = await customers();
+    await insert(Contact, {
+      companyId: CO,
+      email: "sam@acme.test",
+      name: "Sam",
+      customerId: customer.id,
+    });
+
+    await linkMeeting(CO, meeting.id);
+
+    const rows = await AppDataSource.getRepository(Activity).find({
+      where: { companyId: CO, meetingId: meeting.id },
+    });
+    assert.equal(rows.length, 1);
+    assert.ok(rows[0].contactId);
+  });
+
+  test("the row picks up the summary once there is one", async () => {
+    const meeting = await meetingWith(["sam@acme.test"], { transcriptText: "Sam: hello." });
+    await linkMeeting(CO, meeting.id);
+    await AppDataSource.getRepository(Meeting).update(
+      { id: meeting.id },
+      { summaryText: "They want SSO." },
+    );
+
+    const again = await linkMeeting(CO, meeting.id);
+
+    assert.equal(again.activities, 0);
+    const [row] = await AppDataSource.getRepository(Activity).find({
+      where: { companyId: CO, meetingId: meeting.id },
+    });
+    assert.equal(row.bodyText, "They want SSO.");
+  });
+
+  test("a customer's meeting list includes calls its Contacts attended", async () => {
+    const beta = await insert(Customer, { companyId: CO, name: "Beta", slug: "beta" });
+    const contact = await insert(Contact, {
+      companyId: CO,
+      email: "b@beta.test",
+      name: "B",
+      customerId: beta.id,
+    });
+    const acme = await insert(Customer, { companyId: CO, name: "Acme", slug: "acme" });
+    const meeting = await insert(Meeting, {
+      companyId: CO,
+      title: "Three-way",
+      customerId: acme.id,
+    });
+    await insert(MeetingParticipant, {
+      companyId: CO,
+      meetingId: meeting.id,
+      email: "b@beta.test",
+      contactId: contact.id,
+    });
+
+    const page = await pageMeetings(CO, { customerId: beta.id }, "all", {}, (row) => row.id);
+
+    assert.deepEqual(page.rows, [meeting.id]);
+  });
+});
+
 describe("merging accounts", () => {
   test("takes the meetings along, and undoing the merge brings them back", async () => {
     const source = await insert(Customer, { companyId: CO, name: "Dupe", slug: "dupe" });
@@ -544,6 +630,89 @@ describe("a Member's choice is final", () => {
     await setMeetingCustomer(CO, meeting.id, null);
 
     assert.equal(await AppDataSource.getRepository(Activity).count(), 0);
+  });
+
+  test("a row on the old customer's Deal doesn't stay when the customer changes", async () => {
+    const stage = await insert(DealStage, {
+      companyId: CO,
+      name: "Discovery",
+      slug: "discovery",
+      sortOrder: 0,
+      probability: 10,
+    });
+    const old = await insert(Customer, {
+      companyId: CO,
+      name: "Old",
+      slug: "old",
+      domain: "old.test",
+    });
+    const deal = await insert(Deal, {
+      companyId: CO,
+      title: "Old deal",
+      customerId: old.id,
+      stageId: stage.id,
+      status: "open",
+    });
+    const meeting = await meetingWith(["sam@old.test"], { transcriptText: "Sam: hello." });
+    await linkMeeting(CO, meeting.id);
+    assert.equal((await reload(meeting.id)).dealId, deal.id);
+    const mine = await insert(Customer, { companyId: CO, name: "Mine", slug: "mine" });
+
+    await setMeetingCustomer(CO, meeting.id, mine.id);
+
+    assert.equal((await reload(meeting.id)).dealId, null);
+    const rows = await AppDataSource.getRepository(Activity).find({
+      where: { companyId: CO, meetingId: meeting.id },
+    });
+    assert.deepEqual(rows.map((row) => [row.customerId, row.dealId]), [[mine.id, null]]);
+  });
+
+  test("a chosen customer never takes another account's Deal", async () => {
+    const stage = await insert(DealStage, {
+      companyId: CO,
+      name: "Discovery",
+      slug: "discovery",
+      sortOrder: 0,
+      probability: 10,
+    });
+    const other = await insert(Customer, { companyId: CO, name: "Other", slug: "other" });
+    const contact = await insert(Contact, {
+      companyId: CO,
+      email: "sam@other.test",
+      name: "Sam",
+      customerId: other.id,
+    });
+    await insert(Deal, {
+      companyId: CO,
+      title: "Their deal",
+      customerId: other.id,
+      primaryContactId: contact.id,
+      stageId: stage.id,
+      status: "open",
+    });
+    const mine = await insert(Customer, { companyId: CO, name: "Mine", slug: "mine" });
+    const meeting = await chosen(["sam@other.test"], mine.id);
+
+    const result = await linkMeeting(CO, meeting.id);
+    assert.equal(result.dealId, null);
+
+    await setMeetingCustomer(CO, meeting.id, null);
+    assert.equal((await linkMeeting(CO, meeting.id)).dealId, null);
+  });
+
+  test("moving a meeting doesn't write a Contact's row twice", async () => {
+    await insert(Contact, { companyId: CO, email: "sam@acme.test", name: "Sam" });
+    const meeting = await meetingWith(["sam@acme.test"], { transcriptText: "Sam: hello." });
+    await linkMeeting(CO, meeting.id);
+    const mine = await insert(Customer, { companyId: CO, name: "Mine", slug: "mine" });
+
+    await setMeetingCustomer(CO, meeting.id, mine.id);
+    await linkMeeting(CO, meeting.id);
+
+    const rows = await AppDataSource.getRepository(Activity).find({
+      where: { companyId: CO, meetingId: meeting.id },
+    });
+    assert.equal(rows.filter((row) => row.contactId).length, 1);
   });
 
   test("removing the link clears a Deal that only the customer pointed at", async () => {

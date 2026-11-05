@@ -49,6 +49,7 @@ import {
   parseCustomerTab,
   type CustomerTab,
 } from "../lib/customerOverview";
+import { ACCOUNT_STATUS_LABEL } from "../lib/customerLabel";
 import { meetingsApi, type Meeting } from "../lib/meetings";
 import { newRecurringInvoicePath } from "../lib/recurringInvoiceForm";
 import { newInvoicePath } from "../lib/invoiceKind";
@@ -114,12 +115,6 @@ function websiteHref(customer: Customer): string | null {
     return null;
   }
 }
-
-const ACCOUNT_STATUS_LABEL: Record<Customer["accountStatus"], string> = {
-  prospect: "Prospect",
-  customer: "Customer",
-  former: "Former customer",
-};
 
 const CREDIT_KIND_LABEL: Record<CustomerCredit["kind"], string> = {
   credit_memo: "Credit memo",

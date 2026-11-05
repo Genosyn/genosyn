@@ -1,4 +1,4 @@
-import { In, IsNull } from "typeorm";
+import { In, IsNull, Not } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { Activity } from "../../db/entities/Activity.js";
@@ -78,6 +78,23 @@ function isMachineAddress(address: string): boolean {
   );
 }
 
+/**
+ * The domain a new account takes. `baseDomainOf` is only a lookup key: it doesn't
+ * know every suffix registries sell under, and calling `ltd.uk` a company would
+ * put everyone at `acme.ltd.uk` and `other.ltd.uk` on one account. So a short
+ * second level under a country code keeps the label before it. At worst that
+ * gives `mail.ibm.de` an account of its own, which a Member can merge, and two
+ * accounts are easier to fix than one holding strangers.
+ */
+function accountDomainOf(host: string): string {
+  const base = baseDomainOf(host);
+  if (SHARED_TENANT_HOSTS.has(base)) return host;
+  const labels = host.split(".");
+  const [second, tld] = base.split(".");
+  const couldBeSuffix = base.split(".").length === 2 && tld.length === 2 && second.length <= 3;
+  return couldBeSuffix && labels.length > 2 ? labels.slice(-3).join(".") : base;
+}
+
 /** The longest name the customer form accepts. */
 const NAME_CHARS = 120;
 
@@ -100,8 +117,7 @@ function newCustomerFor(address: string): NewCustomer | null {
   if (isFreeMailDomain(host)) {
     return { key: address, name: address.slice(0, NAME_CHARS), domain: "", email: address };
   }
-  const base = baseDomainOf(host);
-  const domain = SHARED_TENANT_HOSTS.has(base) ? host : base;
+  const domain = accountDomainOf(host);
   return { key: domain, name: nameFromDomain(domain).slice(0, NAME_CHARS), domain, email: "" };
 }
 
@@ -289,7 +305,11 @@ async function createCustomerFrom(
   }
 }
 
-/** Point the meeting's account-level timeline row at the customer, or remove it when there is none. */
+/**
+ * The meeting has a different customer now. Point its account-level timeline row
+ * at it, or remove the row when there is none. A row on the old customer's Deal
+ * goes too: the next link pass writes one for whichever Deal it finds now.
+ */
 export async function moveMeetingTimelineRow(
   companyId: string,
   meetingId: string,
@@ -297,6 +317,7 @@ export async function moveMeetingTimelineRow(
 ): Promise<void> {
   const where = { companyId, meetingId, contactId: IsNull(), dealId: IsNull() };
   const repo = AppDataSource.getRepository(Activity);
+  await repo.delete({ companyId, meetingId, contactId: IsNull(), dealId: Not(IsNull()) });
   if (customerId) await repo.update(where, { customerId });
   else await repo.delete(where);
 }

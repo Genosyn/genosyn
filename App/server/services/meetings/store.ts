@@ -238,7 +238,11 @@ export const meetingStatusFilter = z.enum(MEETING_STATUSES as [MeetingStatus, ..
 /** `GET /meetings`'s query: the filters `list_meetings` takes, and a page. */
 export const meetingListQuerySchema = z.object({
   status: meetingStatusFilter.optional(),
-  customerId: z.string().uuid().optional().describe("Only meetings linked to this account."),
+  customerId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe("Only meetings linked to this account, or that one of its Contacts attended."),
   contactId: z.string().uuid().optional().describe("Only meetings this Contact attended."),
   from: z
     .string()
@@ -281,7 +285,13 @@ function meetingListQuery(
     .where("meeting.companyId = :companyId", { companyId });
   if (filter.status) qb.andWhere("meeting.status = :status", { status: filter.status });
   if (filter.customerId) {
-    qb.andWhere("meeting.customerId = :customerId", { customerId: filter.customerId });
+    // Its own meetings, and any one of its Contacts attended: the same calls its
+    // timeline shows, whichever account the meeting itself links to.
+    const q = (name: string) => AppDataSource.driver.escape(name);
+    qb.andWhere(
+      `(meeting.customerId = :customerId OR ${asText("meeting.id")} IN (SELECT ${q("p")}.${q("meetingId")} FROM ${q("meeting_participants")} ${q("p")} WHERE ${q("p")}.${q("companyId")} = :companyId AND ${q("p")}.${q("contactId")} IN (SELECT CAST(${q("c")}.${q("id")} AS TEXT) FROM ${q("contacts")} ${q("c")} WHERE ${q("c")}.${q("companyId")} = :companyId AND ${q("c")}.${q("customerId")} = :customerId)))`,
+      { customerId: filter.customerId },
+    );
   }
   if (filter.contactId) {
     // A contact filter is a join through participants, which is exactly the

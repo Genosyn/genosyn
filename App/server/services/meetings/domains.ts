@@ -21,14 +21,20 @@ import { emailDomain, normalizeEmail } from "../../lib/emailAddress.js";
  * failure being an absence rather than an error. The list below is only the
  * hosts big enough that this is a real risk; an unknown small host being
  * treated as internal costs one un-recorded meeting, while the reverse costs
- * a recording nobody expected. The same list stops a meeting treating everyone
- * at one of these hosts as a single customer.
+ * a recording nobody expected. The same list, consumer ISPs included, stops a
+ * meeting treating everyone at one of these hosts as a single customer.
  */
 const FREE_MAIL_DOMAINS = new Set([
   "126.com",
   "163.com",
   "aol.com",
+  "att.net",
+  "bigpond.com",
+  "btinternet.com",
+  "comcast.net",
+  "cox.net",
   "fastmail.com",
+  "free.fr",
   "gmail.com",
   "gmx.com",
   "gmx.de",
@@ -37,8 +43,12 @@ const FREE_MAIL_DOMAINS = new Set([
   "hey.com",
   "hotmail.co.uk",
   "hotmail.com",
+  "hotmail.de",
   "hotmail.fr",
+  "hotmail.it",
   "icloud.com",
+  "libero.it",
+  "live.co.uk",
   "live.com",
   "mac.com",
   "mail.com",
@@ -46,15 +56,25 @@ const FREE_MAIL_DOMAINS = new Set([
   "me.com",
   "msn.com",
   "naver.com",
+  "orange.fr",
   "outlook.com",
+  "outlook.de",
+  "outlook.fr",
   "pm.me",
   "proton.me",
   "protonmail.com",
   "qq.com",
   "rediffmail.com",
+  "rogers.com",
+  "sbcglobal.net",
+  "shaw.ca",
+  "sky.com",
+  "t-online.de",
   "tuta.io",
   "tutanota.com",
+  "verizon.net",
   "web.de",
+  "wanadoo.fr",
   "yahoo.co.in",
   "yahoo.co.jp",
   "yahoo.co.uk",
