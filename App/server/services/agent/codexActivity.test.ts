@@ -287,3 +287,157 @@ test("a subscription turn streams its thinking and reports waiting for the model
     mutableConfig.agent.codingTools.executionMode = original.executionMode;
   }
 });
+
+test("a subscription turn's requests split at each tool call, and usage reported during the tool still counts", async (t) => {
+  const mutableConfig = config as unknown as {
+    sessionSecret: string;
+    security: { multiTenant: boolean; encryptionSecret: string };
+    agent: { codingTools: { executionMode: "host" | "disabled" } };
+  };
+  const original = {
+    sessionSecret: mutableConfig.sessionSecret,
+    security: { ...mutableConfig.security },
+    executionMode: mutableConfig.agent.codingTools.executionMode,
+  };
+  mutableConfig.sessionSecret = "codex-activity-test-session-secret-2026";
+  mutableConfig.security.multiTenant = false;
+  mutableConfig.security.encryptionSecret = "codex-activity-test-encryption-secret-2026";
+  mutableConfig.agent.codingTools.executionMode = "disabled";
+  try {
+    await initTestDb();
+    const model = await insertEmployeeModel({
+      employeeId: "test-employee",
+      provider: "openai",
+      model: "gpt-5.6-terra",
+      authMode: "subscription",
+      connectedAt: new Date(),
+      configJson: JSON.stringify({
+        codexAccessTokenEncrypted: encryptSecret("test-codex-activity-token"),
+      }),
+    });
+    t.mock.method(
+      CodexAppServer,
+      "start",
+      async (options: Parameters<typeof CodexAppServer.start>[0]) => {
+        let notify: Parameters<CodexAppServer["onNotification"]>[0] | undefined;
+        const base = { threadId: "thread-id", turnId: "turn-id" };
+        const usage = (inputTokens: number, outputTokens: number) =>
+          notify?.("thread/tokenUsage/updated", {
+            ...base,
+            tokenUsage: {
+              total: { inputTokens, outputTokens },
+              last: { inputTokens, outputTokens },
+            },
+          });
+        return {
+          request: async (method: string) => {
+            if (method === "thread/start") {
+              return {
+                thread: {
+                  id: "thread-id",
+                  cwd: options.cwd,
+                  ephemeral: true,
+                  parentThreadId: null,
+                },
+                model: "gpt-5.6-terra",
+                modelProvider: "openai",
+                cwd: options.cwd,
+                approvalPolicy: "never",
+                sandbox: { type: "readOnly", networkAccess: false },
+                runtimeWorkspaceRoots: [],
+                instructionSources: [],
+              };
+            }
+            if (method === "turn/start") {
+              setImmediate(() => {
+                void (async () => {
+                  notify?.("item/started", {
+                    ...base,
+                    item: { type: "dynamicToolCall", id: "call_1", tool: "read_record" },
+                  });
+                  const running = options.onServerRequest!("item/tool/call", {
+                    ...base,
+                    callId: "call_1",
+                    namespace: null,
+                    tool: "read_record",
+                    arguments: {},
+                  });
+                  // The model's response finishes while the tool is still running.
+                  usage(1_000, 60);
+                  await running;
+                  notify?.("item/agentMessage/delta", { ...base, itemId: "m", delta: "Done." });
+                  notify?.("item/completed", {
+                    ...base,
+                    item: { type: "agentMessage", id: "m", text: "Done." },
+                  });
+                  usage(1_200, 25);
+                  notify?.("turn/completed", {
+                    threadId: "thread-id",
+                    turn: { id: "turn-id", status: "completed" },
+                  });
+                })();
+              });
+              return { turn: { id: "turn-id" } };
+            }
+            return {};
+          },
+          onNotification: (handler: Parameters<CodexAppServer["onNotification"]>[0]) => {
+            notify = handler;
+            return () => undefined;
+          },
+          onExit: () => () => undefined,
+          close: async () => {},
+        } as unknown as CodexAppServer;
+      },
+    );
+
+    const pulses: string[] = [];
+    const calls: ModelCallDetail[] = [];
+    const result = await runCodexSubscriptionTurn({
+      model,
+      system: "Answer briefly.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Read the record." }] }],
+      registry: residentOnlyRegistry([
+        {
+          name: "read_record",
+          description: "Read a record",
+          inputSchema: { type: "object", properties: {} },
+          readOnly: true,
+          run: async () => {
+            await tick();
+            return { content: "The record." };
+          },
+        },
+      ]),
+      maxSteps: 10,
+      callbacks: {
+        onModelPulse: (pulse) => pulses.push(pulse.state),
+        onModelCall: (call) => calls.push(call),
+      },
+    });
+    assert.equal(result.finalText, "Done.");
+    assert.deepEqual(pulses, [
+      "preparing",
+      "waiting",
+      "thinking",
+      "tool_input",
+      "finished",
+      "waiting",
+      "thinking",
+      "writing",
+      "finished",
+    ]);
+    assert.deepEqual(
+      calls.map((call) => [call.request, call.inputTokens, call.outputTokens]),
+      [
+        [1, 1_000, 60],
+        [2, 1_200, 25],
+      ],
+    );
+  } finally {
+    await closeTestDb();
+    mutableConfig.sessionSecret = original.sessionSecret;
+    Object.assign(mutableConfig.security, original.security);
+    mutableConfig.agent.codingTools.executionMode = original.executionMode;
+  }
+});

@@ -144,8 +144,9 @@ async function runCodexTurn(
     modelWatch?.preparing("Starting its runtime");
     /**
      * Codex runs the model loop itself, so a request has no bytes of its own
-     * here: one ends when the model hands a tool call over or the turn
-     * completes, and the next begins when a result goes back.
+     * here: one is over when the model hands a tool call over or the turn
+     * completes, and the next begins when a result goes back. Its count can
+     * arrive in between, so it stays open to that until then.
      */
     let modelRequest = null as ModelRequestWatch | null;
     const nextModelRequest = () => {
@@ -190,7 +191,7 @@ async function runCodexTurn(
             throw new Error("Codex sent a tool call for the wrong turn.");
           }
           toolCalls += 1;
-          modelRequest?.end();
+          modelRequest?.handOver();
           if (params.maxSteps !== null && toolCalls > Math.max(1, params.maxSteps)) {
             runawayViolation =
               `Genosyn stopped this turn after ${params.maxSteps} tool calls ` +

@@ -437,6 +437,33 @@ describe("watching a turn", () => {
     assert.ok(calls[0].phases.length <= 32);
   });
 
+  test("a request handed over stops the clock, and its count can still arrive", () => {
+    const { clock, calls, pulses, turn } = watch("openai");
+    const request = turn.begin();
+    clock.ms += 1_000;
+    request.signal({ state: "tool_input", tool: "search", chars: 40 });
+    clock.ms += 2_000;
+    request.handOver();
+    assert.equal(pulses.at(-1)?.state, "finished");
+    assert.equal(calls.length, 0, "the record waits for the count");
+    const seen = pulses.length;
+    clock.ms += 60_000; // The tool runs; the app-server reports usage meanwhile.
+    request.alive();
+    request.signal({ state: "writing", chars: 500 });
+    request.signal({ inputTokens: 1_000, outputTokens: 80 });
+    assert.equal(pulses.length, seen, "nothing here is the model working again");
+    request.end();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].inputTokens, 1_000);
+    assert.equal(calls[0].outputTokens, 80);
+    assert.equal(calls[0].durationMs, 3_000, "the tool's minute is not the model's");
+    assert.deepEqual(
+      calls[0].phases.map((phase) => phase.ms),
+      [1_000, 2_000],
+    );
+    assert.equal(pulses.length, seen, "and it said it was finished already");
+  });
+
   test("an observer that throws never reaches the stream it is only watching", () => {
     const turn = new ModelTurnWatch({
       provider: "anthropic",

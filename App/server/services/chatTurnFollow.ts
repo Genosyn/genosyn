@@ -21,7 +21,8 @@ import type { AgentProgress } from "./agent/types.js";
  *   progress   the employee's own milestones
  *   context    how full the AI Model's context window is
  *   pulse      what the AI Model is doing right now, read off its stream, while
- *              the turn runs in this process (`agent/modelStream.ts`)
+ *              the turn runs in this process (`agent/modelStream.ts`); null once
+ *              it no longer does
  *   tool_output the end of what a running command has printed so far, the same way
  *   heartbeat  the server clock, every few seconds, so a reader can tell a
  *              quiet turn from a dead connection
@@ -166,8 +167,11 @@ export async function followChatTurn(args: {
     const shown = presentProgress(progress);
     if (shown) args.send("progress", shown);
   };
+  let pulseShown = false;
   const sendPulse = (pulse: ModelPulse) => {
-    if (args.showPulse !== false) args.send("pulse", pulse);
+    if (args.showPulse === false) return;
+    pulseShown = true;
+    args.send("pulse", pulse);
   };
   const sendToolOutput = (callId: string, output: string) => {
     if (args.showToolOutput !== false) args.send("tool_output", { callId, output });
@@ -254,7 +258,12 @@ export async function followChatTurn(args: {
         continue;
       }
 
-      // Not running here: read what the worker persisted.
+      // Not running here: read what the worker persisted. What the AI Model was
+      // last heard doing here says nothing about it any more.
+      if (pulseShown) {
+        pulseShown = false;
+        args.send("pulse", null);
+      }
       sendEvents(await listChatActivity(args.messageId, cursor, 500));
       sendText(row.text);
       const progress = row.progress;

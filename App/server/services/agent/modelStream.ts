@@ -379,6 +379,7 @@ export class ModelRequestWatch {
   private inputTokens: number | null = null;
   private outputTokens: number | null = null;
   private stop: string | null = null;
+  private handedOverAt: number | null = null;
   private done = false;
 
   constructor(
@@ -391,7 +392,7 @@ export class ModelRequestWatch {
 
   /** Raw text from this request's SSE stream, as it arrives. */
   data(text: string): void {
-    if (this.done) return;
+    if (this.done || this.handedOverAt !== null) return;
     this.lastDataAt = this.turn.clock;
     for (const payload of this.lines.push(text)) {
       this.signal(readModelStreamEvent(this.turn.provider, payload), false);
@@ -401,7 +402,7 @@ export class ModelRequestWatch {
 
   /** A sign of life that says nothing else: bytes, a keep-alive, a notification. */
   alive(): void {
-    if (this.done) return;
+    if (this.done || this.handedOverAt !== null) return;
     const now = this.turn.clock;
     this.lastDataAt = now;
     // A model that answers has started working, before it says on what.
@@ -421,6 +422,7 @@ export class ModelRequestWatch {
     if (signal.inputTokens !== undefined) this.inputTokens = signal.inputTokens;
     if (signal.outputTokens !== undefined) this.outputTokens = signal.outputTokens;
     if (signal.stopReason) this.stop = signal.stopReason;
+    if (this.handedOverAt !== null) return;
     let changed = false;
     if (signal.state) {
       const current = this.phases.at(-1);
@@ -439,8 +441,22 @@ export class ModelRequestWatch {
     else if (touch) this.maybePublish(now);
   }
 
+  /**
+   * The AI Model has finished and handed a tool call over, but its count may still
+   * be on the way: Codex reports usage after the tool has started. Its time stops
+   * here, and only a count can reach it now until {@link end}.
+   */
+  handOver(): void {
+    if (this.done || this.handedOverAt !== null) return;
+    const now = this.turn.clock;
+    this.handedOverAt = now;
+    const last = this.phases.at(-1);
+    if (last) last.endedAt = now;
+    this.turn.publishFrom(this, this.reading("finished", null, now, now, 0));
+  }
+
   compactingChanged(): void {
-    if (this.done) return;
+    if (this.done || this.handedOverAt !== null) return;
     const now = this.turn.clock;
     this.open(this.turn.compacting ? "compacting" : "thinking", null, now);
   }
@@ -453,13 +469,15 @@ export class ModelRequestWatch {
   end(outcome: { answered?: boolean; stopReason?: string } = {}): void {
     if (this.done) return;
     this.done = true;
-    const now = this.turn.clock;
+    const now = this.handedOverAt ?? this.turn.clock;
     const last = this.phases.at(-1);
-    if (last) last.endedAt = now;
+    if (last && last.endedAt === null) last.endedAt = now;
     if (outcome.stopReason) this.stop = outcome.stopReason;
     const answered = outcome.answered ?? this.lastDataAt !== null;
     const tokens = this.outputTokens ?? this.estimatedTokens();
-    this.turn.publishFrom(this, this.reading("finished", null, now, now, 0));
+    if (this.handedOverAt === null) {
+      this.turn.publishFrom(this, this.reading("finished", null, now, now, 0));
+    }
     this.turn.ended(this, answered ? this.detail(now) : null, answered ? tokens : 0);
   }
 

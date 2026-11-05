@@ -38,6 +38,7 @@ async function workingTurn(content = ""): Promise<ConversationMessage> {
 /** Start following, collecting frames, with a short poll for the remote path. */
 function follow(messageId: string, after = 0) {
   const frames: Frame[] = [];
+  const cleared = { count: 0 };
   const controller = new AbortController();
   const waiters: Array<{ match: (frames: Frame[]) => boolean; resolve: () => void }> = [];
   const done = followChatTurn({
@@ -48,6 +49,7 @@ function follow(messageId: string, after = 0) {
     heartbeatMs: 60_000,
     send: (event, data) => {
       frames.push({ event, data: (data ?? {}) as Record<string, unknown> });
+      if (event === "pulse" && data === null) cleared.count += 1;
       for (const waiter of [...waiters]) {
         if (waiter.match(frames)) {
           waiters.splice(waiters.indexOf(waiter), 1);
@@ -78,7 +80,7 @@ function follow(messageId: string, after = 0) {
             },
           });
         });
-  return { frames, controller, done, until };
+  return { frames, controller, done, until, cleared };
 }
 
 const activityOrdinals = (frames: Frame[]) =>
@@ -199,6 +201,34 @@ describe("following a chat turn", () => {
     await reader.done;
     live.finish();
     releaseLiveTurn(live);
+  });
+
+  test("a turn another worker takes over stops speaking for what the AI Model is doing", async () => {
+    const message = await workingTurn();
+    const live = openLiveTurn(message.id, SCOPE_BASE.conversationId);
+    live.pulse({
+      state: "thinking",
+      label: null,
+      model: "m",
+      request: 1,
+      tool: null,
+      since: "2026-10-30T10:00:00.000Z",
+      sentAt: null,
+      lastDataAt: null,
+      chars: 0,
+      outputTokens: 0,
+      now: "2026-10-30T10:00:00.000Z",
+    });
+    const reader = follow(message.id);
+    await reader.until((frames) => frames.some((frame) => frame.event === "pulse"));
+    // The worker lost its claim: the turn carries on elsewhere, where this
+    // reader sees only the steps. It must not go on reading "last heard" for ever.
+    live.detach();
+    releaseLiveTurn(live);
+    await reader.until(() => reader.cleared.count > 0);
+    assert.equal(reader.cleared.count, 1, "null says it no longer knows");
+    reader.controller.abort();
+    await reader.done;
   });
 
   test("a reader who may not see the steps is not told the AI Model's state either", async () => {

@@ -142,7 +142,10 @@ export function reduceLiveTurn(
     // date, and the server sends the current one straight after this frame.
     if (frame.event === "turn") next = { ...next, pulse: null };
   } else if (frame.event === "pulse") {
-    if (isModelPulse(frame.data)) next = { ...next, pulse: frame.data };
+    // Null is the server saying it can no longer see the AI Model: another
+    // replica took the turn over. What was last heard is out of date by then.
+    if (frame.data === null) next = { ...next, pulse: null, toolOutputs: {} };
+    else if (isModelPulse(frame.data)) next = { ...next, pulse: frame.data };
   } else if (frame.event === "tool_output") {
     if (typeof data.callId === "string" && typeof data.output === "string") {
       next = { ...next, toolOutputs: { ...next.toolOutputs, [data.callId]: data.output } };
@@ -269,7 +272,7 @@ export function buildActivitySteps(
 ): ActivityStep[] {
   const steps: ActivityStep[] = [];
   const callIndex = new Map<string, ToolStep>();
-  const modelCalls: ModelCallDetail[] = [];
+  const modelCalls: Array<{ ordinal: number; call: ModelCallDetail }> = [];
   const finishedAt =
     options.finishedAt ??
     (() => {
@@ -461,14 +464,14 @@ export function buildActivitySteps(
         break;
       }
       case "model_call":
-        modelCalls.push(detail as ModelCallDetail);
+        modelCalls.push({ ordinal: event.ordinal, call: detail as ModelCallDetail });
         break;
       case "turn_finished":
         break;
     }
   }
   const placed = new Set<ThinkingStep>();
-  for (const call of modelCalls) accountForModelCall(steps, call, placed);
+  for (const { ordinal, call } of modelCalls) accountForModelCall(steps, ordinal, call, placed);
 
   if (finishedAt !== null) {
     for (const step of steps) {
@@ -499,7 +502,8 @@ const MIN_DRAFT_MS = 2_000;
  * after the AI Model's bytes went past, so a step and the stretch of the request
  * it belongs to are matched with this much room.
  */
-const MODEL_CALL_MATCH_MS = 5_000;
+const THOUGHT_MATCH_MS = 2_000;
+const TOOL_CALL_MATCH_MS = 5_000;
 
 /**
  * Fold in what one finished request says about where its time went. It is what
@@ -509,6 +513,7 @@ const MODEL_CALL_MATCH_MS = 5_000;
  */
 function accountForModelCall(
   steps: ActivityStep[],
+  ordinal: number,
   call: ModelCallDetail,
   placed: Set<ThinkingStep>,
 ): void {
@@ -518,13 +523,18 @@ function accountForModelCall(
     if (!Number.isFinite(start) || typeof phase.ms !== "number") return;
     const end = start + phase.ms;
     if (phase.kind === "thinking") {
-      const thought = steps.find(
-        (step): step is ThinkingStep =>
-          step.kind === "thinking" &&
-          !placed.has(step) &&
-          step.startedAt >= start - MODEL_CALL_MATCH_MS &&
-          step.startedAt <= end + MODEL_CALL_MATCH_MS,
-      );
+      // Only a stretch that wrote words has a step to find. Every request reads
+      // as thinking for a moment when its first bytes arrive, and that moment
+      // must not claim the next request's thought.
+      const thought = phase.chars
+        ? steps.find(
+            (step): step is ThinkingStep =>
+              step.kind === "thinking" &&
+              !placed.has(step) &&
+              step.startedAt >= start - THOUGHT_MATCH_MS &&
+              step.startedAt <= end + THOUGHT_MATCH_MS,
+          )
+        : undefined;
       if (thought) {
         placed.add(thought);
         thought.startedAt = Math.min(thought.startedAt, start);
@@ -532,9 +542,9 @@ function accountForModelCall(
       } else if (phase.ms >= MIN_SILENT_THOUGHT_MS) {
         insertByTime(steps, {
           kind: "thinking",
-          key: `thinking:call:${call.request}:${index}`,
-          ordinal: 0,
-          block: `call:${call.request}:${index}`,
+          key: `thinking:call:${ordinal}:${index}`,
+          ordinal,
+          block: `call:${ordinal}:${index}`,
           text: "",
           truncated: false,
           startedAt: start,
@@ -545,8 +555,8 @@ function accountForModelCall(
     } else if (phase.kind === "waiting" && phase.ms >= MIN_ANSWER_WAIT_MS) {
       insertByTime(steps, {
         kind: "wait",
-        key: `wait:call:${call.request}`,
-        ordinal: 0,
+        key: `wait:call:${ordinal}`,
+        ordinal,
         cause: "model_first_answer",
         label: "Waited for the AI Model to start answering",
         reason: null,
@@ -557,17 +567,17 @@ function accountForModelCall(
         endedAt: end,
       });
     } else if (phase.kind === "tool_input" && phase.ms >= MIN_DRAFT_MS) {
-      const called = (step: ActivityStep): step is ToolStep =>
-        step.kind === "tool" &&
-        step.worker === null &&
-        step.draftMs === null &&
-        step.startedAt >= end - MODEL_CALL_MATCH_MS;
-      // `call_tool` is reported as the tool it reached, so a name may not match.
       const wanted = phase.tool?.replace(/^genosyn_/, "");
-      const tool =
-        steps.find((step) => called(step) && step.name.replace(/^genosyn_/, "") === wanted) ??
-        steps.find(called);
-      if (tool && tool.kind === "tool") tool.draftMs = phase.ms;
+      const tool = steps.find(
+        (step): step is ToolStep =>
+          step.kind === "tool" &&
+          step.worker === null &&
+          step.draftMs === null &&
+          Math.abs(step.startedAt - end) <= TOOL_CALL_MATCH_MS &&
+          // `call_tool` is reported as the tool it reached, so its name cannot match.
+          (wanted === "call_tool" || step.name.replace(/^genosyn_/, "") === wanted),
+      );
+      if (tool) tool.draftMs = phase.ms;
     }
   });
 }

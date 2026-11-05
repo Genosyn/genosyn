@@ -188,7 +188,22 @@ describe("the AI Model's pulse on a turn's stream", () => {
       reduceLiveTurn(EMPTY_LIVE_TURN, { event: "pulse", data: { state: 3 } }, T0).pulse,
       null,
     );
-    assert.equal(reduceLiveTurn(EMPTY_LIVE_TURN, { event: "pulse", data: null }, T0).pulse, null);
+  });
+
+  test("the server saying it can no longer see the AI Model clears what was last heard", () => {
+    const held = reduceLiveTurn(
+      reduceLiveTurn(EMPTY_LIVE_TURN, { event: "pulse", data: reading() }, T0),
+      { event: "tool_output", data: { callId: "c1", output: "one\n" } },
+      T0,
+    );
+    const lost = reduceLiveTurn(held, { event: "pulse", data: null }, T0);
+    assert.equal(lost.pulse, null);
+    assert.deepEqual(lost.toolOutputs, {});
+    assert.equal(
+      reduceLiveTurn(held, { event: "pulse", data: { state: 3 } }, T0).pulse?.state,
+      "thinking",
+      "a malformed reading changes nothing",
+    );
   });
 });
 
@@ -269,7 +284,7 @@ describe("what a request's record adds to the steps", () => {
   test("two requests close together keep a thought each", () => {
     const steps = buildActivitySteps([
       event(1, "reasoning", 2_000, { detail: { text: "First", block: "a" } }),
-      call(2, 4_000, [{ kind: "thinking", start: 1_000, ms: 3_000 }], 1),
+      call(2, 4_000, [{ kind: "thinking", start: 1_000, ms: 3_000, chars: 5 }], 1),
       call(3, 12_000, [{ kind: "thinking", start: 5_000, ms: 7_000 }], 2),
     ]);
     const thoughts = steps.filter((step): step is ThinkingStep => step.kind === "thinking");
@@ -278,6 +293,100 @@ describe("what a request's record adds to the steps", () => {
     assert.equal(thoughts[0].endedAt, T0 + 4_000, "not stretched over the next request's");
     assert.equal(thoughts[1].text, "");
     assert.equal(thoughts[1].endedAt, T0 + 12_000);
+  });
+
+  test("the moment a request's first bytes arrive does not claim the next request's thought", () => {
+    // A request that went straight to its tool call, then one that thinks in words.
+    const first = call(
+      1,
+      1_500,
+      [
+        { kind: "waiting", start: 0, ms: 1_000 },
+        { kind: "thinking", start: 1_000, ms: 50 },
+        { kind: "tool_input", start: 1_050, ms: 300, tool: "search_web" },
+      ],
+      1,
+    );
+    const worded = event(5, "reasoning", 4_500, {
+      detail: { text: "**Weighing the options** in words", block: "r2" },
+    });
+    const live = [
+      use(2, 2_000, "search_web", "a"),
+      first,
+      result(4, 2_500, "search_web", "a"),
+      worded,
+    ];
+    const during = buildActivitySteps(live);
+    assert.equal(thoughtInProgress(during)?.text, "**Weighing the options** in words");
+
+    const finished = buildActivitySteps([
+      ...live,
+      call(
+        6,
+        34_000,
+        [
+          { kind: "waiting", start: 2_600, ms: 400 },
+          { kind: "thinking", start: 3_000, ms: 30_000, chars: 900 },
+          { kind: "writing", start: 33_000, ms: 1_000, chars: 40 },
+        ],
+        2,
+      ),
+    ]);
+    const thoughts = finished.filter((step): step is ThinkingStep => step.kind === "thinking");
+    assert.equal(thoughts.length, 1, "one thought, with its words and its whole length");
+    assert.equal(thoughts[0].text, "**Weighing the options** in words");
+    assert.equal(thoughts[0].startedAt, T0 + 3_000);
+    assert.equal(thoughts[0].endedAt, T0 + 33_000);
+  });
+
+  test("words a turn kept to itself still leave the time they took", () => {
+    const steps = buildActivitySteps([
+      call(1, 30_000, [{ kind: "thinking", start: 0, ms: 30_000, chars: 400 }]),
+    ]);
+    assert.equal(steps.length, 1);
+    assert.equal((steps[0] as ThinkingStep).text, "");
+  });
+
+  test("every step of a retried turn has its own key, though its requests number again", () => {
+    const steps = buildActivitySteps([
+      call(
+        1,
+        17_000,
+        [
+          { kind: "waiting", start: 0, ms: 12_000 },
+          { kind: "thinking", start: 12_000, ms: 5_000 },
+        ],
+        1,
+      ),
+      event(2, "turn_started", 20_000, { detail: { reason: "retry" } }),
+      call(
+        3,
+        38_000,
+        [
+          { kind: "waiting", start: 21_000, ms: 12_000 },
+          { kind: "thinking", start: 33_000, ms: 5_000 },
+        ],
+        1,
+      ),
+    ]);
+    const keys = steps.map((step) => step.key);
+    assert.equal(keys.length, 5);
+    assert.equal(new Set(keys).size, keys.length, keys.join(", "));
+  });
+
+  test("a tool call's writing time lands on that call, or on nothing", () => {
+    // A call the feed leaves out says nothing about a step ten minutes on.
+    const far = buildActivitySteps([
+      call(1, 4_100, [{ kind: "tool_input", start: 0, ms: 4_000, tool: "genosyn_report_progress" }]),
+      use(2, 600_000, "search_web", "z"),
+    ]);
+    assert.equal((far[0] as ToolStep).draftMs, null);
+    // Nor on another tool that happens to start just then.
+    const other = buildActivitySteps([
+      call(1, 4_100, [{ kind: "tool_input", start: 0, ms: 4_000, tool: "genosyn_report_progress" }]),
+      use(2, 5_000, "search_web", "z"),
+    ]);
+    assert.equal((other[0] as ToolStep).draftMs, null);
   });
 
   test("a turn around that took a moment is not a step", () => {
@@ -292,7 +401,7 @@ describe("what a request's record adds to the steps", () => {
       event(1, "reasoning", 6_000, { detail: { text: "Weighing it", block: "r" } }),
       use(2, 50_000, "write", "c", { filePath: "a.md" }),
       call(3, 50_000, [
-        { kind: "thinking", start: 4_000, ms: 20_000 },
+        { kind: "thinking", start: 4_000, ms: 20_000, chars: 300 },
         { kind: "tool_input", start: 24_000, ms: 26_000, tool: "write" },
       ]),
     ]);
