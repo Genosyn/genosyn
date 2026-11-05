@@ -393,6 +393,9 @@ describe("the browser a session opens", () => {
     await deleteTodoPickups([todo.id]);
     assert.equal(await sessions().countBy({ todoId: todo.id }), 0);
     await assert.rejects(opensBrowser(todo, ada, "pickup-b"), /being removed/);
+  });
+});
+
 describe("what a session may do is decided when it starts", () => {
   const limits = JSON.stringify({
     proactiveReview: true,
