@@ -117,6 +117,7 @@ export function LiveTurnCard({
   context,
   note,
   stopError,
+  blockImages = false,
 }: {
   authorName: string;
   avatar: React.ReactNode;
@@ -138,6 +139,8 @@ export function LiveTurnCard({
   note?: string | null;
   /** Why a Stop this browser asked for did not land. */
   stopError?: string | null;
+  /** The reply may have been shaped by outside words: its images do not load by themselves. */
+  blockImages?: boolean;
 }) {
   const clientNow = useNow(true);
   const now = clientNow + live.clockOffsetMs;
@@ -222,7 +225,7 @@ export function LiveTurnCard({
                 </span>
                 {clockSince !== null && (
                   <span
-                    className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400"
+                    className="hidden shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400 sm:inline"
                     aria-hidden="true"
                   >
                     {formatElapsed(Math.max(0, now - clockSince))}
@@ -289,7 +292,7 @@ export function LiveTurnCard({
         {stopError && <FormError message={stopError} className="mt-1.5" />}
         {hasReply && (
           <div className="mt-2 rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2 text-sm leading-relaxed text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-            <ChatMarkdown content={shownReply ?? ""} />
+            <ChatMarkdown content={shownReply ?? ""} blockImages={blockImages} />
             <span
               aria-hidden="true"
               className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-[2px] bg-indigo-500 motion-reduce:hidden"
@@ -352,7 +355,8 @@ function ThoughtInProgress({ thought }: { thought: ThinkingStep }) {
             : "flex max-h-[5.5rem] flex-col justify-end overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,black_1.25rem)]",
         )}
       >
-        <ChatMarkdown content={thought.text} />
+        {/* What a thought was shaped by is anyone's guess, and an image loads by itself. */}
+        <ChatMarkdown content={thought.text} blockImages />
       </div>
       {thought.truncated && (
         <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
@@ -1068,7 +1072,7 @@ function StepDetail({
   if (step.kind === "thinking") {
     return (
       <div className="text-xs leading-5 text-slate-600 dark:text-slate-300">
-        <ChatMarkdown content={step.text} />
+        <ChatMarkdown content={step.text} blockImages />
         {step.truncated && (
           <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
             Only the start of this thought was kept.

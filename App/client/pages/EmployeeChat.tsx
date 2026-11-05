@@ -57,7 +57,7 @@ import {
   type ComposerThinking,
   type NewThreadThinking,
 } from "../lib/thinkingLevel";
-import { CopyTextButton } from "../components/chat/CopyTextButton";
+import { CopyTextButton, REVEAL_ON_HOVER } from "../components/chat/CopyTextButton";
 import { ThinkingLevelPicker } from "../components/chat/ThinkingLevelPicker";
 import { errorMessage } from "../lib/errors";
 import { useComposerFileDrop } from "../lib/fileDrop";
@@ -1360,7 +1360,7 @@ function TurnBubble({
               ))}
             </div>
           )}
-          <div className={`flex items-center gap-2 pr-1 ${HOVER_REVEAL}`}>
+          <div className={`flex items-center gap-2 pr-1 ${REVEAL_ON_HOVER}`}>
             <span className="text-xs text-slate-400 dark:text-slate-500">
               {formatTime(message.createdAt)}
             </span>
@@ -1515,7 +1515,7 @@ function TurnBubble({
               </span>
             </span>
           )}
-          <span className={`inline-flex items-center gap-2 ${HOVER_REVEAL}`}>
+          <span className={`inline-flex items-center gap-2 ${REVEAL_ON_HOVER}`}>
             <span className="text-xs text-slate-400 dark:text-slate-500">
               {formatTime(message.createdAt)}
             </span>
@@ -1528,14 +1528,6 @@ function TurnBubble({
     </div>
   );
 }
-
-/**
- * A message's own actions wait for the pointer, so a thread reads as a thread.
- * On a touch screen there is no hover to wait for, and a keyboard brings them up
- * by reaching them.
- */
-const HOVER_REVEAL =
-  "transition [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-within:opacity-100";
 
 /**
  * Follow-ups typed while a reply runs, waiting their turn in this thread.

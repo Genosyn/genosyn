@@ -7,6 +7,14 @@ import { clsx } from "../ui/clsx";
 const SAID_MS = 1_500;
 
 /**
+ * A message's own actions wait for the pointer, so a thread reads as a thread:
+ * put this inside a `group`. On a touch screen there is no hover to wait for, and
+ * a keyboard brings them up by reaching them.
+ */
+export const REVEAL_ON_HOVER =
+  "transition [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-within:opacity-100";
+
+/**
  * Copy a whole message as it was written, markdown and all, so it pastes into a
  * doc or an email as what it is. It says so where it was pressed; there is no
  * other sign that anything happened.
