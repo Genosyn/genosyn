@@ -259,6 +259,14 @@ export function Vocabulary() {
             def: "An in_progress Todo paused for a customer's reply, a person, a Decision, a review or a date. It wakes itself when that arrives.",
           },
           {
+            term: "Email intake",
+            def: "A Project's setting, one per Project and off by default, for which incoming email becomes its Todos, who works them and how far they may go. Only an owner or admin changes it. Not a Rule, which files and hands over mail, and not a mailbox's instructions.",
+          },
+          {
+            term: "Trusted sender",
+            def: "An address or @domain on a Project's Email intake whose mail, once the receiving server verifies it, may use the AI Employee's tools and browser. The From line alone is nothing.",
+          },
+          {
             term: "Work queue",
             def: "An AI Employee's queued Routine Runs and Pickups, worked one at a time per employee.",
           },

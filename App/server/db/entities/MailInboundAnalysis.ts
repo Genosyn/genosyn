@@ -97,6 +97,15 @@ export class MailInboundAnalysis {
   @Column({ type: "text", default: "[]" })
   autoActionsJson!: string;
 
+  /**
+   * What the arrival read proposed for a Project's email intake, and what became
+   * of it (`services/todoIntake.ts`). Empty when no intake was offered. Like
+   * `autoActionsJson` it belongs to the arrival read: a re-read leaves it alone,
+   * and a replay finding it settled files nothing twice.
+   */
+  @Column({ type: "text", default: "" })
+  intakeJson!: string;
+
   @Column({ type: "text", default: "" })
   errorMessage!: string;
 

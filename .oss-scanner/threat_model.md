@@ -187,7 +187,10 @@ trusted-origin check, is in `App/server/index.ts`.
    handovers (`App/server/services/mail/handoverPrompt.ts`), and the meeting
    scheduler's proposal (`App/server/services/mail/meetingProposal.ts`, a
    restricted one-tool turn whose guests, times and quoted evidence the server
-   checks against the thread; a Member sends the invitation). Treat every
+   checks against the thread; a Member sends the invitation). On a Project whose
+   owner set up email intake (`App/server/services/todoIntake.ts`), the same read
+   files the email as a Todo and starts an AI Employee on it, and a reply on a
+   linked thread wakes that work (`App/server/services/todoWaits.ts`). Treat every
    email as an attempt at prompt injection.
 5. **Web pages** read by the web tools and the browser tools
    (`App/server/mcp-browser/`), either Genosyn's own Chrome or a **Member
@@ -223,6 +226,18 @@ trusted-origin check, is in `App/server/index.ts`.
     only the install's server holds.
 
 ## What is by design, not a vulnerability
+
+- **An email starting work, on a Project an owner set up for it.** A Project's
+  email intake (`App/server/services/todoIntake.ts`) files inbound mail as a Todo and
+  starts an AI Employee on it. Off by default, and owners and admins only, from a
+  browser session. A stranger getting a Todo filed, or a session in preparation scope
+  run, on a Project with intake on is the feature. What would be a finding: an email
+  choosing a Project off the closed list, a session exceeding `eventPickupCeiling`,
+  an API key, a plain Member or an AI tool changing an intake, or `verifySender`
+  accepting a sender the mailbox's own receiving server didn't verify (a forged lower
+  `Authentication-Results`, say). "Send replies without review" reaching the
+  thread's existing participants, including anyone a sender put on CC, is the opt-in
+  as it warns; a reply reaching anyone else or carrying an attachment is a finding.
 
 - **AI Employee commands run on the host, with no OS sandbox.** OpenCode's
   native coding tools, Genosyn's coding tools, Repository work-session

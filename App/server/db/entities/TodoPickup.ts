@@ -91,6 +91,14 @@ export class TodoPickup {
   @Column({ type: "varchar", nullable: true })
   mailThreadId!: string | null;
 
+  /**
+   * An owner named the sender of the email that started this on the Project's
+   * intake, and the receiving server verified it (`services/todoIntake.ts`). It
+   * keeps the browser open under a delivery ceiling, and nothing else.
+   */
+  @Column({ type: "boolean", default: false })
+  trustedSender!: boolean;
+
   /** What the server wants this session to know about why it exists. */
   @Column({ type: "text", default: "" })
   note!: string;

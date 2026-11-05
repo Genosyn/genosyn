@@ -34,6 +34,7 @@ import {
 } from "@/lib/workTimeline";
 
 import { WorkEntryBlock } from "./WorkEntryViews";
+import { EmployeeTodoQueue } from "@/components/todos/EmployeeTodoQueue";
 import { EmployeeWorkQueue } from "./EmployeeWorkQueue";
 
 /** One local calendar day, fetched independently so other employees cannot crowd it out. */
@@ -143,6 +144,12 @@ export function EmployeeDayModal({
       }
     >
       <EmployeeWorkQueue company={company} employee={employee} nowIso={nowIso} onClose={onClose} />
+      <EmployeeTodoQueue
+        company={company}
+        employee={employee}
+        onNavigate={onClose}
+        className="border-b border-slate-200 px-4 py-4 sm:px-5 dark:border-slate-800"
+      />
       <div className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-4 sm:px-5 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-3">
           <span aria-hidden="true">

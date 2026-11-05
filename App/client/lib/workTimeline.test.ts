@@ -818,13 +818,33 @@ describe("destinations", () => {
   test("every kind is accounted for", () => {
     // A new kind without a case here would render as a dead row.
     for (const kind of WORK_ENTRY_KINDS) {
-      const href = workEntryHref(entryOf({ kind }), "acme");
+      const href = workEntryHref(
+        entryOf({
+          kind,
+          todo: kind === "pickup" ? { id: "t", ref: "COMP-1", projectSlug: "compliance" } : null,
+        }),
+        "acme",
+      );
       if (kind === "effect") {
         assert.equal(href, null, kind);
         continue;
       }
       assert.ok(href && href.startsWith("/c/acme/"), `${kind} → ${href}`);
     }
+  });
+
+  test("a pickup opens its Todo, and has nowhere to go if the reader can't have it", () => {
+    assert.equal(
+      workEntryHref(
+        entryOf({
+          kind: "pickup",
+          todo: { id: "todo 1", ref: "COMP-1", projectSlug: "compliance" },
+        }),
+        "acme",
+      ),
+      "/c/acme/tasks/p/compliance?todo=todo%201",
+    );
+    assert.equal(workEntryHref(entryOf({ kind: "pickup", todo: null }), "acme"), null);
   });
 
   test("chat, wakeup and lesson land on the employee that did the work", () => {

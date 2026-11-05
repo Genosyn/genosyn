@@ -1,4 +1,4 @@
-import { Callout, Code, DocLink, H2, KeyList, LI, P, PageHeader, Strong, UL } from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, KeyList, LI, OL, P, PageHeader, Strong, UL } from "@/docs/Prose";
 
 export function Tasks() {
   return (
@@ -250,6 +250,103 @@ export function Tasks() {
         access. A finished todo stays finished when mail arrives on its thread, so a
         &quot;thanks!&quot; doesn&apos;t reopen it, and a Member assigned to a todo hears about new
         mail on its thread in their bell.
+      </P>
+
+      <H2 id="email-intake">Email that becomes work</H2>
+      <P>
+        A Project can take incoming email by itself: the AI Employee reading each mailbox files what
+        belongs there as a todo, linked to the email, and whoever works these starts on it. It is off
+        until an owner or admin turns it on under <Strong>Project settings → Email intake</Strong>.
+        Say which email belongs there, who works it, and how to work it. Anyone can email you, so
+        nothing in an email can grant anything. What it can do is what you set here ahead of time:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "On, as it starts",
+            def: "It can research and prepare, keep its own todos, and propose replies and bigger work. A person sends each reply from the Decision stack and approves the rest, then it carries on.",
+          },
+          {
+            term: "Send replies without review",
+            def: "It may also answer without anyone reading first, on the email's own thread, to the people already on it, without attachments, at most 3 times a thread in 24 hours. It needs Send access to the mailbox. Everything else stays preparation.",
+          },
+          {
+            term: "Trusted senders",
+            def: "Mail from an address or @domain you list, which the receiving mail server verifies, runs with this employee's tools and browser under its Grants, with no one approving first. Email still follows the Replies setting. Gmail mailboxes only for now, because an IMAP mailbox can't show who verified what.",
+          },
+        ]}
+      />
+      <P>
+        For the admin job this was built for, a store emailing that an agreement needs accepting: put
+        the store&apos;s address under Trusted senders, assign someone with the login in{" "}
+        <DocLink to="/docs/vault">Vault</DocLink> and the site on their browser host list, and write
+        how to do it in the instruction. It files the todo, signs in from the saved login rather than
+        any link in the email, and reports on the thread. Leave browser approval on for an act that
+        binds the company: each submit waits for a person, the todo says{" "}
+        <Strong>Waiting on browser approval</Strong>, and your decision starts it again.
+      </P>
+      <P>
+        It also needs <DocLink to="/docs/email#analysis">AI analysis</DocLink> on for the mailbox, and
+        whoever works these needs Mail access to it. If they don&apos;t have it the todo is filed
+        unassigned and owners hear why. It reads each email once, as it arrives, and nothing else
+        files one: reading an email again, a mailbox&apos;s instructions, and older mail don&apos;t.
+        Spam, marketing, auto-replies, blocked senders and a thread with open work are never filed.
+        A reply on a thread with open work wakes that work instead, under these same limits.
+      </P>
+
+      <H2 id="email-to-done">From email to done</H2>
+      <P>
+        <Strong>An admin job.</Strong> A store emails that an agreement needs accepting, and you want
+        an AI Employee to deal with it.
+      </P>
+      <OL>
+        <LI>
+          Make a Compliance Project. Under <Strong>Project settings → Email intake</Strong>, turn on{" "}
+          <Strong>Take email into this Project</Strong>, say which email belongs there, choose who
+          works it, and write how to do it. Under <Strong>Advanced</Strong>, add the store&apos;s
+          address to <Strong>Trusted senders</Strong>.
+        </LI>
+        <LI>
+          Give that employee what the job needs: <DocLink to="/docs/email#access">Mail access</DocLink>{" "}
+          to the mailbox, the login in the <DocLink to="/docs/vault">Vault</DocLink>, and the site on
+          its <DocLink to="/docs/browser#allow-list">browser allow list</DocLink>. Leave{" "}
+          <DocLink to="/docs/browser#approvals">approval-gated submits</DocLink> on for anything that
+          binds the company.
+        </LI>
+        <LI>
+          The email arrives. The <DocLink to="/docs/email#analysis">analysis</DocLink> on it says{" "}
+          <Strong>Filed to COMP-12</Strong>, and the todo says <Strong>From email</Strong>. The
+          employee starts by itself, signs in from the saved login, and waits for you to approve the
+          submit if approval is on.
+        </LI>
+        <LI>Its report lands on the todo, which moves to done or to your review.</LI>
+      </OL>
+      <P>
+        <Strong>A customer request.</Strong> A customer emails your support address with a question
+        it can&apos;t answer yet.
+      </P>
+      <OL>
+        <LI>
+          Make a Support Project with Email intake on. To let it answer by itself, set{" "}
+          <Strong>Replies</Strong> to <Strong>Send replies without review</Strong> and give the
+          employee Send access to the mailbox. Otherwise each reply waits for you in the{" "}
+          <DocLink to="/docs/decisions">Decision stack</DocLink>.
+        </LI>
+        <LI>
+          The todo is filed and started. The employee asks the customer what it needs and marks the
+          todo <Strong>Waiting on customer</Strong>, and the session ends.
+        </LI>
+        <LI>
+          The customer replies. The same todo starts again with the reply, and the employee carries on
+          and reports. If nobody replies, it checks back when it said it would.
+        </LI>
+      </OL>
+      <P>
+        To see where it all stands, an employee&apos;s <Strong>Work queue</Strong> under its settings
+        lists what it&apos;s working on, what&apos;s queued and why, and what&apos;s waiting. Choose{" "}
+        <Strong>Assigned to AI</Strong> in a Project&apos;s filter to see the same on its board. The
+        heartbeat that starts queued work is a database query, so a day with nothing to do uses no AI
+        Model.
       </P>
 
       <Callout kind="warn" title="AI assignment requires a browser session.">

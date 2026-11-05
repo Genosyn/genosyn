@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Archive,
   Ban,
@@ -41,6 +41,7 @@ import { useDialog } from "../components/ui/Dialog";
 import { FormSuccess } from "../components/ui/FormError";
 import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import type { ScheduleMeetingPrefill } from "./MailScheduleMeeting";
+import type { MailIntakeOutcome } from "../../shared/projectIntake";
 
 /**
  * What the AI made of this email, and the buttons it earned.
@@ -177,6 +178,37 @@ function AutomaticSteps({
         })}
       </ul>
     </div>
+  );
+}
+
+/** What a Project's email intake did with this email. Nothing to say while it's filing. */
+function IntakeOutcome({
+  outcome,
+  companySlug,
+}: {
+  outcome: MailIntakeOutcome;
+  companySlug: string;
+}) {
+  if (outcome.status === "proposed") return null;
+  if (outcome.status === "filed") {
+    return (
+      <p className="mt-2 flex flex-wrap items-baseline gap-x-1 text-xs text-slate-600 dark:text-slate-300">
+        <span>Filed to</span>
+        <Link
+          to={`/c/${companySlug}/tasks/p/${outcome.projectSlug}?todo=${encodeURIComponent(outcome.todoId ?? "")}`}
+          className="font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+        >
+          {outcome.todoKey}
+        </Link>
+        <span>: {outcome.reason}</span>
+      </p>
+    );
+  }
+  return (
+    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+      {outcome.status === "failed" ? "Couldn't file this as a task: " : "Not filed as a task: "}
+      {outcome.detail}
+    </p>
   );
 }
 
@@ -371,6 +403,8 @@ export function MailAnalysisCard({
               onUndo={(step) => void undo(step)}
             />
           )}
+
+          {row.intake && <IntakeOutcome outcome={row.intake} companySlug={companySlug} />}
 
           <FormSuccess message={notice} className="mt-2 text-xs" />
 

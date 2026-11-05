@@ -4,6 +4,8 @@ import { useLocation, useNavigate, useParams, useSearchParams } from "react-rout
 import { shouldIgnoreShortcut } from "@/lib/keyboard";
 import { useAskAiPageContext } from "@/components/askAi/AskAiProvider";
 import {
+  Bot,
+  Hourglass,
   LayoutList,
   Columns3,
   Mail,
@@ -82,6 +84,7 @@ import {
   STATUS_LABEL,
   STATUS_ORDER,
 } from "../components/todos/todoShared";
+import { ProjectIntakeTab } from "@/components/todos/ProjectIntakeTab";
 import { TodoDetailPanel } from "../components/todos/TodoDetail";
 
 type ProjectTodos = { project: Project; todos: Todo[] };
@@ -90,14 +93,19 @@ type ProjectTodos = { project: Project; todos: Todo[] };
 
 type AssigneeFilterKey = string; // "unassigned" | `ai:${id}` | `user:${id}`
 
+/** Assigned to any AI Employee, which is what someone asks when looking for what's stuck. */
+const ANY_AI: AssigneeFilterKey = "ai:any";
+
 type Filters = {
   statuses: Set<TodoStatus>;
   priorities: Set<TodoPriority>;
   assignees: Set<AssigneeFilterKey>;
+  /** Only Todos waiting on someone. */
+  waiting: boolean;
 };
 
 function emptyFilters(): Filters {
-  return { statuses: new Set(), priorities: new Set(), assignees: new Set() };
+  return { statuses: new Set(), priorities: new Set(), assignees: new Set(), waiting: false };
 }
 
 function assigneeKey(t: Todo): AssigneeFilterKey {
@@ -110,13 +118,20 @@ function applyFilters(todos: Todo[], f: Filters): Todo[] {
   return todos.filter((t) => {
     if (f.statuses.size && !f.statuses.has(t.status)) return false;
     if (f.priorities.size && !f.priorities.has(t.priority)) return false;
-    if (f.assignees.size && !f.assignees.has(assigneeKey(t))) return false;
+    if (
+      f.assignees.size &&
+      !f.assignees.has(assigneeKey(t)) &&
+      !(f.assignees.has(ANY_AI) && t.assigneeEmployeeId)
+    ) {
+      return false;
+    }
+    if (f.waiting && !t.waitingOn) return false;
     return true;
   });
 }
 
 function countActive(f: Filters): number {
-  return f.statuses.size + f.priorities.size + f.assignees.size;
+  return f.statuses.size + f.priorities.size + f.assignees.size + (f.waiting ? 1 : 0);
 }
 
 const VIEW_STORAGE_KEY = "genosyn.tasks.view";
@@ -628,6 +643,7 @@ function FilterBar({
 
   const keysInUse = new Set(todos.map(assigneeKey));
   const active = countActive(filters);
+  const waitingCount = todos.filter((t) => t.waitingOn && t.status !== "done").length;
 
   return (
     <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-6 py-2 dark:bg-slate-900 dark:border-slate-700">
@@ -721,6 +737,18 @@ function FilterBar({
                 label="Unassigned"
                 onSelect={() => toggleAssignee("unassigned")}
               />
+              <MenuItem
+                active={filters.assignees.has(ANY_AI)}
+                icon={
+                  filters.assignees.has(ANY_AI) ? (
+                    <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
+                  ) : (
+                    <Bot size={12} className="text-slate-400 dark:text-slate-500" />
+                  )
+                }
+                label="Assigned to AI"
+                onSelect={() => toggleAssignee(ANY_AI)}
+              />
               {peopleInUse.length > 0 && (
                 <>
                   <MenuSeparator />
@@ -782,6 +810,22 @@ function FilterBar({
           );
         }}
       />
+      {waitingCount > 0 && (
+        <button
+          type="button"
+          aria-pressed={filters.waiting}
+          onClick={() => setFilters({ ...filters, waiting: !filters.waiting })}
+          className={clsx(
+            "touch-target flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs tabular-nums",
+            filters.waiting
+              ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-500/10 dark:text-indigo-300"
+              : "border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800",
+          )}
+        >
+          <Hourglass size={12} aria-hidden="true" />
+          {waitingCount} waiting
+        </button>
+      )}
       {active > 0 && (
         <button
           onClick={() => setFilters(emptyFilters())}
@@ -1474,7 +1518,7 @@ function ProjectSettingsModal({
   onSaved: () => Promise<void>;
   onDeleted: () => void;
 }) {
-  const [tab, setTab] = React.useState<"general" | "access" | "history">("general");
+  const [tab, setTab] = React.useState<"general" | "access" | "intake" | "history">("general");
   // A viewer served with `read` can't write anything here — the server would
   // 403 every one of these controls, so don't offer them.
   const canEdit = project.myAccessLevel !== "read";
@@ -1493,6 +1537,9 @@ function ProjectSettingsModal({
         </TabButton>
         <TabButton active={tab === "access"} onClick={() => setTab("access")}>
           <Users size={12} /> Access
+        </TabButton>
+        <TabButton active={tab === "intake"} onClick={() => setTab("intake")}>
+          <Mail size={12} /> Email intake
         </TabButton>
         <TabButton active={tab === "history"} onClick={() => setTab("history")}>
           <HistoryIcon size={12} /> History
@@ -1524,6 +1571,13 @@ function ProjectSettingsModal({
           canEdit={canEdit}
           onClose={onClose}
           onSaved={onSaved}
+        />
+      ) : tab === "intake" ? (
+        <ProjectIntakeTab
+          company={company}
+          project={project}
+          employees={employees}
+          members={members}
         />
       ) : (
         <RecordHistory

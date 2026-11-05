@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { In, LessThanOrEqual, MoreThan, Not } from "typeorm";
+import {
+  In,
+  LessThanOrEqual,
+  MoreThan,
+  Not,
+  type ObjectLiteral,
+  type SelectQueryBuilder,
+} from "typeorm";
 
 import { config } from "../../config.js";
+import { recordAudit } from "./audit.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -121,6 +129,7 @@ const CONTINUATIONS: readonly TodoPickupTrigger[] = [
   "left_open",
   "wait_over",
   "email_reply",
+  "email_intake",
   "decision_answered",
   "review_outcome",
 ];
@@ -137,6 +146,12 @@ export type TodoPickupCeiling = {
   proactiveReview?: boolean;
   tainted?: boolean;
   mailThreadId?: string | null;
+  /**
+   * An owner named this email's sender on the Project's intake and the receiving
+   * server verified it. Trust isn't inherited: a colleague handed this Todo, or a
+   * stranger's reply on the same thread, doesn't have it.
+   */
+  trustedSender?: boolean;
 };
 
 export type TodoPickupRequest = {
@@ -217,6 +232,7 @@ function requestColumns(request: TodoPickupRequest) {
     proactiveReview: request.ceiling?.proactiveReview === true,
     tainted: request.ceiling?.tainted === true,
     mailThreadId: request.ceiling?.mailThreadId ?? null,
+    trustedSender: request.ceiling?.trustedSender === true,
   };
 }
 
@@ -242,6 +258,7 @@ function mergedIntoQueued(row: TodoPickup, request: TodoPickupRequest) {
     proactiveReview: row.proactiveReview || asked.proactiveReview,
     tainted: row.tainted || asked.tainted,
     mailThreadId: row.mailThreadId ?? asked.mailThreadId,
+    trustedSender: row.trustedSender && asked.trustedSender,
     note,
     notBeforeAt: soonest,
   };
@@ -388,6 +405,7 @@ function mergedRerun(held: StoredRerun | null, request: TodoPickupRequest): Stor
       proactiveReview: held.ceiling.proactiveReview || ceiling.proactiveReview,
       tainted: held.ceiling.tainted || ceiling.tainted,
       mailThreadId: held.ceiling.mailThreadId ?? ceiling.mailThreadId,
+      trustedSender: held.ceiling.trustedSender === true && ceiling.trustedSender === true,
     },
     byMember: held.byMember,
     note: appendNote(held.note, request.note),
@@ -428,6 +446,21 @@ export function setTodoPickupAutoStartForTests(enabled: boolean): void {
 const PRIORITY_RANK =
   "CASE WHEN todo.priority = 'urgent' THEN 0 WHEN todo.priority = 'high' THEN 1 WHEN todo.priority = 'medium' THEN 2 WHEN todo.priority = 'low' THEN 3 ELSE 4 END";
 
+/**
+ * The order the heartbeat starts queued pickups in. Anything saying what's next
+ * reads this, so it can't disagree with what happens.
+ */
+export function inDispatchOrder<T extends ObjectLiteral>(
+  query: SelectQueryBuilder<T>,
+): SelectQueryBuilder<T> {
+  return query
+    .orderBy(PRIORITY_RANK, "ASC")
+    .addOrderBy("CASE WHEN todo.dueAt IS NULL THEN 1 ELSE 0 END", "ASC")
+    .addOrderBy("todo.dueAt", "ASC")
+    .addOrderBy("pickup.acceptedAt", "ASC")
+    .addOrderBy("pickup.id", "ASC");
+}
+
 /** Say why a queued pickup isn't running, only when that changed. */
 async function setHold(pickup: TodoPickup, hold: TodoPickupHold | null): Promise<void> {
   if (pickup.hold === hold) return;
@@ -450,16 +483,13 @@ export async function dispatchTodoPickups(now: Date = new Date()): Promise<void>
     do {
       passAgain = false;
       await reclaimLapsedPickups(now);
-      const due = await repo()
-        .createQueryBuilder("pickup")
-        .innerJoin(Todo, "todo", "CAST(todo.id AS text) = pickup.todoId")
-        .where("pickup.status = :queued", { queued: "queued" })
-        .andWhere("pickup.notBeforeAt <= :now", { now })
-        .orderBy(PRIORITY_RANK, "ASC")
-        .addOrderBy("CASE WHEN todo.dueAt IS NULL THEN 1 ELSE 0 END", "ASC")
-        .addOrderBy("todo.dueAt", "ASC")
-        .addOrderBy("pickup.acceptedAt", "ASC")
-        .addOrderBy("pickup.id", "ASC")
+      const due = await inDispatchOrder(
+        repo()
+          .createQueryBuilder("pickup")
+          .innerJoin(Todo, "todo", "CAST(todo.id AS text) = pickup.todoId")
+          .where("pickup.status = :queued", { queued: "queued" })
+          .andWhere("pickup.notBeforeAt <= :now", { now }),
+      )
         .limit(DISPATCH_WINDOW)
         .getMany();
       if (due.length === 0) continue;
@@ -857,6 +887,7 @@ export async function executeTodoPickup(
       pickup.requesterUserId = null;
       pickup.requesterSessionVersion = null;
       pickup.proactiveReview = true;
+      pickup.trustedSender = false;
       pickup.mailDeliveryMode = narrowestDelivery(pickup.mailDeliveryMode, "review");
       await repo().update(
         { id: pickup.id, status: "running", workerId },
@@ -865,6 +896,7 @@ export async function executeTodoPickup(
           requesterUserId: null,
           requesterSessionVersion: null,
           proactiveReview: true,
+          trustedSender: false,
           mailDeliveryMode: pickup.mailDeliveryMode,
         },
       );
@@ -945,6 +977,8 @@ export async function executeTodoPickup(
       reasoningSummaries: true,
       mailDeliveryMode: (pickup.mailDeliveryMode as MailDeliveryMode | null) ?? null,
       proactiveReview: pickup.proactiveReview,
+      browserUnderMailCeiling: pickup.trustedSender,
+      browserSessionKey: pickup.todoId,
       mailThreadId: pickup.mailThreadId,
       todoPickupId: pickup.id,
       extraToolset: ["get_todo", "add_todo_comment"],
@@ -955,6 +989,7 @@ export async function executeTodoPickup(
       onWorkStarted: () => {
         recorder.turnStarted(pickup.attempt > 1 ? "resume" : "start");
         announce(pickup.companyId, todo.projectId);
+        if (pickup.attempt <= 1) void auditPickup(pickup, "start", project);
       },
       onSensitiveValues: (values) => recorder.setSensitiveValues(values),
       onPayloadsWithheld: (why) => recorder.withholdPayloads(why),
@@ -1092,6 +1127,32 @@ async function postReport(
  * retry for work left open, a page when it needs a person, and any run that was
  * asked for while this one ran.
  */
+/** What a Todo's History says about a session. It never fails the session it records. */
+async function auditPickup(
+  pickup: TodoPickup,
+  what: "start" | "done" | "failed" | "stopped",
+  known?: Project | null,
+): Promise<void> {
+  try {
+    const todo = await AppDataSource.getRepository(Todo).findOneBy({ id: pickup.todoId });
+    if (!todo) return;
+    const project =
+      known ?? (await AppDataSource.getRepository(Project).findOneBy({ id: todo.projectId }));
+    await recordAudit({
+      companyId: pickup.companyId,
+      actorEmployeeId: pickup.employeeId,
+      action: `todo.pickup.${what}`,
+      targetType: "todo",
+      targetId: todo.id,
+      targetLabel: project ? `${project.key}-${todo.number}: ${todo.title}` : todo.title,
+      metadata: { trigger: pickup.trigger },
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`[todo-pickups] could not audit pickup ${pickup.id}`, error);
+  }
+}
+
 async function finishPickup(args: {
   pickup: TodoPickup;
   workerId: string;
@@ -1131,6 +1192,7 @@ async function finishPickup(args: {
   }
   if (recorder && summary) await recorder.finish(summary);
   await releaseChatWorkloadLeaseByOwner(pickup.id).catch(() => undefined);
+  if (outcome.status !== "skipped") await auditPickup(pickup, outcome.status);
 
   if (outcome.tainted === true) await markTodoTainted(pickup.todoId);
   if (outcome.status === "done") {
@@ -1291,6 +1353,7 @@ function ceilingOfRow(pickup: TodoPickup): TodoPickupCeiling {
     proactiveReview: pickup.proactiveReview,
     tainted: pickup.tainted,
     mailThreadId: pickup.mailThreadId,
+    trustedSender: pickup.trustedSender,
   };
 }
 

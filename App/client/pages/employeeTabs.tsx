@@ -17,6 +17,7 @@ import {
   Globe,
   Handshake,
   KeyRound,
+  ListTodo,
   BookText,
   Phone,
   Plug,
@@ -67,6 +68,8 @@ import { Disclosure } from "../components/ui/Disclosure";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 import { RecordHistory } from "../components/RecordHistory";
+import { EmployeeWorkQueue } from "../components/home/EmployeeWorkQueue";
+import { EmployeeTodoQueue } from "../components/todos/EmployeeTodoQueue";
 
 /**
  * The individual employee sub-pages. These were tabs on EmployeeDetail.tsx,
@@ -276,6 +279,7 @@ function settingsNavGroups(company: Company, emp: Employee): SettingsNavGroup[] 
           label: "Routines",
           away: "Opens the company Routines list, filtered to this employee",
         },
+        { to: "work-queue", icon: <ListTodo size={14} />, label: "Work queue" },
       ],
     },
     {
@@ -1436,6 +1440,22 @@ function entryTime(iso: string): string {
  * feed the last N entries back into the CLI — but v1 just makes the diary
  * visible so you can audit what the employee has actually done.
  */
+/** Everything on this AI Employee's plate: its Routine Runs and its Todos. */
+export function WorkQueuePage() {
+  const { company, emp } = useOutletContext<EmployeeOutletCtx>();
+  return (
+    <Card>
+      <EmployeeWorkQueue
+        company={company}
+        employee={emp}
+        nowIso={new Date().toISOString()}
+        onClose={() => undefined}
+      />
+      <EmployeeTodoQueue company={company} employee={emp} className="px-4 py-4 sm:px-5" />
+    </Card>
+  );
+}
+
 export function JournalPage() {
   const { company, emp } = useCtx();
   const [entries, setEntries] = React.useState<JournalEntryT[] | null>(null);

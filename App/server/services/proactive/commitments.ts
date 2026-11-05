@@ -12,6 +12,7 @@ import { Project } from "../../db/entities/Project.js";
 import { Repository } from "../../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../../db/entities/RepositoryWorkSession.js";
 import { Todo } from "../../db/entities/Todo.js";
+import { TodoPickup } from "../../db/entities/TodoPickup.js";
 import { redactSensitiveText } from "../approvalRedaction.js";
 import { UUID_RE } from "../bases.js";
 import { listAccessibleProjectIds } from "../projects.js";
@@ -66,8 +67,19 @@ export async function getCommitmentOpportunities(
             "todo.waitingOn",
           ])
           .where("todo.projectId IN (:...projectIds)", { projectIds })
-          // Waiting on someone is being looked after: it wakes itself.
+          // Waiting on someone is being looked after: it wakes itself. So is a Todo
+          // with a session queued or running, which the heartbeat will get to.
           .andWhere("todo.waitingOn IS NULL")
+          .andWhere((query) => {
+            const sessions = query
+              .subQuery()
+              .select("1")
+              .from(TodoPickup, "pickup")
+              .where("pickup.todoId = CAST(todo.id AS text)")
+              .andWhere("pickup.status IN (:...active)", { active: ["queued", "running"] })
+              .getQuery();
+            return `NOT EXISTS ${sessions}`;
+          })
           .andWhere(
             "((todo.assigneeEmployeeId = :employeeId AND todo.status IN (:...statuses)) OR (todo.reviewerEmployeeId = :employeeId AND todo.status = :review))",
             {

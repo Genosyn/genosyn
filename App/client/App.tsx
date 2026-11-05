@@ -24,6 +24,7 @@ import {
   BrowserSettingsPage,
   GeneralSettingsPage,
   ModelSettingsPage,
+  WorkQueuePage,
   JournalPage,
   McpPage,
   MemoryPage,
@@ -542,6 +543,7 @@ function CompanyRoutes({
               <Route path="soul" element={<SoulSettingsPage />} />
               <Route path="model" element={<ModelSettingsPage />} />
               <Route path="memory" element={<MemoryPage />} />
+              <Route path="work-queue" element={<WorkQueuePage />} />
               <Route path="journal" element={<JournalPage />} />
               <Route path="handoffs" element={<HandoffsPage />} />
               <Route path="connections" element={<EmployeeConnections />} />

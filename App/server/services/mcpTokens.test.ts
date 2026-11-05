@@ -40,6 +40,7 @@ describe("short-lived MCP tokens", () => {
       proactiveReview: false,
       mailHandoverId: null,
       repositoryWorkSessionId: null,
+      todoPickupId: null,
       collaboration: null,
       authority: "employee",
       requesterUserId: null,

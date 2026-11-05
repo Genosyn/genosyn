@@ -12,6 +12,7 @@ import { hasBlockedSender } from "./blockedSenders.js";
 import { runRulesForNewMessage } from "./rules.js";
 import { reconcileProactiveDefaults } from "../proactive/defaults.js";
 import { messageBelongsToSupport, noteInboundMail } from "../support/intake.js";
+import { eventCeilingForTodo, fileIntakeProposal } from "../todoIntake.js";
 import { wakeTodosForInboundMail } from "../todoWaits.js";
 
 const DISCOVERY_INTERVAL_MS = 5_000;
@@ -51,6 +52,7 @@ type MailDefaultEffectsDependencies = {
   dispatchReceived?: typeof dispatchEmailReceived;
   isSupportMail?: typeof messageBelongsToSupport;
   wakeTodos?: typeof wakeTodosForInboundMail;
+  fileIntake?: typeof fileIntakeProposal;
 };
 
 export async function runDefaultMailEffects(
@@ -96,8 +98,9 @@ export async function runDefaultMailEffects(
   // handover or a Pipeline that may run for hours.
   await assertRunnable();
   // A customer's email to a Support inbox is read once, by Support's own turn,
-  // not twice. Mail to anything else on the mailbox is read here as ever, and
-  // rules and Pipelines below run for both.
+  // not twice. With no reading here it cannot be filed as a Project's Todo either,
+  // so one email never becomes both. Mail to anything else on the mailbox is read
+  // here as ever, and rules and Pipelines below run for both.
   const isSupportMail = await (dependencies.isSupportMail ?? messageBelongsToSupport)(
     account,
     message,
@@ -159,14 +162,27 @@ export async function runDefaultMailEffects(
     // A reply on a thread a Todo is linked to sends its assignee back to work.
     // Follow-through is worth keeping apart from this message's other effects, so
     // anything but a pause only costs that, and the Pipelines still run.
+    //
+    // How far that session may go is the Project's email intake's to say. Waking
+    // goes first, because a thread with open work isn't filed again.
     await beforeEffect();
-    await (dependencies.wakeTodos ?? wakeTodosForInboundMail)(account, message).catch(
-      async (error) => {
+    await (dependencies.wakeTodos ?? wakeTodosForInboundMail)(account, message, {
+      ceilingFor: (todo, reply, mailbox) => eventCeilingForTodo(todo, reply, mailbox),
+    }).catch(async (error) => {
+      await assertRunnable();
+      // eslint-disable-next-line no-console
+      console.error(`[mail] waking Todos for message ${message.id} failed:`, error);
+    });
+    if (analysis) {
+      await (dependencies.fileIntake ?? fileIntakeProposal)(account, message, analysis.id, {
+        assertRunnable,
+        beforeEffect,
+      }).catch(async (error) => {
         await assertRunnable();
         // eslint-disable-next-line no-console
-        console.error(`[mail] waking Todos for message ${message.id} failed:`, error);
-      },
-    );
+        console.error(`[mail] filing message ${message.id} failed:`, error);
+      });
+    }
     await (dependencies.dispatchReceived ?? dispatchEmailReceived)(message.id, {
       failOnRejected: true,
       beforeEffect,

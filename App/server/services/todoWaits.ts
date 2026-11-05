@@ -13,6 +13,7 @@ import { TodoComment } from "../db/entities/TodoComment.js";
 import { TodoLink } from "../db/entities/TodoLink.js";
 import { TodoPickup } from "../db/entities/TodoPickup.js";
 import type { TodoWaitKind, TodoPickupTrigger } from "../../shared/todoPickups.js";
+import { recordAudit } from "./audit.js";
 import { jsonBoundedString } from "./mail/promptBounds.js";
 import { mailboxForAccount } from "./mail/mailbox/index.js";
 import { isInboundReviewMessage } from "./mail/reviewStatus.js";
@@ -78,6 +79,7 @@ function ceilingOf(row: TodoPickup | null): TodoPickupCeiling {
         proactiveReview: row.proactiveReview,
         tainted: row.tainted,
         mailThreadId: row.mailThreadId,
+        trustedSender: row.trustedSender,
       }
     : {};
 }
@@ -113,6 +115,16 @@ export async function waitOnTodo(args: {
       waitingCheckAt: args.checkAt,
     },
   );
+  const project = await AppDataSource.getRepository(Project).findOneBy({ id: todo.projectId });
+  await recordAudit({
+    companyId: args.companyId,
+    actorEmployeeId: todo.assigneeEmployeeId,
+    action: "todo.wait",
+    targetType: "todo",
+    targetId: todo.id,
+    targetLabel: project ? `${project.key}-${todo.number}: ${todo.title}` : todo.title,
+    metadata: { on: args.on },
+  });
   if (args.checkAt) {
     await requestTodoPickup({
       companyId: args.companyId,
@@ -147,6 +159,7 @@ const WAIT_KINDS: TodoWaitKind[] = [
   "decision",
   "mail_review",
   "work_review",
+  "browser_approval",
   "date",
 ];
 
@@ -467,6 +480,31 @@ export async function wakeTodoForUnsentReview(
 }
 
 // ───────────────────────────── a work review
+
+/**
+ * A person decided a browser action this Todo's session held for approval, such as
+ * submitting an agreement. Approving only lets the session fire it, so the session
+ * has to come back to, with the page it left open (`browserSessionKey`).
+ */
+export async function wakeTodoForBrowserApproval(
+  approval: Approval,
+  outcome: "approved" | "rejected",
+): Promise<void> {
+  const todo = await todoWaitingOn("browser_approval", approval.id);
+  if (!todo) return;
+  const last = await lastPickup(todo.id);
+  await wake({
+    companyId: approval.companyId,
+    todo,
+    trigger: "review_outcome",
+    note:
+      outcome === "approved"
+        ? `A person approved the browser action you queued. Call browser_resume("${approval.id}") now to carry it out. It fires once. If the page changed you'll be asked to submit again. Check what the page says before you report the result.`
+        : "A person declined the browser action you queued, so it didn't happen. Don't try it another way. Say on the Todo what's left, or close it.",
+    authority: authorityOf(last),
+    ceiling: ceilingOf(last),
+  });
+}
 
 /** The plan a session proposed was declined. */
 export async function wakeTodoForDeclinedWork(approval: Approval): Promise<void> {

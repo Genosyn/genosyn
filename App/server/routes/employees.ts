@@ -7,6 +7,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Routine } from "../db/entities/Routine.js";
+import { ProjectIntake } from "../db/entities/ProjectIntake.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
 import { Run } from "../db/entities/Run.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
@@ -443,6 +444,10 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await detachEmployeeFromRecruiting(emp.companyId, emp.id);
   await detachEmployeeFromDataRooms(emp.companyId, emp.id);
   await detachEmployeeFromSupport(emp.companyId, emp.id);
+  // Email keeps being filed, for the AI to choose who works it or a person to.
+  const intakes = AppDataSource.getRepository(ProjectIntake);
+  await intakes.update({ assigneeEmployeeId: emp.id }, { assigneeEmployeeId: null });
+  await intakes.update({ reviewerEmployeeId: emp.id }, { reviewerEmployeeId: null });
 
   const routines = await AppDataSource.getRepository(Routine).find({
     where: { employeeId: emp.id },

@@ -736,6 +736,14 @@ export function Email() {
         the email itself. A todo an AI Employee files while working a thread is linked the same way,
         without anyone having to ask.
       </P>
+      <P>
+        A Project can also take email by itself. Under <Strong>Email → Settings</Strong>, a
+        mailbox&apos;s AI analysis card lists the Projects filing its mail as tasks, and the
+        analysis on each email says what it was filed as, or why it wasn&apos;t. Mailbox instructions
+        can&apos;t do this, because any Member can write those and this starts work. An owner or
+        admin sets it on the Project: see <DocLink to="/docs/tasks#email-intake">Email that becomes
+        work</DocLink> and <DocLink to="/docs/tasks#email-to-done">From email to done</DocLink>.
+      </P>
 
       <H2 id="hand-to-ai">Handing a thread to an AI Employee</H2>
       <P>

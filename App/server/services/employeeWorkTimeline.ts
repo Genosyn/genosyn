@@ -21,8 +21,11 @@ import {
   RunStatus,
   RunTrigger,
 } from "../db/entities/Run.js";
+import { Project } from "../db/entities/Project.js";
 import { RunLesson } from "../db/entities/RunLesson.js";
 import { Todo } from "../db/entities/Todo.js";
+import { TodoPickup } from "../db/entities/TodoPickup.js";
+import { TODO_PICKUP_TRIGGER_LABEL } from "../../shared/todoPickups.js";
 import { redactApprovalSummary, redactSensitiveText } from "./approvalRedaction.js";
 import { isVaultCaptureApproval } from "./approvals.js";
 import { listAccessibleProjectIds } from "./projects.js";
@@ -110,6 +113,8 @@ export type WorkEntryKind =
   | "chat"
   /** One turn inside a Repository work session. */
   | "work_session"
+  /** One session an AI Employee spent on one Todo. */
+  | "pickup"
   /** The employee hit a human gate and queued an Approval. */
   | "approval"
   /** A Wakeup the employee scheduled for itself, fired. */
@@ -192,6 +197,10 @@ export type WorkEntry = {
   analysis?: WorkEntryAnalysis | null;
   /** Present only on `kind: "run"`. */
   run: WorkEntryRun | null;
+  /** Present only on `kind: "pickup"`: the Todo it worked on. */
+  todo?: { id: string; ref: string; projectSlug: string } | null;
+  /** Present only on `kind: "pickup"`: its report, bounded and redacted. */
+  report?: string | null;
   /** The ledger rows this entry owns, oldest first, capped for rendering. */
   effects: WorkEffect[];
   /** What the ledger holds before the cap, so "and 33 more" stays honest. */
@@ -287,6 +296,22 @@ function runDetail(run: Run): string {
   if (run.attempt > 1) bits.push(`attempt ${run.attempt}`);
   if (run.missedSlots > 0) bits.push(plural(run.missedSlots, "missed slot", "missed slots"));
   return bits.join(" · ");
+}
+
+/** What a pickup's report can show here. `get_todo` and the Todo's thread have it all. */
+const PICKUP_REPORT_CHARS = 280;
+
+function pickupDetail(pickup: TodoPickup): string {
+  const started = TODO_PICKUP_TRIGGER_LABEL[pickup.trigger] ?? "";
+  const ended =
+    pickup.status === "running"
+      ? "in progress"
+      : pickup.status === "done"
+        ? "finished"
+        : pickup.status === "stopped"
+          ? "stopped"
+          : safe(pickup.errorMessage).slice(0, 200) || "failed";
+  return [started, ended].filter(Boolean).join(" · ");
 }
 
 function workSessionDetail(turn: RepositoryWorkSessionTurn): string {
@@ -391,6 +416,8 @@ export async function getEmployeeWorkTimeline(params: {
     lessons,
     sessionTurns,
     activeSessionTurns,
+    pickups,
+    activePickups,
   ] = await Promise.all([
     routines.length
       ? AppDataSource.getRepository(Run).find({
@@ -528,6 +555,25 @@ export async function getEmployeeWorkTimeline(params: {
           order: { createdAt: "DESC" },
         })
       : Promise.resolve([] as RepositoryWorkSessionTurn[]),
+    AppDataSource.getRepository(TodoPickup).find({
+      where: {
+        companyId,
+        employeeId: In(empIds),
+        status: In(["running", "done", "failed", "stopped"]),
+        acceptedAt: inWindow,
+      },
+      order: { acceptedAt: "DESC" },
+      take,
+    }),
+    AppDataSource.getRepository(TodoPickup).find({
+      where: {
+        companyId,
+        employeeId: In(empIds),
+        status: "running",
+        acceptedAt: summaryWindow,
+      },
+      take,
+    }),
   ]);
 
   const canSeeVaultRows = isAdminRole(role);
@@ -567,6 +613,8 @@ export async function getEmployeeWorkTimeline(params: {
       return false;
     }
     if (r.targetType === "todo" && r.targetId && hiddenTodoIds.has(r.targetId)) return false;
+    // A Todo's History reads these. Here the pickup is its own entry, below.
+    if (r.action.startsWith("todo.pickup.")) return false;
     return true;
   });
   const mailAnalysisContexts = await mailAnalysisWorkTimeline(companyId, visibleAudit);
@@ -756,6 +804,56 @@ export async function getEmployeeWorkTimeline(params: {
       detail: workSessionDetail(turn),
       source: null,
       run: null,
+      effects: [],
+      effectCount: 0,
+    });
+  }
+
+  // ── Pickups ──────────────────────────
+  // A Todo in a Project this Member can't open isn't on their timeline at all,
+  // the same rule the ledger rows follow.
+  const pickupTodoIds = [...new Set([...pickups, ...activePickups].map((row) => row.todoId))];
+  const pickupTodos = pickupTodoIds.length
+    ? await AppDataSource.getRepository(Todo).find({
+        where: { id: In(pickupTodoIds) },
+        select: ["id", "projectId", "number", "title"],
+      })
+    : [];
+  const pickupProjects = pickupTodos.length
+    ? await AppDataSource.getRepository(Project).findBy({
+        id: In([...new Set(pickupTodos.map((todo) => todo.projectId))]),
+        companyId,
+      })
+    : [];
+  const openable = pickupTodos.length
+    ? await listAccessibleProjectIds(companyId, { kind: "user", id: userId, role })
+    : new Set<string>();
+  const pickupProjectById = new Map(pickupProjects.map((project) => [project.id, project]));
+  const pickupTodoById = new Map(pickupTodos.map((todo) => [todo.id, todo]));
+  const pickupRef = (pickup: TodoPickup) => {
+    const todo = pickupTodoById.get(pickup.todoId);
+    const project = todo ? pickupProjectById.get(todo.projectId) : undefined;
+    if (!todo || !project || !openable.has(project.id)) return null;
+    return { todo, project, ref: `${project.key}-${todo.number}` };
+  };
+  for (const pickup of pickups) {
+    const employee = empById.get(pickup.employeeId);
+    const about = pickupRef(pickup);
+    if (!employee || !about) continue;
+    entries.push({
+      id: `pickup:${pickup.id}`,
+      kind: "pickup",
+      at: iso(pickup.acceptedAt),
+      endedAt: pickup.endedAt ? iso(pickup.endedAt) : null,
+      active: pickup.status === "running",
+      employee,
+      title: `Worked on ${about.ref}`,
+      subject: safe(about.todo.title),
+      detail: pickupDetail(pickup),
+      source: null,
+      run: null,
+      todo: { id: about.todo.id, ref: about.ref, projectSlug: about.project.slug },
+      report: safe(pickup.replyText).trim().slice(0, PICKUP_REPORT_CHARS) || null,
       effects: [],
       effectCount: 0,
     });
@@ -974,6 +1072,18 @@ export async function getEmployeeWorkTimeline(params: {
       at: iso(turn.createdAt),
       title: `Worked in ${safe(session.title) || "a repository"}`,
       detail: workSessionDetail(turn),
+      active: true,
+    });
+  }
+  for (const pickup of activePickups) {
+    const about = pickupRef(pickup);
+    if (!about) continue;
+    rememberCurrent(pickup.employeeId, {
+      id: `pickup:${pickup.id}`,
+      kind: "pickup",
+      at: iso(pickup.acceptedAt),
+      title: `Worked on ${about.ref}`,
+      detail: pickupDetail(pickup),
       active: true,
     });
   }

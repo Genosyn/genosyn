@@ -323,6 +323,11 @@ export function Browser() {
         session; an API key cannot decide them.
       </P>
       <P>
+        On a <DocLink to="/docs/tasks#email-to-done">todo</DocLink>, the session ends once it has asked, and the
+        todo says <Strong>Waiting on browser approval</Strong>. The page stays open for up to 2 hours,
+        and your decision starts the same todo again to fire it, or to say it didn&apos;t happen.
+      </P>
+      <P>
         For a TOTP-protected form, use <Code>browser_submit_with_vault_totp</Code>. It queues the
         Approval while the one-time-code field is still empty, then generates and fills a fresh code
         only after the approved action is claimed and submits immediately. This avoids an expired

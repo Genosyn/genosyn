@@ -22,6 +22,18 @@ import { waitForModel, type ModelWaitHandler, type ModelWaitResult } from "../mo
 import { findAttachedModel, getActiveModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { broadcastToCompany } from "../realtime.js";
+import {
+  fileIntakeProposal,
+  intakeChoicesFor,
+  intakePromptSection,
+  intakeToolProperty,
+  parseIntakeOutcome,
+  presentIntakeOutcome,
+  settleUnfiledIntake,
+  verifyIntakeProposal,
+  type IntakeChoice,
+  type StoredIntakeProposal,
+} from "../todoIntake.js";
 import { attachmentNames, jsonBoundedString } from "./promptBounds.js";
 import { analysisAttemptSnapshot } from "./analysisEvidence.js";
 import {
@@ -265,6 +277,8 @@ export type MailAnalysisButtonVerdict = {
 export type MailAnalysisVerdict = MailAnalysisButtonVerdict & {
   /** Steps the mailbox's instructions asked for, already checked by the server. */
   automaticActions: MailAnalysisAutoAction[];
+  /** The email-intake filing it proposed, checked against the closed list. */
+  intake?: StoredIntakeProposal | null;
 };
 
 /** What the server knows for certain, handed to the model as ground truth. */
@@ -409,6 +423,8 @@ const verdictSchema = z
       .array(automaticActionSchema)
       .max(MAIL_ANALYSIS_MAX_AUTOMATIC_ACTIONS)
       .optional(),
+    // Checked separately (`verifyIntakeProposal`): a bad proposal costs only itself.
+    fileAsTodo: z.unknown().optional(),
   })
   .strict();
 
@@ -446,6 +462,7 @@ export function serializeAnalysis(row: MailInboundAnalysis) {
     summary: row.summary,
     actions: parseAnalysisActions(row.actionsJson),
     automaticActions: presentAutoActions(parseAutoActions(row.autoActionsJson), row.finishedAt),
+    intake: presentIntakeOutcome(row.intakeJson),
     errorMessage: row.errorMessage,
     createdAt: row.createdAt.toISOString(),
     finishedAt: row.finishedAt ? row.finishedAt.toISOString() : null,
@@ -592,6 +609,11 @@ export type MailAnalysisDependencies = {
   ) => Promise<MailAnalysisFacts>;
 };
 
+const NO_INTAKE: Awaited<ReturnType<typeof intakeChoicesFor>> = {
+  choices: [],
+  closedTodoOnThread: false,
+};
+
 export type MailAnalysisOptions = {
   /**
    * This read is the email arriving, from the inbound queue. Only an arrival
@@ -680,11 +702,13 @@ async function recordAnalysisReview(
  * `autoActionsJson` is written only by the arrival read that owns it: a
  * re-read or a recovery leaves the record of automatic steps untouched, so it
  * can never race the queue stamping those steps, or a Member undoing one.
+ * `intakeJson` is the same, for the same reason.
  */
 async function finishAnalysisAttempt(
   row: MailInboundAnalysis,
   startedAt: Date,
   writesAutomaticActions = false,
+  writesIntake = false,
 ): Promise<boolean> {
   const updatedAt = new Date(Math.max(Date.now(), startedAt.getTime()));
   const result = await AppDataSource.getRepository(MailInboundAnalysis).update(
@@ -701,6 +725,7 @@ async function finishAnalysisAttempt(
       summary: row.summary,
       actionsJson: row.actionsJson,
       ...(writesAutomaticActions ? { autoActionsJson: row.autoActionsJson } : {}),
+      ...(writesIntake ? { intakeJson: row.intakeJson } : {}),
       errorMessage: row.errorMessage,
       finishedAt: row.finishedAt,
       updatedAt,
@@ -800,6 +825,11 @@ async function runAnalysis(
   const existingAutomatic = parseAutoActions(existing?.autoActionsJson);
   const writesAutomaticActions =
     options.arrival === true && !existingAutomatic.some(autoActionSettled);
+  // Filing is the arrival's too, and only once: a replayed arrival that finds it
+  // settled leaves it standing, so the email can't file a second Todo.
+  const intakeBefore = parseIntakeOutcome(existing?.intakeJson);
+  const writesIntake =
+    options.arrival === true && (!intakeBefore || intakeBefore.status === "proposed");
   const instructions = analysisInstructionLines(account);
   const attempt = {
     companyId: account.companyId,
@@ -819,6 +849,7 @@ async function runAnalysis(
     updatedAt: new Date(Math.max(Date.now(), (existing?.updatedAt.getTime() ?? 0) + 1)),
     // An arrival starts its record afresh; nothing in it ever ran (see above).
     ...(writesAutomaticActions || !existing ? { autoActionsJson: "[]" } : {}),
+    ...(writesIntake ? { intakeJson: "" } : {}),
   };
   const row = repo.create({ ...(existing ?? {}), ...attempt });
   // save() may replace an unchanged updatedAt with the database's seconds-only
@@ -857,6 +888,16 @@ async function runAnalysis(
       // A slow metadata read must not start model work after the deadline.
       controller.signal.throwIfAborted();
       if (Date.now() >= deadlineAt) throw timeoutError();
+      // Only an arrival that may still act is offered it. Trouble reading the
+      // choices costs the offer, never the read.
+      const intake =
+        writesIntake && options.actOnInstructions !== false
+          ? await intakeChoicesFor(account, message).catch((error) => {
+              // eslint-disable-next-line no-console
+              console.error(`[mail] intake choices for message ${message.id}:`, error);
+              return NO_INTAKE;
+            })
+          : NO_INTAKE;
       return runAnalysisTurn(
         {
           account,
@@ -864,6 +905,8 @@ async function runAnalysis(
           reader,
           facts,
           instructions,
+          intakeChoices: intake.choices,
+          closedTodoOnThread: intake.closedTodoOnThread,
           // Steps run under the reader's own Grant: Read access can follow the
           // instructions only by suggesting buttons, never by changing mail —
           // and so does an arrival that waited past the window for acting.
@@ -880,12 +923,14 @@ async function runAnalysis(
     row.summary = verdict.summary;
     row.actionsJson = JSON.stringify(verdict.actions);
     if (writesAutomaticActions) row.autoActionsJson = JSON.stringify(verdict.automaticActions);
+    if (writesIntake) row.intakeJson = verdict.intake ? JSON.stringify(verdict.intake) : "";
     row.errorMessage = "";
   } catch (error) {
     row.category = "";
     row.summary = "";
     row.actionsJson = "[]";
     if (writesAutomaticActions) row.autoActionsJson = "[]";
+    if (writesIntake) row.intakeJson = "";
     if (error instanceof ModelUnavailableError && options.arrival) {
       // The AI Model went down under the read. An arrival is not failed: it
       // waits, as itself, and is read when the model answers again.
@@ -903,7 +948,7 @@ async function runAnalysis(
   }
   if (row.status === "waiting") {
     row.finishedAt = null;
-    if (!(await finishAnalysisAttempt(row, startedAt, writesAutomaticActions))) {
+    if (!(await finishAnalysisAttempt(row, startedAt, writesAutomaticActions, writesIntake))) {
       return repo.findOneBy({ id: row.id });
     }
     await waitForModel({
@@ -918,7 +963,7 @@ async function runAnalysis(
     return row;
   }
   row.finishedAt = new Date();
-  if (!(await finishAnalysisAttempt(row, startedAt, writesAutomaticActions))) {
+  if (!(await finishAnalysisAttempt(row, startedAt, writesAutomaticActions, writesIntake))) {
     return repo.findOneBy({ id: row.id });
   }
   await recordAnalysisReview(row, row.status === "succeeded" ? "completed" : "failed", startedAt);
@@ -1023,6 +1068,7 @@ export async function resumeArrivalRead(
     applyInstructions?: typeof applyAutomaticAnalysisActions;
     /** The mail server and sender for the rules that run after the read; tests only. */
     ruleDependencies?: Omit<MailRuleRuntimeDependencies, "categoryRulesOnly">;
+    fileIntake?: typeof fileIntakeProposal;
     now?: () => Date;
   } = {},
 ): Promise<ModelWaitResult> {
@@ -1089,6 +1135,22 @@ export async function resumeArrivalRead(
     } catch (error) {
       // eslint-disable-next-line no-console
       console.warn(`[mail] category rules after a waited read of ${message.id}:`, error);
+    }
+    // The queue that would have filed this ran long ago, so it files here, once.
+    // Nothing replays this read after a pause, so a proposal that can't be filed
+    // now says so instead of looking in progress for good.
+    try {
+      if (await hasBlockedSender(account, message)) {
+        await settleUnfiledIntake(read.id, "That sender is blocked, so nothing was filed.");
+      } else {
+        await (dependencies.fileIntake ?? fileIntakeProposal)(account, message, read.id, fences);
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn(`[mail] filing after a waited read of ${message.id}:`, error);
+      await settleUnfiledIntake(read.id, "The mailbox was paused before this could be filed.").catch(
+        () => undefined,
+      );
     }
   }
   return { status: "done" };
@@ -1220,6 +1282,9 @@ export async function runAnalysisTurn(
      * and must not offer a button for one that already happened.
      */
     existingAutomaticActions?: MailAnalysisAutoAction[];
+    /** The closed list of Projects it may file this in. Empty leaves the prompt as it was. */
+    intakeChoices?: IntakeChoice[];
+    closedTodoOnThread?: boolean;
   },
   dependencies: { runRestricted?: typeof runRestrictedEmployeeAgent; signal?: AbortSignal } = {},
 ): Promise<MailAnalysisVerdict> {
@@ -1227,6 +1292,7 @@ export async function runAnalysisTurn(
   let duplicateSubmission = false;
   const instructions = args.instructions ?? [];
   const automatic = Boolean(args.automatic) && instructions.length > 0;
+  const intakeChoices = args.intakeChoices ?? [];
 
   const submitAnalysis: AgentTool = {
     name: "submit_email_analysis",
@@ -1286,6 +1352,7 @@ export async function runAnalysisTurn(
               },
             }
           : {}),
+        ...(intakeChoices.length > 0 ? { fileAsTodo: intakeToolProperty(intakeChoices) } : {}),
       },
       required: ["category", "summary", "actions"],
       additionalProperties: false,
@@ -1316,10 +1383,15 @@ export async function runAnalysisTurn(
     const result = await (dependencies.runRestricted ?? runRestrictedEmployeeAgent)({
       model: args.reader.model,
       employeeId: args.reader.employee.id,
-      system: analysisSystemPrompt(args.reader.employee, args.facts, {
-        lines: instructions,
-        automatic,
-      }),
+      system: [
+        analysisSystemPrompt(args.reader.employee, args.facts, {
+          lines: instructions,
+          automatic,
+        }),
+        ...(intakeChoices.length > 0
+          ? [intakePromptSection(intakeChoices, args.closedTodoOnThread === true)]
+          : []),
+      ].join("\n\n"),
       messages: [
         {
           role: "user",
@@ -1357,7 +1429,15 @@ export async function runAnalysisTurn(
       { ...accepted, actions: withoutAutomatedButtons(accepted.actions, covering) },
       args.facts,
     );
-    return { ...buttons, automaticActions };
+    // Off the closed list, or not offered at all, is dropped here: it costs only
+    // the filing, and the category, summary and buttons all stand.
+    return intakeChoices.length > 0
+      ? {
+          ...buttons,
+          automaticActions,
+          intake: verifyIntakeProposal(accepted.fileAsTodo, intakeChoices, accepted.category),
+        }
+      : { ...buttons, automaticActions };
   } finally {
     clearTimeout(timer);
   }

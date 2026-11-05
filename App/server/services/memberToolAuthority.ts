@@ -537,6 +537,7 @@ const FINANCE_WRITE_TOOLS = [
 const PROJECT_TOOLS = [
   "list_projects",
   "list_todos",
+  "list_my_todos",
   "get_todo",
   "create_todo",
   "update_todo",
