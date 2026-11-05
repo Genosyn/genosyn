@@ -401,6 +401,15 @@ try {
   await check("it fits a phone", async () => {
     await visitor.setViewportSize({ width: 390, height: 800 });
     await chat.getByLabel("Your message").waitFor();
+    // The loader hears its media query on the page's next rendering step, before that
+    // step paints, so a visitor never sees the old panel. A box read sooner is still
+    // the desktop panel at the new width.
+    await visitor.waitForFunction(() => {
+      const frame = document
+        .querySelector("[data-genosyn-support-chat]")
+        ?.shadowRoot?.querySelector("iframe");
+      return frame?.getBoundingClientRect().width === window.innerWidth;
+    });
     const frameBox = await visitor.locator('iframe[title="Chat"]').boundingBox();
     assert.deepEqual(
       [frameBox?.x, frameBox?.y, frameBox?.width, frameBox?.height],
@@ -410,7 +419,7 @@ try {
     await shot(visitor, "9-phone");
     await chat.getByRole("button", { name: "Close chat" }).click();
     await launcher().waitFor();
-    await noSidewaysScroll(visitor);
+    await noSidewaysScroll(visitor, "the company's site on a phone");
     await visitor.setViewportSize({ width: 1280, height: 800 });
     await launcher().click();
   });
