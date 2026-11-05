@@ -637,6 +637,7 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       icon: Settings2,
       access: ADMIN,
       keywords: [
+        "public help center",
         "connect support email",
         "support inboxes",
         "support address",

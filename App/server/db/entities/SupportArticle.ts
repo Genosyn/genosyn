@@ -20,6 +20,9 @@ import { dateTimeColumnType } from "./columnTypes.js";
  */
 @Entity("support_articles")
 @Index(["companyId", "status", "updatedAt", "id"])
+// The help center's order: a deep page starts at its cursor, and a search stops
+// as soon as a page is full instead of reading every Article's words first.
+@Index(["companyId", "status", "title", "id"])
 export class SupportArticle {
   @PrimaryGeneratedColumn("uuid")
   id!: string;

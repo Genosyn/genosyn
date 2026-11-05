@@ -138,9 +138,10 @@ async function consumeBucket(id: string, policy: AuthRateLimitPolicy): Promise<v
 export async function assertAuthAllowed(keys: string[]): Promise<void> {
   const now = new Date();
   for (const id of keys) {
-    await ensureRow(id, now);
-    const row = await AppDataSource.getRepository(AuthRateLimit).findOneByOrFail({ id });
-    if (row.blockedUntil && row.blockedUntil > now) {
+    // Only reads: no row is a clean record, and asking must not leave one. Public
+    // pages ask on every visit, and a visitor's address is not ours to keep.
+    const row = await AppDataSource.getRepository(AuthRateLimit).findOneBy({ id });
+    if (row?.blockedUntil && row.blockedUntil > now) {
       throw new AuthRateLimitError(
         Math.max(1, Math.ceil((row.blockedUntil.getTime() - now.getTime()) / 1000)),
       );

@@ -33,6 +33,8 @@ export type SupportOutletContext = {
   inboxes: SupportInbox[] | null;
   topics: SupportTopic[];
   counts: SupportCounts;
+  /** Where published Articles are public, while the help center is on. */
+  helpCenterUrl: string | null;
   reload: () => Promise<void>;
 };
 
@@ -97,6 +99,7 @@ export default function SupportLayout({ company }: { company: Company }) {
   const [inboxes, setInboxes] = React.useState<SupportInbox[] | null>(null);
   const [topics, setTopics] = React.useState<SupportTopic[]>([]);
   const [counts, setCounts] = React.useState<SupportCounts>({});
+  const [helpCenterUrl, setHelpCenterUrl] = React.useState<string | null>(null);
   const location = useLocation();
   const activeInbox = new URLSearchParams(location.search).get("inbox");
 
@@ -111,6 +114,9 @@ export default function SupportLayout({ company }: { company: Company }) {
       ]);
       setInboxes(inboxResult.inboxes);
       setTopics(settingsResult.settings.topics);
+      setHelpCenterUrl(
+        settingsResult.settings.helpCenterEnabled ? settingsResult.settings.helpCenterUrl : null,
+      );
       setCounts(countResult.counts);
     } catch {
       // The pages show their own errors; the rail keeps what it had.
@@ -172,7 +178,9 @@ export default function SupportLayout({ company }: { company: Company }) {
   return (
     <ContextualLayout sidebar={sidebar}>
       <Outlet
-        context={{ company, inboxes, topics, counts, reload } satisfies SupportOutletContext}
+        context={
+          { company, inboxes, topics, counts, helpCenterUrl, reload } satisfies SupportOutletContext
+        }
       />
     </ContextualLayout>
   );

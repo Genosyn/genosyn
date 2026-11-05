@@ -201,6 +201,11 @@ import DataRoomDetail from "@/pages/DataRoomDetail";
 import DataRoomsAiAccess from "@/pages/DataRoomsAiAccess";
 import PublicDataRoom from "@/pages/PublicDataRoom";
 import PublicSupportFeedback from "@/pages/PublicSupportFeedback";
+import {
+  PublicHelpCenter,
+  PublicHelpCenterArticle,
+  PublicHelpCenterMissing,
+} from "@/pages/PublicHelpCenter";
 import SupportLayout from "@/pages/SupportLayout";
 import SupportQueue from "@/pages/SupportQueue";
 import SupportTicketPage from "@/pages/SupportTicket";
@@ -265,7 +270,7 @@ function isAnonymousPage(pathname: string): boolean {
 }
 
 function isPublicSurfacePage(pathname: string): boolean {
-  return /^\/(?:sign|forms|room|feedback)(?:\/|$)/i.test(pathname);
+  return /^\/(?:sign|forms|room|feedback|help)(?:\/|$)/i.test(pathname);
 }
 
 function FullPageRedirect({ to }: { to: string }) {
@@ -319,6 +324,12 @@ export default function App() {
             <Route path="/forms/:token" element={<PublicForm />} />
             <Route path="/room/:token" element={<PublicDataRoom />} />
             <Route path="/feedback/:token" element={<PublicSupportFeedback />} />
+            <Route path="/help/:companySlug" element={<PublicHelpCenter />} />
+            <Route
+              path="/help/:companySlug/articles/:articleId"
+              element={<PublicHelpCenterArticle />}
+            />
+            <Route path="/help/*" element={<PublicHelpCenterMissing />} />
           </Routes>
         ) : auth.status === "loading" ? (
           <SplashScreen />

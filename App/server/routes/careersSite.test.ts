@@ -714,6 +714,7 @@ describe("on a verified custom domain", () => {
       ["/api/auth/me", "GET"],
       ["/api", "GET"],
       ["/api/careersx", "GET"],
+      ["/api/help/acme", "GET"],
     ] as const) {
       const reply = await onDomain(urlPath, method);
       assert.equal(reply.status, 404, `${method} ${urlPath}`);
@@ -743,6 +744,7 @@ describe("on a verified custom domain", () => {
       "/openings/draft-role",
       "/unsubscribe/some-token",
       "/sign/some-token",
+      "/help/acme",
     ]) {
       const data = assertNotFoundPage(await onDomain(urlPath), urlPath);
       assert.equal(data.site?.companySlug, "acme", urlPath);

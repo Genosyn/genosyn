@@ -15,6 +15,9 @@
  *                     dynamic, and covers the WebSocket + SSE endpoints)
  *   - /careers/*    → never touched: the public careers site is a separate
  *                     page, and caching it as the App shell would break both
+ *   - /help/*       → never touched: a help center page carries its own title
+ *                     and may be a real 404, neither of which belongs in the
+ *                     shell's place
  *   - /.well-known/*, /oauth/authorize → never touched: OAuth discovery and
  *                     the authorization endpoint an MCP client sends the
  *                     browser to answer with JSON or a redirect, not the shell
@@ -24,7 +27,7 @@
  *
  * Bump CACHE when the caching logic changes to drop stale caches on activate.
  */
-const CACHE = "genosyn-v2";
+const CACHE = "genosyn-v3";
 const SHELL = "/index.html";
 
 self.addEventListener("install", (event) => {
@@ -68,6 +71,8 @@ self.addEventListener("fetch", (event) => {
   // The public careers site is its own page, not the App: never serve it the
   // App shell, and never cache it as one.
   if (url.pathname === "/careers" || url.pathname.startsWith("/careers/")) return;
+  // A help center page's answer is its own: never store it as the App shell.
+  if (url.pathname === "/help" || url.pathname.startsWith("/help/")) return;
   // OAuth for the MCP server: server answers, never the App shell, and a
   // redirect must not be cached in the shell's place.
   if (url.pathname.startsWith("/.well-known/") || url.pathname === "/oauth/authorize") return;

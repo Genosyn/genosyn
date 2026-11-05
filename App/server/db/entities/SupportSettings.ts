@@ -47,6 +47,14 @@ export class SupportSettings {
   @Column({ type: "boolean", default: false })
   ratingsEnabled!: boolean;
 
+  /**
+   * Whether the published Articles are readable by anyone at `/help/<company slug>`.
+   * Opt-in: until an owner or admin turns it on, that path answers exactly as if
+   * it never existed (`services/support/helpCenter.ts`).
+   */
+  @Column({ type: "boolean", default: false })
+  helpCenterEnabled!: boolean;
+
   /** Days a solved ticket stays solved before it closes. 0 never closes one. */
   @Column({ type: "int", default: 7 })
   autoCloseDays!: number;
