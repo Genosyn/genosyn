@@ -188,8 +188,10 @@ import {
 import { getAgentSettings, getEmailVerificationSettings } from "../services/runtimeSettings.js";
 import { findEmail, verifyEmail } from "../services/revenue/emailFinder.js";
 import {
+  TAINT_HELD_NOTE,
   createTaintedToolApproval,
   taintGateApplies,
+  taintHoldsCall,
   isTaintSource,
 } from "../services/taintPolicy.js";
 import { policyForbiddingTool, recordToolPolicyViolation } from "../services/companyPolicies.js";
@@ -1478,9 +1480,7 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
         return res.json({
           status: "pending_approval",
           approvalId: approval.id,
-          note:
-            "This turn read outside content (a web page, an application or a guest's question), so this call is held for a human — the taint policy. " +
-            "It executes verbatim if approved; do not retry it yourself, and carry on with work that needs no held call.",
+          note: TAINT_HELD_NOTE,
         });
       }
     }
@@ -19512,6 +19512,19 @@ async function requireSupportAccess(
   return null;
 }
 
+/** Answers for a publish from a turn that read a customer's words: a person decides. */
+async function heldForPublishing(req: McpRequest, res: Response, tool: string): Promise<boolean> {
+  if (!taintHoldsCall(req.mcpToken)) return false;
+  const approval = await createTaintedToolApproval({
+    companyId: req.mcpCompany!.id,
+    employeeId: req.mcpEmployee!.id,
+    tool,
+    toolArgs: (req.body as Record<string, unknown>) ?? {},
+  });
+  res.json({ status: "pending_approval", approvalId: approval.id, note: TAINT_HELD_NOTE });
+  return true;
+}
+
 function supportTool(fn: (req: McpRequest, res: Response) => Promise<unknown>): RequestHandler {
   return (req, res, next) => {
     fn(req as McpRequest, res).catch((error: unknown) => {
@@ -19751,6 +19764,7 @@ mcpInternalRouter.post(
   supportTool(async (req, res) => {
     const level = await requireSupportAccess(req, res, req.body.publish ? "reply" : "prepare");
     if (!level) return;
+    if (req.body.publish && (await heldForPublishing(req, res, "create_support_article"))) return;
     const article = await createSupportArticle({
       companyId: req.mcpCompany!.id,
       title: req.body.title,
@@ -19780,11 +19794,13 @@ mcpInternalRouter.post(
     const companyId = req.mcpCompany!.id;
     const { articleId, ...patch } = req.body;
     const existing = await requireSupportArticle(companyId, articleId);
-    // What a published Article says is what AI replies tell customers.
+    // What a published Article says is what AI replies tell customers, and what
+    // anyone can read while the company's help center is on.
     const reachesCustomers =
       patch.status === "published" ||
       (existing.status === "published" && (patch.title !== undefined || patch.body !== undefined));
     if (!(await requireSupportAccess(req, res, reachesCustomers ? "reply" : "prepare"))) return;
+    if (reachesCustomers && (await heldForPublishing(req, res, "update_support_article"))) return;
     const article = await updateSupportArticle({
       companyId,
       articleId,

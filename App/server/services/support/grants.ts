@@ -125,7 +125,7 @@ const ACCESS_COPY: Record<SupportAccessLevel, string> = {
   prepare:
     "You can also add internal notes (`add_support_note`), update a ticket's status, priority, topic, tags and assignee (`update_support_ticket`), draft a reply for a Member to send (`draft_support_reply`) and draft Articles (`create_support_article`). Nobody outside the company hears from you.",
   reply:
-    "You can also send replies to customers (`reply_to_support_ticket`) and publish Articles. A reply reaches someone outside the company: send one only when your instruction or Routine brief asks you to, and check the ticket first.",
+    "You can also send replies to customers (`reply_to_support_ticket`) and publish Articles. A reply reaches someone outside the company: send one only when your instruction or Routine brief asks you to, and check the ticket first. A published Article reaches anyone while the company's help center is on, so keep customers' details out of it.",
 };
 
 /** The Support block in an AI Employee's briefing, or "" without a Grant. */

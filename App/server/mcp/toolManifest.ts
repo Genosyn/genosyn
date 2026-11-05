@@ -4161,7 +4161,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_support_article",
     description:
-      "Write an Article for the company's support to answer from, as a draft for a Member to publish. With `reply` Support access `publish: true` publishes it at once, and from then on AI replies to customers may repeat it. Never put a customer's details in an Article. Needs `prepare` Support access.",
+      "Write an Article for the company's support to answer from, as a draft for a Member to publish. With `reply` Support access `publish: true` publishes it at once, and from then on AI replies to customers may repeat it and, while the company's help center is on, anyone can read it. Having read a ticket in this turn holds the publish for a person. Never put a customer's details in an Article. Needs `prepare` Support access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4177,7 +4177,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_support_article",
     description:
-      "Change an Article's title, body or topic, or its status. Publishing, or changing a published Article's words, needs `reply` Support access, since AI replies to customers repeat what it says. Otherwise needs `prepare`.",
+      "Change an Article's title, body or topic, or its status. Publishing, or changing a published Article's words, needs `reply` Support access, since AI replies to customers repeat what it says and, while the company's help center is on, anyone can read it. Having read a ticket in this turn holds that change for a person. Otherwise needs `prepare`.",
     inputSchema: {
       type: "object",
       properties: {
