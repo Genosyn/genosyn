@@ -81,6 +81,10 @@ await context.route("**/api/**", async (route) => {
   if (method === "GET" && pathname === `${base}/accounts/mbx/grant-candidates`) {
     return route.fulfill({ json: { candidates: [] } });
   }
+  // The AI analysis card lists the Projects taking this mailbox's email; none here.
+  if (method === "GET" && pathname === "/api/companies/company/project-intakes") {
+    return route.fulfill({ json: { total: 0, hasMore: false, nextCursor: null, projects: [] } });
+  }
   unexpected.push(`${method} ${pathname}`);
   return route.fulfill({ status: 404, json: { error: `Unhandled ${method} ${pathname}` } });
 });
