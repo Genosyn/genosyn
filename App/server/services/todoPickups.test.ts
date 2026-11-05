@@ -393,6 +393,97 @@ describe("the browser a session opens", () => {
     await deleteTodoPickups([todo.id]);
     assert.equal(await sessions().countBy({ todoId: todo.id }), 0);
     await assert.rejects(opensBrowser(todo, ada, "pickup-b"), /being removed/);
+describe("what a session may do is decided when it starts", () => {
+  const limits = JSON.stringify({
+    proactiveReview: true,
+    mailDeliveryMode: "review",
+    trustedSender: false,
+  });
+
+  /** It ran, and says what it was given: the turn's system prompt carries the limits. */
+  async function ranWith(
+    t: { mock: { method: (o: object, m: string, f: unknown) => unknown } },
+    pickup: TodoPickup,
+  ): Promise<RuntimeParams> {
+    let given: RuntimeParams | null = null;
+    t.mock.method(
+      agentRuntime,
+      "run",
+      answers("Done.", (params) => {
+        given = params;
+      }),
+    );
+    await executeTodoPickup(pickup.id);
+    assert.ok(given, "the session ran");
+    return given;
+  }
+
+  test("a Todo held after its check-back was queued holds that check-back", async (t) => {
+    const todo = await todoFor(ada, { status: "in_progress" });
+    const queued = await ask(todo, ada, { trigger: "wait_over" });
+    assert.equal(queued.proactiveReview, false);
+    await todos().update(
+      { id: todo.id },
+      { ceilingJson: limits, waitingOn: "date", waitingReason: "Checking back" },
+    );
+    const params = await ranWith(t, queued);
+    const row = await pickups().findOneByOrFail({ id: queued.id });
+    assert.equal(row.proactiveReview, true);
+    assert.equal(row.mailDeliveryMode, "review");
+    assert.notEqual(params.nativeCoding, true);
+    assert.match(params.system, /This is proactive preparation/);
+  });
+
+  test("a row a person lent their access to stays lent", async (t) => {
+    const todo = await todoFor(ada, { status: "todo", ceilingJson: limits });
+    const lent = await ask(todo, ada, {
+      trigger: "start_now",
+      authority: { kind: "member", userId: ruth.id, sessionVersion: 3 },
+      byMember: true,
+      overLimits: true,
+    });
+    assert.equal(lent.overLimits, true);
+    const params = await ranWith(t, lent);
+    const row = await pickups().findOneByOrFail({ id: lent.id });
+    assert.equal(row.proactiveReview, false);
+    assert.equal(row.tainted, true);
+    assert.doesNotMatch(params.system, /This is proactive preparation/);
+  });
+
+  test("anything automatic merged into it ends the lend", async () => {
+    const todo = await todoFor(ada, { status: "todo", ceilingJson: limits });
+    await ask(todo, ada, {
+      trigger: "start_now",
+      authority: { kind: "member", userId: ruth.id, sessionVersion: 3 },
+      byMember: true,
+      overLimits: true,
+    });
+    await ask(todo, ada, { trigger: "email_reply" });
+    const merged = await pickups().findOneByOrFail({ todoId: todo.id, status: "queued" });
+    assert.equal(merged.overLimits, false);
+    assert.equal(merged.proactiveReview, true);
+  });
+
+  test("a Routine that could only prepare doesn't hold a person's Todo by working on it", async () => {
+    const todo = await todoFor(ada, { status: "in_progress" });
+    const asked = await ask(todo, ada, {
+      trigger: "wait_over",
+      ceiling: { proactiveReview: true, mailDeliveryMode: "draft" },
+    });
+    assert.equal(asked.proactiveReview, true, "that request stays limited");
+    assert.equal((await todos().findOneByOrFail({ id: todo.id })).ceilingJson, null);
+  });
+
+  test("work from a particular email does", async () => {
+    const todo = await todoFor(ada, { status: "in_progress" });
+    await ask(todo, ada, {
+      trigger: "email_reply",
+      ceiling: { proactiveReview: true, mailDeliveryMode: "review", mailThreadId: "a-thread" },
+    });
+    assert.match(
+      (await todos().findOneByOrFail({ id: todo.id })).ceilingJson ?? "",
+      /"proactiveReview":true/,
+    );
   });
 });
 

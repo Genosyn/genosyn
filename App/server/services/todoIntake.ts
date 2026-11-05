@@ -32,6 +32,7 @@ import { mailboxForAccount } from "./mail/mailbox/index.js";
 import { jsonBoundedString } from "./mail/promptBounds.js";
 import { isInboundReviewMessage } from "./mail/reviewStatus.js";
 import { verifySender, type SenderVerdict } from "./mail/senderVerification.js";
+import { columnHasLabel } from "./mail/store.js";
 import { trustedAuthservId } from "./mail/unsubscribe.js";
 import { getActiveModel } from "./models.js";
 import { createNotifications } from "./notifications.js";
@@ -379,11 +380,13 @@ async function othersWroteOnThread(
   const own = account.address.trim().toLowerCase();
   const messages = await AppDataSource.getRepository(MailMessage).find({
     where: { threadId },
-    select: { id: true, fromEmail: true },
+    select: { id: true, fromEmail: true, labelIds: true },
   });
   return messages.some((row) => {
     const from = row.fromEmail.trim().toLowerCase();
-    return from !== own && !isTrustedSender(entries, from);
+    // `From:` is free text, so this mailbox's own address only counts on what it sent.
+    if (from === own && columnHasLabel(row.labelIds, "SENT")) return false;
+    return !isTrustedSender(entries, from);
   });
 }
 
@@ -661,7 +664,11 @@ export function parseIntakeOutcome(raw: string | null | undefined): StoredIntake
 }
 
 /** Emails filed since then, from what the reads recorded: the company's, or one Project's. */
-async function filedSince(companyId: string, since: Date, projectId?: string): Promise<number> {
+export async function filedSince(
+  companyId: string,
+  since: Date,
+  projectId?: string,
+): Promise<number> {
   const query = AppDataSource.getRepository(MailInboundAnalysis)
     .createQueryBuilder("analysis")
     .where("analysis.companyId = :companyId", { companyId })
@@ -833,7 +840,11 @@ export async function fileIntakeProposal(
 
     // Headers decide two things: whether this is a person at all, and who.
     const headers = await headersOf(account, message, deps).catch(() => []);
-    if (isAutomatedReply(message, headers)) {
+    const listed = isTrustedSender(
+      parseTrustedSenders(intake.trustedSenders).entries,
+      message.fromEmail,
+    );
+    if (isAutomatedReply(message, headers, { allowGenerated: listed })) {
       return await skip("An automated reply isn't a request.");
     }
 

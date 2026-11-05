@@ -216,6 +216,7 @@ todoPickupsRouter.post(
       userId: req.userId!,
       sessionVersion: req.session!.sessionVersion!,
       name: user ? user.name || user.email : "A Member",
+      role: req.membership?.role,
       withMyAccess: withMyAccess === true,
     });
     await recordAudit({

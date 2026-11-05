@@ -95,7 +95,7 @@ export function TodoPickupPanel({
     return dialog.confirm({
       title: "Use your access for this session?",
       message:
-        "It started from outside words, like an email, and those words are still on its thread. For this one session its AI Employee can do what you can. It goes back to its limits after.",
+        "Outside words, like an email, may be on its thread, and they stay there. For this one session its AI Employee can do what you can, and anything it sends waits for approval. It goes back to its limits after.",
       confirmLabel: "Use my access",
     });
   }
@@ -195,7 +195,7 @@ export function TodoPickupPanel({
       )}
       {held && canEdit && (canStart || waiting) && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          This started from outside words, like an email, so its AI Employee works within limits
+          An outside email or a limited session started this, so its AI Employee works within limits
           here, whoever asks. It can read and prepare, and a comment or a new assignee doesn&apos;t
           change that. Only Use my access does, for one session.
         </p>
