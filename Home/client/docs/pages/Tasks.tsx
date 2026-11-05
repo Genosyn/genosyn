@@ -92,7 +92,8 @@ export function Tasks() {
         A todo can be linked to the record it came from or is about: an email thread, a{" "}
         <DocLink to="/docs/customers">Customer</DocLink>, a Contact or Deal in{" "}
         <DocLink to="/docs/revenue">Revenue</DocLink>, a{" "}
-        <DocLink to="/docs/decisions">Decision</DocLink>, a Meeting, or a Routine Run. It reads both
+        <DocLink to="/docs/decisions">Decision</DocLink>, a Meeting, a Routine Run, or a{" "}
+        <DocLink to="/docs/repositories#work-sessions">work session</DocLink>. It reads both
         ways: the todo&apos;s panel says <Strong>From email</Strong> with a link to the thread, and
         the thread lists the todo under <Strong>Tasks</Strong>. Customer, Contact and Deal pages
         show the same <Strong>Tasks</Strong> card when something is linked to them.
@@ -232,6 +233,21 @@ export function Tasks() {
           assignment or Start now does.
         </LI>
       </UL>
+      <H2 id="code">Todos and code</H2>
+      <P>
+        When an AI Employee working a todo starts a{" "}
+        <DocLink to="/docs/repositories#work-sessions">Repository work session</DocLink>, the todo
+        links to it by itself. You can go from the todo to the session, and the session&apos;s page
+        has a <Strong>Tasks</Strong> card that comes back. When the session opens a pull request, a
+        line with the link goes on the todo&apos;s thread.
+      </P>
+      <P>
+        You can do the same by hand. On a todo assigned to an AI Employee with access to a
+        Repository, <Strong>Start work session</Strong> starts one with the todo&apos;s text as its
+        instruction, under your access. <Strong>Create task</Strong> on a session&apos;s page goes the
+        other way. A todo held to limits can&apos;t start a session, because a session runs commands
+        and those words came from outside. Create a task in your own words instead.
+      </P>
       <H2 id="waiting">Waiting on someone</H2>
       <P>
         When an AI Employee can&apos;t finish without an answer, it asks and then says what it is
@@ -252,7 +268,11 @@ export function Tasks() {
           },
           {
             term: "A person answers",
-            def: "If it asked on the thread, your comment wakes it, working under your access.",
+            def: "If it asked on the thread, your comment wakes it, working under your access unless the todo is held to limits.",
+          },
+          {
+            term: "A work session ends",
+            def: "If it started a Repository work session and is waiting on that, the todo picks up when the session's turn ends, told how it went and about any pull request. A session that failed wakes it too.",
           },
           {
             term: "A Decision or a review",

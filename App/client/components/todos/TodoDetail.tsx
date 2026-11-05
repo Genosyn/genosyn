@@ -29,6 +29,7 @@ import {
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { RecordHistory } from "@/components/RecordHistory";
 import { TodoLinksList } from "@/components/todos/TodoLinks";
+import { StartWorkSession } from "@/components/todos/StartWorkSession";
 import {
   PickupBrowserRecording,
   useTodoBrowserRecordings,
@@ -164,7 +165,10 @@ export function TodoDetailBody({
     </button>
   );
   const links = (
-    <TodoLinksList todo={todo} companyId={companyId} companySlug={companySlug} canEdit={canEdit} />
+    <>
+      <TodoLinksList todo={todo} companyId={companyId} companySlug={companySlug} canEdit={canEdit} />
+      {canEdit && <StartWorkSession todo={todo} companyId={companyId} companySlug={companySlug} />}
+    </>
   );
   const titleInput = (
     <input

@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
 import { api, type Employee, type Member, type Project } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
+import type { TodoLinkKind } from "../../../shared/todoLinks";
 
 type Picker = { projects: Project[]; employees: Employee[]; members: Member[] };
 
@@ -21,25 +22,31 @@ function assigneeBody(value: string) {
 }
 
 /**
- * Turn an email into a Todo a person can see from either side. The server links
- * the two when it creates the Todo, so there is never a Todo that lost track of
- * the email it came from.
+ * Turn a record into a Todo a person can see from either side: an email, a work
+ * session, an estimate. The server links the two when it creates the Todo, so there
+ * is never a Todo that lost track of where it came from.
  */
 export function CreateTaskModal({
   open,
   onClose,
   companyId,
   companySlug,
-  threadId,
-  subject,
+  link,
+  what,
+  suggestedTitle,
+  assigneeHint,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   companyId: string;
   companySlug: string;
-  threadId: string;
-  subject: string;
+  link: { kind: TodoLinkKind; targetId: string };
+  /** What it's created from, for the heading: "this email". */
+  what: string;
+  suggestedTitle: string;
+  /** Anything an AI Employee needs to do this, after the line every assignee gets. */
+  assigneeHint?: string;
   onCreated: () => void;
 }) {
   const [picker, setPicker] = React.useState<Picker | null>(null);
@@ -55,7 +62,7 @@ export function CreateTaskModal({
     setPicker(null);
     setError(null);
     setBusy(false);
-    setTitle(subject);
+    setTitle(suggestedTitle);
     setDescription("");
     setAssignee("");
     let cancelled = false;
@@ -79,7 +86,7 @@ export function CreateTaskModal({
     return () => {
       cancelled = true;
     };
-  }, [open, companyId, subject]);
+  }, [open, companyId, suggestedTitle]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -91,7 +98,7 @@ export function CreateTaskModal({
         title: title.trim().slice(0, 200),
         description: description.trim() || undefined,
         ...assigneeBody(assignee),
-        links: [{ kind: "mail_thread", targetId: threadId, isSource: true }],
+        links: [{ kind: link.kind, targetId: link.targetId, isSource: true }],
       });
       onCreated();
       onClose();
@@ -103,7 +110,7 @@ export function CreateTaskModal({
 
   const noProjects = picker !== null && picker.projects.length === 0;
   return (
-    <Modal open={open} onClose={onClose} title="Create a task from this email">
+    <Modal open={open} onClose={onClose} title={`Create a task from ${what}`}>
       {!picker && !error ? (
         <div className="flex justify-center py-8">
           <Spinner />
@@ -163,8 +170,8 @@ export function CreateTaskModal({
           </Select>
           {assignee.startsWith("ai:") && (
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              An AI Employee starts as soon as it is assigned, within your access and its Grants. It
-              needs Mail access to this mailbox to read the email.
+              An AI Employee starts as soon as it is assigned, within your access and its Grants.
+              {assigneeHint ? ` ${assigneeHint}` : ""}
             </p>
           )}
           <FormError message={error} />

@@ -7,6 +7,7 @@ import { Deal } from "../db/entities/Deal.js";
 import { Decision } from "../db/entities/Decision.js";
 import { EmployeeFinanceGrant, FINANCE_ACCESS_RANK } from "../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
+import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import {
   EmployeeRevenueGrant,
   REVENUE_ACCESS_RANK,
@@ -15,6 +16,8 @@ import { MailThread } from "../db/entities/MailThread.js";
 import { Meeting } from "../db/entities/Meeting.js";
 import type { FinanceAccess, Role } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
+import { Repository } from "../db/entities/Repository.js";
+import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Todo } from "../db/entities/Todo.js";
@@ -130,6 +133,13 @@ async function targetLabel(
       });
       return owner ? cleanLabel(routine.name) : null;
     }
+    case "work_session": {
+      const row = await AppDataSource.getRepository(RepositoryWorkSession).findOne({
+        where: { id: targetId, companyId },
+        select: { id: true, title: true },
+      });
+      return row ? cleanLabel(row.title || "Work session") : null;
+    }
   }
 }
 
@@ -217,6 +227,22 @@ async function employeeReadableKeys(
       }
     }
   }
+  if (kinds.has("work_session")) {
+    const [sessions, grants] = await Promise.all([
+      AppDataSource.getRepository(RepositoryWorkSession).find({
+        where: { id: In(idsOf("work_session")), companyId },
+        select: { id: true, repositoryId: true },
+      }),
+      AppDataSource.getRepository(EmployeeRepositoryGrant).find({
+        where: { employeeId: reader.employeeId },
+        select: { id: true, repositoryId: true },
+      }),
+    ]);
+    const granted = new Set(grants.map((grant) => grant.repositoryId));
+    for (const session of sessions) {
+      if (granted.has(session.repositoryId)) readable.add(`work_session:${session.id}`);
+    }
+  }
   // Any AI Employee in the company may read a Run's report (`get_run_report`).
   for (const id of idsOf("run")) readable.add(`run:${id}`);
   return readable;
@@ -267,6 +293,7 @@ async function targetPaths(companyId: string, links: TodoLink[]): Promise<Map<st
     decision: idsOf("decision"),
     meeting: idsOf("meeting"),
     run: idsOf("run"),
+    work_session: idsOf("work_session"),
   };
   if (ids.mail_thread.length) {
     const rows = await AppDataSource.getRepository(MailThread).find({
@@ -335,6 +362,23 @@ async function targetPaths(companyId: string, links: TodoLink[]): Promise<Map<st
       if (routine && employee) {
         paths.set(`run:${run.id}`, `/routines/${employee.slug}/${routine.slug}?run=${run.id}`);
       }
+    }
+  }
+  if (ids.work_session.length) {
+    const sessions = await AppDataSource.getRepository(RepositoryWorkSession).find({
+      where: { id: In(ids.work_session), companyId },
+      select: { id: true, repositoryId: true },
+    });
+    const repositories = sessions.length
+      ? await AppDataSource.getRepository(Repository).find({
+          where: { id: In(sessions.map((session) => session.repositoryId)), companyId },
+          select: { id: true, slug: true },
+        })
+      : [];
+    const slugOf = new Map(repositories.map((repository) => [repository.id, repository.slug]));
+    for (const session of sessions) {
+      const slug = slugOf.get(session.repositoryId);
+      if (slug) paths.set(`work_session:${session.id}`, `/repositories/${slug}/ai/${session.id}`);
     }
   }
   return paths;
