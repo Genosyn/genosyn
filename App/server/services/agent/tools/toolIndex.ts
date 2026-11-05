@@ -580,6 +580,24 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "invite_data_room_guest",
     ],
   },
+  support: {
+    label: "support",
+    blurb:
+      "Customer support tickets from the company's Support inboxes: read and update them, add notes, draft or send replies, and read or write the Articles replies are answered from. Needs a Support grant.",
+    tools: [
+      "list_support_tickets",
+      "get_support_ticket",
+      "search_support_articles",
+      "get_support_article",
+      "get_support_overview",
+      "add_support_note",
+      "update_support_ticket",
+      "draft_support_reply",
+      "create_support_article",
+      "update_support_article",
+      "reply_to_support_ticket",
+    ],
+  },
   files: {
     label: "files",
     blurb:
@@ -1465,6 +1483,18 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "reject attachment",
   ],
 
+  // Support — people say "ticket", "helpdesk", "customer question" or "support queue".
+  list_support_tickets: ["support tickets", "helpdesk", "support queue", "customer questions", "open tickets", "customer emails"],
+  get_support_ticket: ["read ticket", "ticket conversation", "what did the customer say", "customer issue"],
+  search_support_articles: ["knowledge base", "help articles", "faq", "documentation for customers", "help center"],
+  get_support_article: ["read help article", "knowledge base article"],
+  get_support_overview: ["support metrics", "support stats", "response time", "csat", "ticket volume", "sla"],
+  add_support_note: ["internal note on ticket", "note for the team", "ticket comment"],
+  update_support_ticket: ["solve ticket", "close ticket", "assign ticket", "escalate ticket", "ticket priority", "tag ticket"],
+  draft_support_reply: ["draft reply to customer", "prepare ticket answer", "suggest a response"],
+  create_support_article: ["write help article", "add to knowledge base", "document answer", "new faq"],
+  update_support_article: ["edit help article", "publish article", "fix knowledge base"],
+  reply_to_support_ticket: ["answer customer", "reply to ticket", "respond to support email", "send ticket reply"],
   // Recruiting
   // Data rooms — people say "data room", "VDR", "diligence" or name the deal.
   list_data_rooms: ["data room", "virtual data room", "vdr", "due diligence", "deal room", "investor room"],

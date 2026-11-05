@@ -66,6 +66,9 @@ export const PUSHED_NOTIFICATION_KINDS: ReadonlySet<NotificationKind> = new Set<
   "board_letter_ready",
   "recruiting_strong_match",
   "data_room_question",
+  "support_ticket_assigned",
+  "support_customer_replied",
+  "support_sla_breached",
   "group_discussion",
   "model_unavailable",
 ]);

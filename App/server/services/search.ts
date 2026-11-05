@@ -15,6 +15,7 @@ import { Pipeline } from "../db/entities/Pipeline.js";
 import { Product } from "../db/entities/Product.js";
 import { RecruitingApplication } from "../db/entities/RecruitingApplication.js";
 import { RecruitingOpening } from "../db/entities/RecruitingOpening.js";
+import { SupportTicket } from "../db/entities/SupportTicket.js";
 import { Project } from "../db/entities/Project.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -70,6 +71,8 @@ export type SearchResultKind =
   | "account"
   | "opening"
   | "applicant"
+  /** A support ticket, by its subject, customer or number. */
+  | "ticket"
   /** A row from Finance → Products & services, opened filtered to its name. */
   | "catalogProduct";
 
@@ -272,6 +275,35 @@ async function searchApplicants(ctx: Ctx): Promise<Scored[]> {
     sublabel: row.candidateEmail,
     path: `/recruiting/applicants/${row.id}`,
     score: scoreKindLabel(ctx, row.candidateName, q, tokens),
+    updatedAt: row.updatedAt,
+  }));
+}
+
+/**
+ * Support tickets, by subject, customer or number. Bespoke so the query reads only
+ * the columns a result needs. A ticket holds what a stranger wrote, and a Member
+ * may read any of them, so a hit shows the same subject the queue does.
+ */
+async function searchTickets(ctx: Ctx): Promise<Scored[]> {
+  const { tokens, q } = splitKindTokens(ctx, "ticket");
+  let qb = AppDataSource.getRepository(SupportTicket)
+    .createQueryBuilder("t")
+    .select(["t.id", "t.number", "t.subject", "t.requesterName", "t.requesterEmail", "t.updatedAt"])
+    .where("t.companyId = :cid", { cid: ctx.companyId })
+    .andWhere("t.mergedIntoId IS NULL")
+    .andWhere("t.status != :spam", { spam: "spam" });
+  const number = /^#?(\d{1,9})$/.exec(q.trim());
+  if (number) qb = qb.andWhere("t.number = :number", { number: Number(number[1]) });
+  else qb = andWhereTokens(qb, ["t.subject", "t.requesterName", "t.requesterEmail"], tokens);
+  qb = orderByPrefixFirst(qb, "t.subject", q, "t.updatedAt");
+  const rows = await qb.getMany();
+  return rows.map((row) => ({
+    kind: "ticket" as const,
+    id: row.id,
+    label: row.subject || `Ticket #${row.number}`,
+    sublabel: `#${row.number} · ${row.requesterName || row.requesterEmail}`,
+    path: `/support/tickets/${row.id}`,
+    score: number ? 100 : scoreKindLabel(ctx, row.subject, q, tokens),
     updatedAt: row.updatedAt,
   }));
 }
@@ -612,6 +644,7 @@ export async function searchCompany(opts: {
     searchTodos(ctx, accessibleProjects),
     searchChannels(ctx, opts.userId),
     searchApplicants(ctx),
+    searchTickets(ctx),
   ]);
 
   const merged: Scored[] = [];

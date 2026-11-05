@@ -36,6 +36,12 @@ type ParentHop = { fk: string; parent: string };
 type Mapping = {
   /** The client-facing resource family a page subscribes to. */
   kind: string;
+  /**
+   * Whether this write may wake a Routine. Absent means every write does. For a
+   * family whose own work writes it, this keeps a Trigger on what happened to the
+   * company rather than on what the company did.
+   */
+  wakes?: (entity: ObjectLiteral) => boolean;
   /** `"direct"` reads `entity.companyId`; a hop follows `entity[fk]` upward. */
   company: "direct" | ParentHop;
   /**
@@ -310,6 +316,28 @@ const REGISTRY: Record<string, Mapping> = {
   DataRoomQuestion: { kind: "data_room_question", company: "direct", scopeFk: "roomId" },
   EmployeeDataRoomGrant: { kind: "grant", company: "direct", scopeFk: "employeeId" },
 
+  // ── Support ──────────────────────────────────────────────────────────────
+  // One kind for a ticket and its conversation, scoped by the ticket so the page
+  // showing one refetches only for its own. Only a customer writing wakes a
+  // Routine: the replies, notes and updates a Routine's own work makes do not,
+  // so a Trigger on "support_ticket" means "a customer wrote in". Ticket writes
+  // are targeted updates and announce themselves (`services/support/access.ts`),
+  // as do drafts, the timeline and the job queue.
+  SupportTicket: { kind: "support_ticket", company: "direct", scopeFk: "id", wakes: () => false },
+  SupportMessage: {
+    kind: "support_ticket",
+    company: "direct",
+    scopeFk: "ticketId",
+    wakes: (entity) => entity.kind === "customer",
+  },
+  SupportDraft: { kind: "support_ticket", company: "direct", scopeFk: "ticketId", wakes: () => false },
+  SupportEvent: { kind: "support_ticket", company: "direct", scopeFk: "ticketId", wakes: () => false },
+  SupportArticle: { kind: "support_article", company: "direct", scopeFk: "id", wakes: () => false },
+  SupportSavedReply: { kind: "support_saved_reply", company: "direct", wakes: () => false },
+  SupportInbox: { kind: "support_inbox", company: "direct", scopeFk: "id", wakes: () => false },
+  SupportSettings: { kind: "support_settings", company: "direct", wakes: () => false },
+  EmployeeSupportGrant: { kind: "grant", company: "direct", scopeFk: "employeeId" },
+
   // ── Phone numbers ────────────────────────────────────────────────────────
   // One kind for a number, its texts and its calls, scoped by the number: the
   // page that shows a number's settings is the page that shows its activity,
@@ -535,6 +563,8 @@ export class ResourceChangeSubscriber implements EntitySubscriberInterface {
             .catch(() => {
               // The UI frame is already queued. Conservatively omit Triggers.
             });
+        } else if (reg.wakes && !reg.wakes(entity)) {
+          emitResourceChange(companyId, reg.kind, scopeId, { trigger: false });
         } else {
           emitResourceChange(companyId, reg.kind, scopeId);
         }

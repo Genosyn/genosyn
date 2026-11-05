@@ -82,6 +82,7 @@ export const AI_TRIGGER_KINDS = [
   "signal",
   "signalevent",
   "signature",
+  "support_ticket",
   "todo",
   "vendor",
 ] as const;

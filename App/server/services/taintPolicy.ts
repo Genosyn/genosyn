@@ -45,6 +45,8 @@ export const TAINT_SINK_TOOLS = new Set([
   // documents, and publishing an answer speaks to them: both reach outside.
   "invite_data_room_guest",
   "answer_data_room_question",
+  // A ticket's reply speaks to a customer, and anyone can email a support address.
+  "reply_to_support_ticket",
   // Moving a document into a folder shows it to that folder's guests at once.
   "update_data_room_document",
   "create_routine",
@@ -83,12 +85,21 @@ export const APPLICANT_TAINT_SOURCES = new Set(["list_applications", "get_applic
  */
 export const DATA_ROOM_TAINT_SOURCES = new Set(["list_data_room_questions"]);
 
+/**
+ * Anyone can email a support address, and a customer's email is written to the
+ * company's AI as surely as a resume is. Reading a ticket taints the turn, so the
+ * reply it sends afterwards waits for a person; the ticket's own restricted turn,
+ * which has no tools, is how replies go out on their own.
+ */
+export const SUPPORT_TAINT_SOURCES = new Set(["list_support_tickets", "get_support_ticket"]);
+
 /** Whether calling this tool marks the turn as having read outside content. */
 export function isTaintSource(toolName: string): boolean {
   return (
     WEB_TAINT_SOURCES.has(toolName) ||
     APPLICANT_TAINT_SOURCES.has(toolName) ||
-    DATA_ROOM_TAINT_SOURCES.has(toolName)
+    DATA_ROOM_TAINT_SOURCES.has(toolName) ||
+    SUPPORT_TAINT_SOURCES.has(toolName)
   );
 }
 
@@ -145,7 +156,7 @@ export async function createTaintedToolApproval(args: {
     status: "pending",
     title: redactApprovalSummary(`Tainted turn · ${args.tool}`),
     summary: redactApprovalSummary(
-      `This turn read outside content (a web page, an application or a guest's question) before calling ${args.tool}. Held for review: ` +
+      `This turn read outside content (a web page, an application, a guest's question or a customer's email) before calling ${args.tool}. Held for review: ` +
         approvalArgsPreview(args.toolArgs).slice(0, 300),
     ),
     payloadJson: JSON.stringify({

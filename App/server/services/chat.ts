@@ -29,6 +29,7 @@ import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { composeRecruitingContext } from "./recruiting/grants.js";
 import { composeDataRoomContext } from "./dataRooms/grants.js";
+import { composeSupportContext } from "./support/grants.js";
 import { composeResourceLibraryContext } from "./resourceLibraryAccess.js";
 import { getRoutineAccess } from "./routineAccess.js";
 import { DEFAULT_ROUTINE_ACCESS } from "../db/entities/EmployeeRoutineGrant.js";
@@ -419,6 +420,8 @@ export type InteractiveChatContextAccess = {
   recruiting: boolean;
   /** Data rooms are owners' and admins' on the human route, so their briefing is too. */
   dataRooms: boolean;
+  /** Support is Member-level on the human route, so its briefing is too. */
+  support: boolean;
   resources: boolean;
   extraSystem: boolean;
   taggedReferences: boolean;
@@ -458,6 +461,7 @@ export function resolveInteractiveChatContextAccess(
     marketing: companyContext,
     recruiting: companyContext,
     dataRooms: privilegedToolSources,
+    support: companyContext,
     resources: companyContext,
     extraSystem: companyContext,
     taggedReferences: companyContext,
@@ -918,6 +922,7 @@ export async function streamChatWithEmployee(
       marketingContext,
       recruitingContext,
       dataRoomsContext,
+      supportContext,
       resourcesContext,
       phoneContext,
     ] = await Promise.all([
@@ -935,6 +940,9 @@ export async function streamChatWithEmployee(
           : Promise.resolve(""),
         contextAccess.dataRooms && !repositoryWork && !options.collaboration
           ? composeDataRoomContext(emp.id)
+          : Promise.resolve(""),
+        contextAccess.support && !repositoryWork && !options.collaboration
+          ? composeSupportContext(emp.id)
           : Promise.resolve(""),
         contextAccess.resources && !repositoryWork
           ? composeResourceLibraryContext(emp.id)
@@ -996,6 +1004,7 @@ export async function streamChatWithEmployee(
             marketingContext,
             recruitingContext,
             dataRoomsContext,
+            supportContext,
             resourcesContext,
             phoneContext,
             routineAccess,

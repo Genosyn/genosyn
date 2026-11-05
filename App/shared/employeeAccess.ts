@@ -4,6 +4,11 @@ import {
   DATA_ROOM_ACCESS_LEVELS,
 } from "./dataRooms.js";
 import {
+  SUPPORT_ACCESS_HINTS,
+  SUPPORT_ACCESS_LABELS,
+  SUPPORT_ACCESS_LEVELS,
+} from "./support.js";
+import {
   RECRUITING_ACCESS_HINTS,
   RECRUITING_ACCESS_LABELS,
   RECRUITING_ACCESS_LEVELS,
@@ -48,6 +53,7 @@ export const ACCESS_KINDS = [
   "recruiting",
   "signing",
   "data_room",
+  "support",
 ] as const;
 
 export type AccessKind = (typeof ACCESS_KINDS)[number];
@@ -451,6 +457,20 @@ export const ACCESS_KIND_META: Readonly<Record<AccessKind, AccessKindMeta>> = {
     defaultLevel: "read",
     heldByDefault: null,
   },
+  support: {
+    kind: "support",
+    group: "sections",
+    singular: "Support",
+    plural: "Support",
+    scope: "section",
+    levels: SUPPORT_ACCESS_LEVELS.map((value) => ({
+      value,
+      label: SUPPORT_ACCESS_LABELS[value],
+      hint: SUPPORT_ACCESS_HINTS[value],
+    })),
+    defaultLevel: "read",
+    heldByDefault: null,
+  },
 };
 
 export type AccessGroupKey =
@@ -547,7 +567,7 @@ export const ACCESS_GROUPS: readonly AccessGroupMeta[] = [
     key: "sections",
     label: "Company sections",
     description: "One level for a whole part of the company.",
-    kinds: ["finance", "revenue", "marketing", "recruiting", "signing", "data_room"],
+    kinds: ["finance", "revenue", "marketing", "recruiting", "signing", "data_room", "support"],
   },
 ];
 

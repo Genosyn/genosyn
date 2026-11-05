@@ -39,6 +39,7 @@ import { appShellFallback, careersPagesRouter } from "./routes/careersSite.js";
 import { bootCareersHosts } from "./services/recruiting/domains.js";
 import { bootScreeningQueue } from "./services/recruiting/screeningQueue.js";
 import { bootDataRoomQueue } from "./services/dataRooms/queue.js";
+import { bootSupportQueue } from "./services/support/queue.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 import { bootBrowserRecordingRetention } from "./services/browserRecordingRetention.js";
 import { bootExchangeRateFeed } from "./services/exchangeRateFeed.js";
@@ -131,6 +132,9 @@ async function main() {
   // Data rooms: the AI work a room queued — briefs, answers, reviews — picked
   // up where a previous process left it.
   bootDataRoomQueue();
+  // Support: mail waiting to become tickets and the AI work on them, picked up
+  // where a previous process left it, and the clocks every ticket runs on.
+  bootSupportQueue();
   // AI Models that were unavailable when the last process stopped stay so
   // until a check finds them answering: loaded before the heartbeat's first
   // pass, so the queue never starts the Runs waiting on one that is still down.

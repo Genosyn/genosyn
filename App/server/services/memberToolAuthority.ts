@@ -318,6 +318,20 @@ const MEMBER_TOOLS = [
   "move_application",
   "add_application_note",
   "add_candidate",
+  // Support is Member-level on the human route: any Member may read and answer
+  // tickets and write Articles (routes/support.ts). The admin-only parts — Support
+  // inboxes, the appointed AI Employee and AI access — have no tool at all.
+  "list_support_tickets",
+  "get_support_ticket",
+  "search_support_articles",
+  "get_support_article",
+  "get_support_overview",
+  "add_support_note",
+  "update_support_ticket",
+  "draft_support_reply",
+  "create_support_article",
+  "update_support_article",
+  "reply_to_support_ticket",
 ] as const;
 
 const ADMIN_TOOLS = [

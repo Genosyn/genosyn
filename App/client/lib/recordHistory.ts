@@ -146,6 +146,15 @@ const PHRASES: Record<string, string> = {
   submit: "submitted {noun}",
   sign: "signed {noun}",
   categorize: "categorized {noun}",
+  // Support (`server/services/support/`).
+  triage: "read and filed {noun}",
+  reply: "replied on {noun}",
+  note: "added a note to {noun}",
+  draft: "drafted a reply on {noun}",
+  draft_discarded: "discarded a draft on {noun}",
+  status_published: "published {noun}",
+  status_draft: "unpublished {noun}",
+  status_archived: "archived {noun}",
   // Data rooms (`server/services/dataRooms/`), past tense as written.
   created: "created {noun}",
   settings_changed: "changed the settings of {noun}",

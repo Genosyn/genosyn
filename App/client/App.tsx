@@ -199,6 +199,15 @@ import DataRoomsIndex from "@/pages/DataRoomsIndex";
 import DataRoomDetail from "@/pages/DataRoomDetail";
 import DataRoomsAiAccess from "@/pages/DataRoomsAiAccess";
 import PublicDataRoom from "@/pages/PublicDataRoom";
+import PublicSupportFeedback from "@/pages/PublicSupportFeedback";
+import SupportLayout from "@/pages/SupportLayout";
+import SupportQueue from "@/pages/SupportQueue";
+import SupportTicketPage from "@/pages/SupportTicket";
+import { SupportArticleEditor, SupportKnowledge } from "@/pages/SupportKnowledge";
+import SupportSavedReplies from "@/pages/SupportSavedReplies";
+import SupportInsights from "@/pages/SupportInsights";
+import SupportSettingsPage from "@/pages/SupportSettings";
+import SupportAiAccess from "@/pages/SupportAiAccess";
 import PublicForm from "@/pages/PublicForm";
 import FinanceLayout from "./pages/FinanceLayout";
 import FinanceIndex from "./pages/FinanceIndex";
@@ -255,7 +264,7 @@ function isAnonymousPage(pathname: string): boolean {
 }
 
 function isPublicSurfacePage(pathname: string): boolean {
-  return /^\/(?:sign|forms|room)(?:\/|$)/i.test(pathname);
+  return /^\/(?:sign|forms|room|feedback)(?:\/|$)/i.test(pathname);
 }
 
 function FullPageRedirect({ to }: { to: string }) {
@@ -308,6 +317,7 @@ export default function App() {
             <Route path="/sign/:token" element={<PublicSigning />} />
             <Route path="/forms/:token" element={<PublicForm />} />
             <Route path="/room/:token" element={<PublicDataRoom />} />
+            <Route path="/feedback/:token" element={<PublicSupportFeedback />} />
           </Routes>
         ) : auth.status === "loading" ? (
           <SplashScreen />
@@ -670,6 +680,17 @@ function CompanyRoutes({
             auditors, each guest through a private link, with the room's AI
             Employee briefing documents and answering questions. Owners and
             admins only. */}
+          <Route path="support" element={<SupportLayout company={company} />}>
+            <Route index element={<SupportQueue />} />
+            <Route path="tickets/:ticketId" element={<SupportTicketPage />} />
+            <Route path="knowledge" element={<SupportKnowledge />} />
+            <Route path="knowledge/new" element={<SupportArticleEditor />} />
+            <Route path="knowledge/:articleId" element={<SupportArticleEditor />} />
+            <Route path="saved-replies" element={<SupportSavedReplies />} />
+            <Route path="insights" element={<SupportInsights />} />
+            <Route path="settings" element={<SupportSettingsPage />} />
+            <Route path="ai-access" element={<SupportAiAccess />} />
+          </Route>
           <Route path="data-rooms" element={<DataRoomsLayout company={company} />}>
             <Route index element={<DataRoomsIndex />} />
             <Route path="ai-access" element={<DataRoomsAiAccess />} />

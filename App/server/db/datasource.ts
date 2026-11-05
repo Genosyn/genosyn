@@ -256,6 +256,16 @@ import { DataRoomEvent } from "./entities/DataRoomEvent.js";
 import { DataRoomQuestion } from "./entities/DataRoomQuestion.js";
 import { DataRoomJob } from "./entities/DataRoomJob.js";
 import { EmployeeDataRoomGrant } from "./entities/EmployeeDataRoomGrant.js";
+import { SupportSettings } from "./entities/SupportSettings.js";
+import { SupportInbox } from "./entities/SupportInbox.js";
+import { SupportTicket } from "./entities/SupportTicket.js";
+import { SupportMessage } from "./entities/SupportMessage.js";
+import { SupportDraft } from "./entities/SupportDraft.js";
+import { SupportEvent } from "./entities/SupportEvent.js";
+import { SupportArticle } from "./entities/SupportArticle.js";
+import { SupportSavedReply } from "./entities/SupportSavedReply.js";
+import { SupportJob } from "./entities/SupportJob.js";
+import { EmployeeSupportGrant } from "./entities/EmployeeSupportGrant.js";
 
 const entities = [
   User,
@@ -527,6 +537,16 @@ const entities = [
   DataRoomQuestion,
   DataRoomJob,
   EmployeeDataRoomGrant,
+  SupportSettings,
+  SupportInbox,
+  SupportTicket,
+  SupportMessage,
+  SupportDraft,
+  SupportEvent,
+  SupportArticle,
+  SupportSavedReply,
+  SupportJob,
+  EmployeeSupportGrant,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

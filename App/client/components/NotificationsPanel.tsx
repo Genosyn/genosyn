@@ -13,6 +13,7 @@ import {
   GitPullRequest,
   Hourglass,
   Landmark,
+  LifeBuoy,
   Lightbulb,
   Mail,
   MessageCircleQuestion,
@@ -434,6 +435,13 @@ function KindIcon({
       return <MessageCircleQuestion size={size} className={className} />;
     case "data_room_visit":
       return <FolderLock size={size} className={className} />;
+    case "support_ticket_assigned":
+    case "support_customer_replied":
+      return <LifeBuoy size={size} className={className} />;
+    case "support_sla_breached":
+      return <Hourglass size={size} className={className} />;
+    case "support_low_rating":
+      return <Star size={size} className={className} />;
     case "group_discussion":
       return <Users size={size} className={className} />;
     case "model_unavailable":
@@ -543,6 +551,22 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   data_room_visit: {
     iconBg: "bg-slate-100 dark:bg-slate-700/40",
     iconFg: "text-slate-600 dark:text-slate-300",
+  },
+  support_ticket_assigned: {
+    iconBg: "bg-sky-100 dark:bg-sky-500/15",
+    iconFg: "text-sky-600 dark:text-sky-300",
+  },
+  support_customer_replied: {
+    iconBg: "bg-sky-100 dark:bg-sky-500/15",
+    iconFg: "text-sky-600 dark:text-sky-300",
+  },
+  support_sla_breached: {
+    iconBg: "bg-rose-100 dark:bg-rose-500/15",
+    iconFg: "text-rose-600 dark:text-rose-300",
+  },
+  support_low_rating: {
+    iconBg: "bg-amber-100 dark:bg-amber-500/15",
+    iconFg: "text-amber-600 dark:text-amber-300",
   },
   group_discussion: {
     iconBg: "bg-indigo-100 dark:bg-indigo-500/15",

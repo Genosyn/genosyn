@@ -19,6 +19,8 @@ const SEND_TOOLS = new Set([
   // A data room invitation is an email to an outsider; an answer emails them too.
   "invite_data_room_guest",
   "answer_data_room_question",
+  // A ticket's reply is an email to a customer.
+  "reply_to_support_ticket",
   // Google emails each guest an invitation: an email to an outsider.
   "schedule_meeting",
   "send_sequence_step",

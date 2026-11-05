@@ -158,6 +158,16 @@ import { DataRoomGuest } from "../db/entities/DataRoomGuest.js";
 import { DataRoomJob } from "../db/entities/DataRoomJob.js";
 import { DataRoomQuestion } from "../db/entities/DataRoomQuestion.js";
 import { EmployeeDataRoomGrant } from "../db/entities/EmployeeDataRoomGrant.js";
+import { EmployeeSupportGrant } from "../db/entities/EmployeeSupportGrant.js";
+import { SupportArticle } from "../db/entities/SupportArticle.js";
+import { SupportDraft } from "../db/entities/SupportDraft.js";
+import { SupportEvent } from "../db/entities/SupportEvent.js";
+import { SupportInbox } from "../db/entities/SupportInbox.js";
+import { SupportJob } from "../db/entities/SupportJob.js";
+import { SupportMessage } from "../db/entities/SupportMessage.js";
+import { SupportSavedReply } from "../db/entities/SupportSavedReply.js";
+import { SupportSettings } from "../db/entities/SupportSettings.js";
+import { SupportTicket } from "../db/entities/SupportTicket.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { EmployeeNotebookGrant } from "../db/entities/EmployeeNotebookGrant.js";
@@ -663,6 +673,18 @@ export async function deleteCompanyCascade(args: {
     await m.delete(DataRoomJob, { companyId });
     await m.delete(DataRoom, { companyId });
     await m.delete(EmployeeDataRoomGrant, { companyId });
+    // Support: a ticket's conversation and timeline before the ticket, tickets
+    // before the inboxes they came through.
+    await m.delete(SupportJob, { companyId });
+    await m.delete(SupportDraft, { companyId });
+    await m.delete(SupportEvent, { companyId });
+    await m.delete(SupportMessage, { companyId });
+    await m.delete(SupportTicket, { companyId });
+    await m.delete(SupportInbox, { companyId });
+    await m.delete(SupportArticle, { companyId });
+    await m.delete(SupportSavedReply, { companyId });
+    await m.delete(SupportSettings, { companyId });
+    await m.delete(EmployeeSupportGrant, { companyId });
     await m.delete(Chart, { companyId });
     await m.delete(Dashboard, { companyId });
     // Sessions before the repositories they belong to, so a failure halfway
