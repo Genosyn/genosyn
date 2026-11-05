@@ -92,11 +92,13 @@ export function Tasks() {
         A todo can be linked to the record it came from or is about: an email thread, a{" "}
         <DocLink to="/docs/customers">Customer</DocLink>, a Contact or Deal in{" "}
         <DocLink to="/docs/revenue">Revenue</DocLink>, a{" "}
-        <DocLink to="/docs/decisions">Decision</DocLink>, a Meeting, a Routine Run, or a{" "}
-        <DocLink to="/docs/repositories#work-sessions">work session</DocLink>. It reads both
+        <DocLink to="/docs/decisions">Decision</DocLink>, a Meeting, a Routine Run, a{" "}
+        <DocLink to="/docs/repositories#work-sessions">work session</DocLink>, an estimate, an
+        invoice, a bill, or a Support ticket. It reads both
         ways: the todo&apos;s panel says <Strong>From email</Strong> with a link to the thread, and
-        the thread lists the todo under <Strong>Tasks</Strong>. Customer, Contact and Deal pages
-        show the same <Strong>Tasks</Strong> card when something is linked to them.
+        the thread lists the todo under <Strong>Tasks</Strong>. Customer, Contact, Deal, estimate,
+        invoice, bill and ticket pages show the same <Strong>Tasks</Strong> card when something is
+        linked to them.
       </P>
       <P>
         To make one from an email, open the thread and choose <Strong>Create task</Strong>. The
@@ -233,6 +235,21 @@ export function Tasks() {
           assignment or Start now does.
         </LI>
       </UL>
+      <H2 id="finance">Todos and Finance</H2>
+      <P>
+        An AI Employee can file a todo, create the estimate and mark the todo done, and the two link
+        by themselves, without anyone naming the link. Whatever it creates while working a todo goes
+        on that todo: an estimate, an invoice, a bill, a Customer, a Contact or a Deal, and any
+        ticket it works. Filing, creating and sending stay under their own Grants, Policies and
+        Approvals, and a session held to limits still can&apos;t create an estimate.
+      </P>
+      <P>
+        You can work from either side. <Strong>Create task</Strong> on an estimate, invoice, bill or
+        ticket files a todo linked to it. On a todo, <Strong>Create</Strong> opens the usual estimate
+        or invoice form, and what you save links to the todo. Reading a Finance link takes Finance
+        access: without it you see that a link exists, and not what it&apos;s called.
+      </P>
+
       <H2 id="code">Todos and code</H2>
       <P>
         When an AI Employee working a todo starts a{" "}

@@ -30,6 +30,7 @@ import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { RecordHistory } from "@/components/RecordHistory";
 import { TodoLinksList } from "@/components/todos/TodoLinks";
 import { StartWorkSession } from "@/components/todos/StartWorkSession";
+import { TodoCreateMenu } from "@/components/todos/TodoCreateMenu";
 import {
   PickupBrowserRecording,
   useTodoBrowserRecordings,
@@ -101,6 +102,7 @@ export function TodoDetailBody({
   onCreated,
   onReviewResolved,
   wide = false,
+  canCreateFinance = false,
 }: {
   todo: Todo;
   allTodos: Todo[];
@@ -118,6 +120,8 @@ export function TodoDetailBody({
   onReviewResolved?: (status: "done" | "in_progress") => void;
   /** It has a page to itself: the fields sit in a column beside the work. */
   wide?: boolean;
+  /** This person can use Finance, so the Todo can offer to create an estimate or an invoice. */
+  canCreateFinance?: boolean;
 }) {
   const [title, setTitle] = React.useState(todo.title);
   const [desc, setDesc] = React.useState(todo.description);
@@ -167,7 +171,12 @@ export function TodoDetailBody({
   const links = (
     <>
       <TodoLinksList todo={todo} companyId={companyId} companySlug={companySlug} canEdit={canEdit} />
-      {canEdit && <StartWorkSession todo={todo} companyId={companyId} companySlug={companySlug} />}
+      {canEdit && !["done", "cancelled"].includes(todo.status) && (
+        <div className="flex flex-wrap items-start gap-2">
+          <StartWorkSession todo={todo} companyId={companyId} companySlug={companySlug} />
+          {canCreateFinance && <TodoCreateMenu todoId={todo.id} companySlug={companySlug} />}
+        </div>
+      )}
     </>
   );
   const titleInput = (
@@ -430,6 +439,7 @@ export function todoPagePath(companySlug: string, projectSlug: string, number: n
  * inside a `<Modal>`, which supplies its own title bar and action tray.
  */
 export function TodoDetailPanel(props: {
+  canCreateFinance?: boolean;
   todo: Todo;
   allTodos: Todo[];
   project: Project;

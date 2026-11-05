@@ -166,6 +166,7 @@ export default function TodoPage({ company }: { company: Company }) {
         <TodoDetailBody
           key={todo.id}
           wide
+          canCreateFinance={company.financeAccess === "full"}
           todo={todo}
           allTodos={allTodos}
           project={project}

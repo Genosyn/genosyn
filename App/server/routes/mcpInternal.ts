@@ -3040,6 +3040,7 @@ mcpInternalRouter.post(
       targetLabel: c.name,
       journalTitle: `${req.mcpEmployee!.name} created customer ${c.name}`,
     });
+    await linkToWorkingTodo(req, "customer", c.id);
     res.json({ customer: serializeToolCustomer(c) });
   },
 );
@@ -3680,6 +3681,7 @@ mcpInternalRouter.post(
         journalTitle: `${req.mcpEmployee!.name} drafted an estimate for ${customer.name}`,
         metadata: { totalCents: estimate.totalCents, currency: estimate.currency },
       });
+      await linkToWorkingTodo(req, "estimate", estimate.id);
       res.json({
         estimate: serializeEstimateFull(hydrated),
         note: "Draft created. It has no ledger effect and nothing was emailed. Call issue_estimate to number it and mark it Sent without emailing, or send_estimate to issue and email it to the Customer when sending is authorized. Both return its new slug. Attach that returned slug with estimateSlug on create_mail_draft for a non-draft PDF; attaching the draft slug keeps the PDF marked DRAFT.",
@@ -3842,6 +3844,7 @@ mcpInternalRouter.post(
       journalTitle: `${req.mcpEmployee!.name} drafted an invoice for ${customer.name}`,
       metadata: { totalCents: inv.totalCents, currency: inv.currency },
     });
+    await linkToWorkingTodo(req, "invoice", inv.id);
     res.json({
       invoice: serializeInvoiceFull(hydrated),
       note: "Draft created. Call send_invoice to issue and email it to the customer.",
@@ -4667,6 +4670,7 @@ mcpInternalRouter.post(
         journalTitle: `${req.mcpEmployee!.name} entered a bill`,
         metadata: { totalCents: bill.totalCents, currency: bill.currency },
       });
+      await linkToWorkingTodo(req, "bill", bill.id);
       await answerWithBill(req, res, bill);
     } catch (err) {
       payablesFailure(res, err);
@@ -6038,6 +6042,7 @@ mcpInternalRouter.post(
         journalTitle: `${req.mcpEmployee!.name} added contact ${contact.name}`,
         metadata: { email: contact.email, lifecycleStage: contact.lifecycleStage },
       });
+      await linkToWorkingTodo(req, "contact", contact.id);
       res.json({ contact: serializeContactFull(contact) });
     } catch (err) {
       // The service refuses rather than merging, and hands back the id of the
@@ -6182,6 +6187,7 @@ mcpInternalRouter.post(
           currency: deal.currency,
         },
       });
+      await linkToWorkingTodo(req, "deal", deal.id);
       res.json({ deal: hydrated ? serializeDealFull(hydrated) : null });
     } catch (err) {
       if (err instanceof InvalidStageError) {
@@ -19829,6 +19835,7 @@ mcpInternalRouter.post(
       patch: { ...patch, ...(snoozedUntil ? { snoozedUntil: new Date(snoozedUntil) } : {}) },
       actor: supportActor(req),
     });
+    await linkToWorkingTodo(req, "ticket", ticket.id);
     res.json({ ticket: aiTicketRow(ticket) });
   }),
 );
@@ -19957,6 +19964,7 @@ mcpInternalRouter.post(
       status: req.body.status,
       actor: supportActor(req),
     });
+    await linkToWorkingTodo(req, "ticket", result.ticket.id);
     res.json({ messageId: result.message.id, ticket: aiTicketRow(result.ticket) });
   }),
 );
@@ -22738,6 +22746,13 @@ mcpInternalRouter.post(
         `${self.name} scheduled "${meeting.title}"`,
         `${meeting.start} with ${meeting.attendees.length} guest(s)${meeting.invitesSent ? "; invitations sent" : ""}.`,
       );
+      // The calendar sync writes the Meeting, so it may not be there yet, and then there's
+      // nothing of ours to link to. `link_todo` covers it later.
+      const booked = await AppDataSource.getRepository(Meeting).findOne({
+        where: { companyId: req.mcpCompany!.id, calendarEventId: meeting.eventId },
+        select: { id: true },
+      });
+      if (booked) await linkToWorkingTodo(req, "meeting", booked.id);
       res.json({ meeting });
     } catch (err) {
       meetingSchedulingFailure(res, err);
