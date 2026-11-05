@@ -1799,6 +1799,8 @@ function KindIcon({ kind, className }: { kind: NotificationKind; className?: str
       return <GitBranch size={12} className={className} />;
     case "finance_review_ready":
       return <Landmark size={12} className={className} />;
+    case "todo_needs_attention":
+      return <AlertTriangle size={12} className={className} />;
     case "mail_handover":
       return <Mail size={12} className={className} />;
     case "revenue_follow_up":
@@ -1868,6 +1870,10 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
   finance_review_ready: {
     bg: "bg-emerald-100 dark:bg-emerald-500/15",
     fg: "text-emerald-600 dark:text-emerald-300",
+  },
+  todo_needs_attention: {
+    bg: "bg-amber-100 dark:bg-amber-500/15",
+    fg: "text-amber-600 dark:text-amber-300",
   },
   mail_handover: {
     bg: "bg-sky-100 dark:bg-sky-500/15",

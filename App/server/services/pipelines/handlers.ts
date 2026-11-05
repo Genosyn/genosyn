@@ -128,7 +128,16 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     if (!project) throw new Error(`Project "${projectSlug}" not found`);
     const priority = String(ctx.config.priority ?? "none") as Todo["priority"];
     const description = String(ctx.config.description ?? "");
-    const todo = await insertTodo({ project, title, description, status: "todo", priority });
+    // A template can pull in anything, an email's body included, so no Member
+    // wrote this.
+    const todo = await insertTodo({
+      project,
+      title,
+      description,
+      status: "todo",
+      priority,
+      untrustedText: true,
+    });
     // A step can say where the Todo came from, usually the email that started
     // the Pipeline: `{{trigger.message.threadId}}`. A value that names nothing
     // in this company links nothing; the Todo still stands.

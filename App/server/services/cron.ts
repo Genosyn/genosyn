@@ -51,6 +51,7 @@ import { sweepAutonomyPromotions } from "./autonomy.js";
 import { workBlockedForRoutine } from "./standdowns.js";
 import { sweepUngradedRuns } from "./runGrading.js";
 import { dispatchDueWakeups } from "./wakeups.js";
+import { dispatchTodoPickups } from "./todoPickups.js";
 import { continuationEligibility, readRunCheckpoint } from "./runContinuation.js";
 import { notifyRunFailure } from "./runAlerts.js";
 
@@ -862,6 +863,14 @@ async function runHeartbeat(generation: number): Promise<void> {
       await dispatchDueWakeups(now, undefined, { ...lease, assertHeld }).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] wakeup dispatch failed:", err);
+      });
+
+      // Start what's due on each AI Employee's work queue. A query, not a model
+      // turn: nothing due spends nothing. Sessions run on in the background.
+      assertHeld();
+      await dispatchTodoPickups(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] todo pickup dispatch failed:", err);
       });
 
       // Phase 12 — grade the Runs nobody graded (M58). The outcome check runs

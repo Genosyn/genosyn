@@ -12,6 +12,7 @@ import { PUSHED_NOTIFICATION_KINDS } from "./notifications.js";
 const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   mention: "push",
   todo_review_requested: "push",
+  todo_needs_attention: "push",
   approval_pending: "push",
   decision_pending: "push",
   mail_handover: "push",

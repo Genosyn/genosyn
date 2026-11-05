@@ -25,6 +25,10 @@ export type CreateTodoInput = {
   recurrence?: TodoRecurrence;
   recurrenceParentId?: string | null;
   parentTodoId?: string | null;
+  /** A Member did not write its title and description. */
+  untrustedText?: boolean;
+  tainted?: boolean;
+  aiChainDepth?: number;
 };
 
 /**
@@ -67,6 +71,9 @@ export async function insertTodo(input: CreateTodoInput): Promise<Todo> {
         recurrence: input.recurrence ?? "none",
         recurrenceParentId: input.recurrenceParentId ?? null,
         parentTodoId: input.parentTodoId ?? null,
+        untrustedText: input.untrustedText ?? false,
+        tainted: input.tainted ?? false,
+        aiChainDepth: input.aiChainDepth ?? 0,
       }),
     );
   });
@@ -131,6 +138,9 @@ export async function spawnNextRecurrence(project: Project, completed: Todo): Pr
     recurrence: completed.recurrence,
     recurrenceParentId: completed.recurrenceParentId ?? completed.id,
     parentTodoId: completed.parentTodoId,
+    untrustedText: completed.untrustedText,
+    tainted: completed.tainted,
+    aiChainDepth: completed.aiChainDepth,
   });
   // Imported here because Pipelines' own steps create Todos through this file.
   void import("./pipelines/events.js")

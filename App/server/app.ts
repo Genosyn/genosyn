@@ -32,6 +32,7 @@ import { companyModelsRouter } from "./routes/companyModels.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { employeeAccessRouter } from "./routes/employeeAccess.js";
 import { projectsRouter } from "./routes/projects.js";
+import { todoPickupsRouter } from "./routes/todoPickups.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { decisionsRouter } from "./routes/decisions.js";
 import { webhooksRouter } from "./routes/webhooks.js";
@@ -389,6 +390,8 @@ export function createApp(): express.Express {
   app.use("/api/companies/:cid", systemHealthRouter);
   // Projects + Todos (task manager). See ROADMAP.md V1 backlog.
   app.use("/api/companies/:cid", projectsRouter);
+  // AI Employees working Todos: who is working, each session's steps, Start now and Stop.
+  app.use("/api/companies/:cid", todoPickupsRouter);
   // Per-user notification feed — bell + panel in the top bar.
   app.use("/api/companies/:cid", notificationsRouter);
   // Bases (Airtable-style workspaces) — companion to Tasks.

@@ -92,7 +92,7 @@ export function Reactivity() {
         rows={[
           {
             term: "Projects and Todos",
-            def: "Find assigned work and reviews that need attention, prioritizing urgency and due dates. Read existing comments and status before proposing work so immediate assignment work is not duplicated.",
+            def: "Find assigned work and reviews that need attention, prioritizing urgency and due dates. A todo handed to an employee is on its work queue already and starts by itself, so read existing comments and status before proposing work and don't duplicate it.",
           },
           {
             term: "Handoffs and Decisions",

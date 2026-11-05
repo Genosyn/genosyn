@@ -26,6 +26,9 @@ import {
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { RecordHistory } from "@/components/RecordHistory";
 import { TodoLinksList } from "@/components/todos/TodoLinks";
+import { TodoPickupPanel } from "@/components/todos/TodoPickupPanel";
+import { useLiveRefetch } from "@/components/CompanySocket";
+import { shouldShowTurnSummary, TurnWorkSummary } from "@/components/chat/TurnActivity";
 import {
   ChatResourceReference,
   insertResourceReference,
@@ -303,6 +306,13 @@ export function TodoDetailBody({
           />
         </div>
       </div>
+
+      <TodoPickupPanel
+        todo={todo}
+        companyId={companyId}
+        companySlug={companySlug}
+        canEdit={canEdit}
+      />
 
       {todo.status === "in_review" && (
         <ReviewPanel
@@ -719,6 +729,9 @@ export function CommentThread({
     load();
   }, [todo.id, load]);
 
+  // An AI Employee's report lands here when its session ends.
+  useLiveRefetch("todo", () => void load());
+
   // Poll while an AI reply is outstanding — the server fills the pending row
   // in place once the CLI returns. Stop polling as soon as nothing's pending.
   const hasPending = (comments ?? []).some((c) => c.pending);
@@ -901,6 +914,7 @@ export function CommentThread({
               key={c.id}
               comment={c}
               companyId={companyId}
+              companySlug={companySlug}
               todoId={todo.id}
               canEdit={canEdit}
               onDelete={remove}
@@ -1042,6 +1056,7 @@ export function CommentThread({
 
 function CommentRow({
   companyId,
+  companySlug,
   todoId,
   comment,
   canEdit,
@@ -1049,6 +1064,7 @@ function CommentRow({
 }: {
   comment: TodoComment;
   companyId: string;
+  companySlug: string;
   todoId: string;
   canEdit: boolean;
   onDelete: (c: TodoComment) => void;
@@ -1098,6 +1114,19 @@ function CommentRow({
           </div>
         ) : (
           <div className="mt-0.5 break-words text-sm text-slate-800 dark:text-slate-100">
+            {comment.pickup && shouldShowTurnSummary(comment.pickup.activity) && comment.pickup.activity && (
+              <TurnWorkSummary
+                summary={comment.pickup.activity}
+                activityUrl={`/api/companies/${companyId}/todos/${todoId}/pickups/${comment.pickup.id}/activity`}
+                messageId={comment.pickup.id}
+                companySlug={companySlug}
+                note={
+                  comment.pickup.access === "steps"
+                    ? "You see its steps but not what they read, because it worked with another Member's access."
+                    : null
+                }
+              />
+            )}
             <ChatMarkdown content={comment.body} />
             <ChatAttachments
               attachments={comment.attachments ?? []}
