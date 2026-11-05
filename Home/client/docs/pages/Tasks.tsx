@@ -319,9 +319,10 @@ export function Tasks() {
       <P>
         To take it further yourself, press <Strong>Use my access</Strong> in the panel. That one
         session can do what you can, with the email&apos;s words still on its thread, so anything it
-        sends waits for approval. It goes back to its limits afterwards. Limits also follow the work:
-        a todo held to them starts no Pipeline, its next occurrence inherits them, and a todo an
-        employee comments on while it&apos;s working from an email is held from then on.
+        sends waits for approval. It goes back to its limits afterwards. New mail on the thread before that session starts ends it, and it stays within the limits.
+        Limits also follow the work: a todo held to them starts no Pipeline, its next occurrence
+        inherits them, and a todo an employee comments on while it&apos;s working from an email is
+        held from then on. A Routine posting a status on your todo doesn&apos;t hold it.
       </P>
 
       <H2 id="email-to-done">From email to done</H2>
