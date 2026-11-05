@@ -399,7 +399,13 @@ export default function Help({ company }: { company: Company }) {
             accepted = true;
             attachmentDraft.clear();
             setLive((current) => reduceLiveTurn(current, { event, data }, Date.now()));
-          } else if (event === "turn" || event === "activity" || event === "heartbeat") {
+          } else if (
+            event === "turn" ||
+            event === "activity" ||
+            event === "heartbeat" ||
+            event === "pulse" ||
+            event === "tool_output"
+          ) {
             setLive((current) => reduceLiveTurn(current, { event, data }, Date.now()));
           } else if (event === "chunk") {
             accumulated += (data as { text?: string } | null)?.text ?? "";

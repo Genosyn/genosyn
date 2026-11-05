@@ -12,6 +12,7 @@ import { codexErrorKind } from "./modelOutage.js";
 import { codexThinking } from "./thinkingParams.js";
 import { toolResultCap } from "./toolResultBudget.js";
 import { contextUsage } from "./contextUsage.js";
+import { ModelTurnWatch, type ModelRequestWatch } from "./modelStream.js";
 import { registryResultNotice, type ToolRegistry } from "./tools/toolRegistry.js";
 import type { AgentMessage, AgentTool, StreamCallbacks, ToolResult, TurnUsage } from "./types.js";
 
@@ -130,6 +131,27 @@ async function runCodexTurn(
   return withSubscriptionModelLock(params.model.id, params.signal, async () => {
     const lease = await prepareCodexRuntime(params.model.id);
     const effectiveModel = lease.model;
+    const { onModelPulse, onModelCall } = params.callbacks ?? {};
+    const modelWatch =
+      onModelPulse || onModelCall
+        ? new ModelTurnWatch({
+            provider: "openai",
+            model: effectiveModel.model,
+            onPulse: onModelPulse,
+            onCall: onModelCall,
+          })
+        : null;
+    modelWatch?.preparing("Starting its runtime");
+    /**
+     * Codex runs the model loop itself, so a request has no bytes of its own
+     * here: one ends when the model hands a tool call over or the turn
+     * completes, and the next begins when a result goes back.
+     */
+    let modelRequest = null as ModelRequestWatch | null;
+    const nextModelRequest = () => {
+      modelRequest?.end();
+      modelRequest = modelWatch?.begin() ?? null;
+    };
     let server: CodexAppServer | null = null;
     let toolCalls = 0;
     let threadId: string | null = null;
@@ -168,6 +190,7 @@ async function runCodexTurn(
             throw new Error("Codex sent a tool call for the wrong turn.");
           }
           toolCalls += 1;
+          modelRequest?.end();
           if (params.maxSteps !== null && toolCalls > Math.max(1, params.maxSteps)) {
             runawayViolation =
               `Genosyn stopped this turn after ${params.maxSteps} tool calls ` +
@@ -176,12 +199,15 @@ async function runCodexTurn(
             completion.resolve(undefined);
             return toolFailure(runawayViolation);
           }
-          return invokeRegistryTool(
+          const reply = await invokeRegistryTool(
             params.registry,
             call,
             effectiveModel.contextWindow,
             params.callbacks,
           );
+          // The result goes back to the model, which answers it next.
+          nextModelRequest();
+          return reply;
         },
       });
 
@@ -189,18 +215,22 @@ async function runCodexTurn(
         const body = asObject(raw);
         if (!body) return;
         if (!matchesActiveTurn(body, threadId, turnId)) return;
+        // Everything the app-server says about this turn is a sign of life.
+        modelRequest?.alive();
 
         if (method === "item/agentMessage/delta") {
           const itemId = stringField(body, "itemId");
           const delta = stringField(body, "delta");
           if (!itemId || delta === null) return;
           streamedByItem.set(itemId, (streamedByItem.get(itemId) ?? "") + delta);
+          modelRequest?.signal({ state: "writing", chars: delta.length });
           safeCallback(() => params.callbacks?.onText?.(delta));
           return;
         }
 
         const reasoning = codexReasoningDelta(method, body, summarizedReasoning);
         if (reasoning) {
+          modelRequest?.signal({ state: "thinking", chars: reasoning.delta.length });
           if (reasoning.delta) {
             safeCallback(() => params.callbacks?.onReasoning?.(reasoning.delta, reasoning.block));
           }
@@ -210,6 +240,7 @@ async function runCodexTurn(
         if (method === "item/completed") {
           const item = asObject(body.item);
           const type = stringField(item, "type");
+          if (type === "contextCompaction") modelWatch?.setCompacting(false);
           if (type === "reasoning") {
             const itemId = stringField(item, "id");
             if (itemId) safeCallback(() => params.callbacks?.onReasoningEnd?.(itemId));
@@ -248,6 +279,9 @@ async function runCodexTurn(
             disallowedItemType = type ?? "unknown";
             interruptActiveTurn(server, threadId, turnId);
             completion.resolve(undefined);
+          } else {
+            if (type === "contextCompaction") modelWatch?.setCompacting(true);
+            modelRequest?.signal(codexItemSignal(item, type));
           }
           return;
         }
@@ -262,6 +296,7 @@ async function runCodexTurn(
             const fingerprint = JSON.stringify(total ?? last);
             if (fingerprint !== lastUsageFingerprint) {
               lastUsageFingerprint = fingerprint;
+              modelRequest?.signal({ inputTokens, outputTokens });
               const reported: TurnUsage = { inputTokens, outputTokens };
               safeCallback(() => params.callbacks?.onUsage?.(reported));
               // A ChatGPT subscription model has no probeable window and the
@@ -360,6 +395,7 @@ async function runCodexTurn(
           30_000,
         );
       }
+      nextModelRequest();
       const turnStarted = await server.request<{ turn: { id: string } }>(
         "turn/start",
         {
@@ -438,10 +474,22 @@ async function runCodexTurn(
         steps: Math.max(1, toolCalls + 1),
       };
     } finally {
+      modelRequest?.end();
       await server?.close().catch(() => undefined);
       await lease.finish();
     }
   }, onLockWait);
+}
+
+/** Which state a Codex item that just started puts the AI Model in. */
+function codexItemSignal(
+  item: JsonObject | null,
+  type: string | null,
+): { state: "thinking" | "writing" | "tool_input"; tool?: string | null } | null {
+  if (type === "reasoning") return { state: "thinking" };
+  if (type === "agentMessage") return { state: "writing" };
+  if (type === "dynamicToolCall") return { state: "tool_input", tool: stringField(item, "tool") };
+  return null;
 }
 
 /**

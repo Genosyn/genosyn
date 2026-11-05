@@ -19,6 +19,7 @@ import {
   type ModelUnavailability,
 } from "./modelOutage.js";
 import type { ModelOutage } from "./types.js";
+import type { ModelRequestWatch, ModelTurnWatch } from "./modelStream.js";
 import { endpointAnswers } from "../modelAvailabilityProbe.js";
 import { outboundAgent } from "../outboundNetworkPolicy.js";
 import { listServedModels, type ServedModel } from "../servedModels.js";
@@ -354,6 +355,10 @@ function forwardedHeaders(headers: Headers): Record<string, string> {
  * them, and the rest of the session goes without them too; `onThinkingRefused`
  * hears it once, so the chat can say the reply ran at the model's default
  * (see `withoutThinking`, `refusesThinking`).
+ *
+ * Every byte of an answer also passes `modelWatch` (`modelStream.ts`), which is
+ * how a turn can say what the AI Model is doing between the finished pieces
+ * OpenCode reports. It reads counts and tool names, and keeps no words.
  */
 export async function serveOpenCodeModel(
   model: OpenCodeModel,
@@ -367,6 +372,8 @@ export async function serveOpenCodeModel(
     onUpstream?: (outcome: UpstreamOutcome) => void;
     /** Heard once, when the AI Model refused the turn's thinking parameters. */
     onThinkingRefused?: (refusal: { status: number }) => void;
+    /** Hears each request go out and everything its answer's stream says. */
+    modelWatch?: ModelTurnWatch;
     holdMs?: number;
     probeMs?: number;
     /** Tests only: overrides SELF_HOSTED_RESPONSE_WAIT_MS. */
@@ -452,6 +459,7 @@ export async function serveOpenCodeModel(
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
     res.once("close", abort);
+    let watched: ModelRequestWatch | undefined;
     void (async () => {
       const chunks: Buffer[] = [];
       let bytes = 0;
@@ -487,6 +495,7 @@ export async function serveOpenCodeModel(
         if (typeof req.headers["anthropic-beta"] === "string")
           headers["anthropic-beta"] = req.headers["anthropic-beta"];
       }
+      watched = options.modelWatch?.begin();
       const withKey = (apiKey: string): Record<string, string> =>
         model.provider === "anthropic"
           ? { ...headers, "x-api-key": apiKey }
@@ -566,6 +575,7 @@ export async function serveOpenCodeModel(
           // way OpenCode gets the provider's own answer. It keeps an error's
           // body to report what the provider said, and a provider may quote the
           // key it was sent. Every key stays in Genosyn.
+          watched?.end({ answered: false });
           res
             .writeHead(outcome.status, forwardedHeaders(outcome.headers))
             .end(ring.redact(outcome.body));
@@ -603,6 +613,7 @@ export async function serveOpenCodeModel(
               what: "stopped answering and has not come back yet",
             }),
           });
+          watched?.end({ answered: false });
           res
             .writeHead(503, { "Content-Type": "application/json", "retry-after-ms": "1000" })
             .end(JSON.stringify({ error: { message: "The AI Model's server is not answering." } }));
@@ -633,6 +644,7 @@ export async function serveOpenCodeModel(
         // replacing it everywhere would garble what the server said.
         const text = await response.text();
         if (!model.keys) reportResponse(response.status, text, response.headers);
+        watched?.end({ answered: false });
         res
           .writeHead(response.status, responseHeaders)
           .end(model.apiKey.length >= 8 ? text.split(model.apiKey).join("[redacted]") : text);
@@ -642,6 +654,7 @@ export async function serveOpenCodeModel(
       // and OpenAI report an overload as an error event after a 200.
       const streamed = (response.headers.get("content-type") ?? "").includes("text/event-stream");
       if (!streamed) report({ kind: "answered" });
+      watched?.alive();
       res.writeHead(response.status, responseHeaders);
       if (!response.body) {
         res.end();
@@ -659,11 +672,14 @@ export async function serveOpenCodeModel(
       if (scanner) {
         const decoder = new TextDecoder();
         readable.on("data", (chunk: Buffer) => {
+          const text = decoder.decode(chunk, { stream: true });
+          watched?.data(text);
           if (scanner.found) return;
-          const found = scanner.push(decoder.decode(chunk, { stream: true }));
+          const found = scanner.push(text);
           if (found) report({ kind: "unavailable", unavailability: found });
         });
         readable.on("end", () => {
+          watched?.end();
           if (!scanner.found && !broken) report({ kind: "answered" });
         });
       }
@@ -684,6 +700,9 @@ export async function serveOpenCodeModel(
         else res.destroy();
       })
       .finally(() => {
+        // However the request ended, it is over: an answer that stopped partway
+        // still spent the time, and one that never came leaves no record.
+        watched?.end();
         controllers.delete(controller);
         signal?.removeEventListener("abort", abort);
       });

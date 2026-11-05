@@ -19,7 +19,7 @@ import {
   INTERRUPTED_BEFORE_REPLY,
   streamChatWithEmployee,
 } from "./chat.js";
-import type { ChatActivityEvent } from "../../shared/chatActivity.js";
+import type { ChatActivityEvent, ModelPulse } from "../../shared/chatActivity.js";
 import {
   ChatTurnActivityRecorder,
   lastChatActivity,
@@ -89,6 +89,10 @@ export type DurableChatTurnCallbacks = {
   onContextUsage?: (usage: ContextUsage) => void;
   /** Each activity event as it is recorded — a tool call, a wait, a thought. */
   onActivity?: (event: ChatActivityEvent) => void;
+  /** What the AI Model is doing right now; live only, and it holds no words. */
+  onPulse?: (pulse: ModelPulse) => void;
+  /** The end of what a running command has printed; live only, and already scrubbed. */
+  onToolOutput?: (callId: string, output: string) => void;
   onFinal?: (result: {
     message: ConversationMessage;
     attachments: Attachment[];
@@ -532,7 +536,12 @@ export async function executeDurableChatTurn(
         attempt: claimedMessage.turnAttempt,
       },
       await nextChatActivityOrdinal(claimedMessage.id),
-      { live, onEvent: callbacks.onActivity },
+      {
+        live,
+        onEvent: callbacks.onActivity,
+        onPulse: callbacks.onPulse,
+        onToolOutput: callbacks.onToolOutput,
+      },
     );
     activity = { recorder, live };
     if (interrupted) recorder.stopped();
@@ -647,6 +656,9 @@ export async function executeDurableChatTurn(
             onApiKeyFailover: (change) => recorder.apiKeyFailover(change),
             onServedModelChange: (change) => recorder.servedModelChange(change),
             onBackgroundWork: (pending) => recorder.backgroundWork(pending),
+            onModelPulse: (pulse) => recorder.modelPulse(pulse),
+            onModelCall: (call) => recorder.modelCall(call),
+            onToolOutput: (name, output, callId) => recorder.toolOutput(name, output, callId),
             onThinkingFallback: (fallback) => {
               recorder.thinkingFallback(fallback);
               if (fallback.level) {

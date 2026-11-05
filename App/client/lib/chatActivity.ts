@@ -2,6 +2,8 @@ import {
   describeChatToolCall,
   type ChatActivityEvent,
   type ChatToolFamily,
+  type ModelCallDetail,
+  type ModelPulse,
 } from "../../shared/chatActivity";
 import { withheldReason, type ActivityWithheld } from "../../shared/turnActivityAccess";
 
@@ -36,6 +38,13 @@ export type LiveTurnState = {
   events: ChatActivityEvent[];
   /** The highest ordinal held; a follow stream resumes after it. */
   lastOrdinal: number;
+  /**
+   * What the AI Model is doing as of its latest reading. Null until one arrives,
+   * and for good when the turn runs on a server this reader is not attached to.
+   */
+  pulse: ModelPulse | null;
+  /** The end of what each running command has printed, by its call. Never stored. */
+  toolOutputs: Record<string, string>;
 };
 
 export const EMPTY_LIVE_TURN: LiveTurnState = Object.freeze({
@@ -46,6 +55,8 @@ export const EMPTY_LIVE_TURN: LiveTurnState = Object.freeze({
   lastTextAt: null,
   events: [],
   lastOrdinal: 0,
+  pulse: null,
+  toolOutputs: {},
 }) as LiveTurnState;
 
 /** Merge events in, ignoring any already held. Returns the same array when nothing is new. */
@@ -116,9 +127,26 @@ export function reduceLiveTurn(
     const startedAt = parseTime(data.startedAt) ?? parseTime(data.createdAt);
     if (turnId && turnId !== next.turnId) {
       // A different turn: its events are not this one's.
-      next = { ...next, turnId, events: [], lastOrdinal: 0, lastTextAt: null };
+      next = {
+        ...next,
+        turnId,
+        events: [],
+        lastOrdinal: 0,
+        lastTextAt: null,
+        pulse: null,
+        toolOutputs: {},
+      };
     }
     if (startedAt !== null) next = { ...next, startedAt };
+    // Attaching, or attaching again: a pulse held from before may be long out of
+    // date, and the server sends the current one straight after this frame.
+    if (frame.event === "turn") next = { ...next, pulse: null };
+  } else if (frame.event === "pulse") {
+    if (isModelPulse(frame.data)) next = { ...next, pulse: frame.data };
+  } else if (frame.event === "tool_output") {
+    if (typeof data.callId === "string" && typeof data.output === "string") {
+      next = { ...next, toolOutputs: { ...next.toolOutputs, [data.callId]: data.output } };
+    }
   } else if (frame.event === "activity") {
     const events = mergeActivityEvents(next.events, [frame.data as ChatActivityEvent]);
     if (events !== next.events) {
@@ -129,6 +157,16 @@ export function reduceLiveTurn(
     if (text) next = { ...next, lastTextAt: now };
   }
   return next;
+}
+
+function isModelPulse(value: unknown): value is ModelPulse {
+  if (!value || typeof value !== "object") return false;
+  const pulse = value as Partial<ModelPulse>;
+  return (
+    typeof pulse.state === "string" &&
+    typeof pulse.since === "string" &&
+    typeof pulse.request === "number"
+  );
 }
 
 function parseTime(value: unknown): number | null {
@@ -144,6 +182,8 @@ export type ToolStepStatus = "running" | "done" | "failed" | "held" | "stopped";
 export type ToolStep = {
   kind: "tool";
   key: string;
+  /** The call this step is, as a running command's output names it. */
+  callId: string;
   ordinal: number;
   name: string;
   family: ChatToolFamily;
@@ -163,6 +203,8 @@ export type ToolStep = {
   startedAt: number;
   endedAt: number | null;
   durationMs: number | null;
+  /** How long the AI Model took to write this call's arguments, when that was a while. */
+  draftMs: number | null;
   /**
    * Why its arguments and result are not shown: this reader sees the room's
    * view of someone else's turn, or the turn was a bound discussion.
@@ -175,6 +217,7 @@ export type ThinkingStep = {
   key: string;
   ordinal: number;
   block: string;
+  /** Empty when the AI Model thought without sharing the words. */
   text: string;
   truncated: boolean;
   startedAt: number;
@@ -225,7 +268,8 @@ export function buildActivitySteps(
   options: { finishedAt?: number | null } = {},
 ): ActivityStep[] {
   const steps: ActivityStep[] = [];
-  const callIndex = new Map<string, number>();
+  const callIndex = new Map<string, ToolStep>();
+  const modelCalls: ModelCallDetail[] = [];
   const finishedAt =
     options.finishedAt ??
     (() => {
@@ -254,6 +298,7 @@ export function buildActivitySteps(
         const step: ToolStep = {
           kind: "tool",
           key: `tool:${event.callId || event.ordinal}`,
+          callId: event.callId,
           ordinal: event.ordinal,
           name: event.name,
           family: described.family,
@@ -270,26 +315,23 @@ export function buildActivitySteps(
           startedAt: at,
           endedAt: null,
           durationMs: null,
+          draftMs: null,
           withheld: withheldReason(detail),
         };
-        if (event.callId) callIndex.set(event.callId, steps.length);
+        if (event.callId) callIndex.set(event.callId, step);
         steps.push(step);
         break;
       }
       case "tool_result": {
         closeOpen(at);
-        const index = event.callId ? callIndex.get(event.callId) : undefined;
         const durationMs = typeof detail.durationMs === "number" ? detail.durationMs : null;
         const output = typeof detail.output === "string" ? detail.output : null;
         const hint = typeof detail.hint === "string" && detail.hint ? detail.hint : null;
         const approval = asRecord(detail.approval);
         const status: ToolStepStatus = event.isError ? "failed" : approval ? "held" : "done";
-        const existing = index !== undefined ? steps[index] : undefined;
-        const described = describeChatToolCall(
-          event.name,
-          existing?.kind === "tool" ? existing.input : null,
-        );
-        if (existing && existing.kind === "tool") {
+        const existing = event.callId ? callIndex.get(event.callId) : undefined;
+        const described = describeChatToolCall(event.name, existing ? existing.input : null);
+        if (existing) {
           existing.status = status;
           existing.label = described.done;
           existing.output = output;
@@ -308,6 +350,7 @@ export function buildActivitySteps(
           steps.push({
             kind: "tool",
             key: `tool:${event.callId || event.ordinal}`,
+            callId: event.callId,
             ordinal: event.ordinal,
             name: event.name,
             family: described.family,
@@ -324,6 +367,7 @@ export function buildActivitySteps(
             startedAt: durationMs !== null ? at - durationMs : at,
             endedAt: at,
             durationMs,
+            draftMs: null,
             withheld: withheldReason(detail),
           });
         }
@@ -416,10 +460,15 @@ export function buildActivitySteps(
         steps.push(note(event, "stopped", at));
         break;
       }
+      case "model_call":
+        modelCalls.push(detail as ModelCallDetail);
+        break;
       case "turn_finished":
         break;
     }
   }
+  const placed = new Set<ThinkingStep>();
+  for (const call of modelCalls) accountForModelCall(steps, call, placed);
 
   if (finishedAt !== null) {
     for (const step of steps) {
@@ -437,6 +486,127 @@ export function buildActivitySteps(
     }
   }
   return steps;
+}
+
+/** A thought without words shorter than this is just the model turning around. */
+const MIN_SILENT_THOUGHT_MS = 3_000;
+/** How long the model must take to start answering before that is a step of its own. */
+const MIN_ANSWER_WAIT_MS = 10_000;
+/** How long writing a tool call's arguments must take before its step says so. */
+const MIN_DRAFT_MS = 2_000;
+/**
+ * The runtime reports a thought or a tool call over its own stream, a moment
+ * after the AI Model's bytes went past, so a step and the stretch of the request
+ * it belongs to are matched with this much room.
+ */
+const MODEL_CALL_MATCH_MS = 5_000;
+
+/**
+ * Fold in what one finished request says about where its time went. It is what
+ * the steps cannot say: when a thought really started and ended, that the model
+ * thought for a minute and shared no words, that it took a while to write a tool
+ * call or to start answering at all.
+ */
+function accountForModelCall(
+  steps: ActivityStep[],
+  call: ModelCallDetail,
+  placed: Set<ThinkingStep>,
+): void {
+  if (!Array.isArray(call.phases)) return;
+  call.phases.forEach((phase, index) => {
+    const start = Date.parse(phase.startedAt);
+    if (!Number.isFinite(start) || typeof phase.ms !== "number") return;
+    const end = start + phase.ms;
+    if (phase.kind === "thinking") {
+      const thought = steps.find(
+        (step): step is ThinkingStep =>
+          step.kind === "thinking" &&
+          !placed.has(step) &&
+          step.startedAt >= start - MODEL_CALL_MATCH_MS &&
+          step.startedAt <= end + MODEL_CALL_MATCH_MS,
+      );
+      if (thought) {
+        placed.add(thought);
+        thought.startedAt = Math.min(thought.startedAt, start);
+        thought.endedAt = end;
+      } else if (phase.ms >= MIN_SILENT_THOUGHT_MS) {
+        insertByTime(steps, {
+          kind: "thinking",
+          key: `thinking:call:${call.request}:${index}`,
+          ordinal: 0,
+          block: `call:${call.request}:${index}`,
+          text: "",
+          truncated: false,
+          startedAt: start,
+          endedAt: end,
+          withheld: null,
+        });
+      }
+    } else if (phase.kind === "waiting" && phase.ms >= MIN_ANSWER_WAIT_MS) {
+      insertByTime(steps, {
+        kind: "wait",
+        key: `wait:call:${call.request}`,
+        ordinal: 0,
+        cause: "model_first_answer",
+        label: "Waited for the AI Model to start answering",
+        reason: null,
+        attempt: null,
+        maxAttempts: null,
+        until: null,
+        startedAt: start,
+        endedAt: end,
+      });
+    } else if (phase.kind === "tool_input" && phase.ms >= MIN_DRAFT_MS) {
+      const called = (step: ActivityStep): step is ToolStep =>
+        step.kind === "tool" &&
+        step.worker === null &&
+        step.draftMs === null &&
+        step.startedAt >= end - MODEL_CALL_MATCH_MS;
+      // `call_tool` is reported as the tool it reached, so a name may not match.
+      const wanted = phase.tool?.replace(/^genosyn_/, "");
+      const tool =
+        steps.find((step) => called(step) && step.name.replace(/^genosyn_/, "") === wanted) ??
+        steps.find(called);
+      if (tool && tool.kind === "tool") tool.draftMs = phase.ms;
+    }
+  });
+}
+
+function stepTime(step: ActivityStep): number {
+  return step.kind === "note" ? step.at : step.startedAt;
+}
+
+function insertByTime(steps: ActivityStep[], step: ActivityStep): void {
+  const at = steps.findIndex((other) => stepTime(other) > stepTime(step));
+  if (at < 0) steps.push(step);
+  else steps.splice(at, 0, step);
+}
+
+/**
+ * A thought is over once the AI Model has moved on, which its stream says before
+ * any later step does: it can spend a long time writing a tool call after it
+ * stops thinking. Changes the steps in place, so hand it ones just built.
+ */
+export function closeThoughtsBefore(
+  steps: ActivityStep[],
+  pulse: Pick<ModelPulse, "state" | "since"> | null,
+): ActivityStep[] {
+  if (!pulse || pulse.state === "thinking" || pulse.state === "preparing") return steps;
+  const movedOn = Date.parse(pulse.since);
+  if (!Number.isFinite(movedOn)) return steps;
+  for (const step of steps) {
+    // Its last words can land just after the stream moved on, over their own path.
+    if (step.kind === "thinking" && step.endedAt === null) {
+      step.endedAt = Math.max(step.startedAt, movedOn);
+    }
+  }
+  return steps;
+}
+
+/** The thought in progress, when the AI Model is sharing its words. */
+export function thoughtInProgress(steps: ActivityStep[]): ThinkingStep | null {
+  const last = steps.at(-1);
+  return last?.kind === "thinking" && last.endedAt === null && last.text.trim() ? last : null;
 }
 
 function note(event: ChatActivityEvent, code: string, at: number): NoteStep {

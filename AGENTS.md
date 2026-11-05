@@ -237,6 +237,7 @@ code, UI copy, commits, and docs.
 | **Standdown** (a revocable stop on all AI work at one scope — `Standdown`) | Pause, Hold, Suspend, Freeze, Kill switch |
 | **Unavailable** (an AI Model whose service can't be reached, is failing or overloaded, or keeps every key rate-limited; its work waits and carries on by itself — one `AIModelOutage` row per spell, `services/modelAvailability.ts`; work with no queue of its own waits as an `AIModelWait`, `services/modelWaits.ts`) | Down, Offline, Broken, Tripped, Circuit breaker (in product copy); never a Standdown |
 | **Effects** (what a Run actually changed, read back from the audit rows its own token wrote — `services/runEffects.ts`) | Trace, Log, Activity, History |
+| **Pulse** (what an AI Model is doing right now, read off its own stream — `ModelPulse`, `services/agent/modelStream.ts`; live only, holds no words) | Heartbeat, Activity, Liveness, Status |
 | **Budget** (a monthly ad-spend envelope — `Budget`) | Cap, Limit, Allowance (as product nouns) |
 | **Trigger** (an event subscription that fires a Routine — `RoutineTrigger`; a Revenue **Signal** stays a cron-evaluated query, never a Trigger) | Subscription, Listener, Hook |
 | **Wakeup** (a timed follow-up session an employee schedules for itself — `EmployeeWakeup`) | Reminder, Timer, Snooze |
@@ -1151,6 +1152,31 @@ in a Work session instead of leaving them stranded as local commits.
   `onRuntimeWait({ cause, label })`; the chat words the causes it knows and
   shows the server's label for any other. Retry runs a failed reply again in
   place (`retryDurableChatTurn`) — never a second reply row for one request.
+- **What an AI Model is doing is read off its own stream, never guessed from a
+  timer.** Runtimes report finished pieces, and between them a model can work
+  for minutes: thinking, or writing a tool call whose argument is a whole
+  document. Only its stream can tell that from a model that stopped, so every
+  byte the OpenCode model proxy forwards, and every Codex app-server
+  notification, feeds `services/agent/modelStream.ts`. It turns them into
+  **pulses** (`ModelPulse`: waiting, thinking, writing, writing a tool call,
+  compacting, and how much and when it last heard anything) and, once a request
+  ends, one `model_call` activity event saying where its time went, which is how
+  a finished turn accounts for the time between its steps. A pulse goes to the
+  live record and the turn's stream and is never stored. It holds counts and
+  tool names and no words, so it needs no redaction and any reader who sees the
+  steps may have it (`showPulse`); keep it that way, since the words have their
+  own redacted path. A delegated worker's requests are not forwarded: they are
+  not the ones the Member is waiting on. The chat calls a model silent only when
+  its stream has been (`client/lib/chatLiveness.ts`); a reader on another replica
+  has no pulses and says only how long since the last step. Do not put back a
+  client timer that calls a working turn inactive, and do not stretch
+  `REASONING_FLUSH_MS` back into a debounce: thinking is written as it arrives,
+  up to a break far enough back that a Secret or credential still arriving is
+  scrubbed whole, and its partial writes have a budget of their own so a long
+  thought never costs the turn its steps. What a running native command has
+  printed reaches a reader the same live-only way (`recorder.toolOutput`), but it
+  is a result as it forms: scrubbed like one, whole lines only, withheld with
+  payloads, and shown only to a reader with `full` access (`showToolOutput`).
 - **A Workspace AI turn is watched by its room.** Every AI Employee turn in a
   channel, DM or group chat — the reply to an @mention or a DM, a group
   discussion speaker's turn, a share of the work an outcome started — is a

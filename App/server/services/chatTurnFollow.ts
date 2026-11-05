@@ -1,6 +1,6 @@
 import { AppDataSource } from "../db/datasource.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
-import type { ChatActivityEvent } from "../../shared/chatActivity.js";
+import type { ChatActivityEvent, ModelPulse } from "../../shared/chatActivity.js";
 import { contextUsagePercent } from "./agent/contextUsage.js";
 import { listChatActivity, turnAcceptedAt } from "./chatTurnActivity.js";
 import { liveTurnFor, type LiveTurnFrame } from "./chatTurnLive.js";
@@ -20,6 +20,9 @@ import type { AgentProgress } from "./agent/types.js";
  *   chunk      reply text as it streams (appends), while the turn is local
  *   progress   the employee's own milestones
  *   context    how full the AI Model's context window is
+ *   pulse      what the AI Model is doing right now, read off its stream, while
+ *              the turn runs in this process (`agent/modelStream.ts`)
+ *   tool_output the end of what a running command has printed so far, the same way
  *   heartbeat  the server clock, every few seconds, so a reader can tell a
  *              quiet turn from a dead connection
  *   assistant  the final reply row, once the turn has finished (a direct
@@ -30,7 +33,8 @@ import type { AgentProgress } from "./agent/types.js";
  * events and text are read and the subscription taken in one synchronous
  * step. When it runs elsewhere (another replica, or not yet picked up) the
  * persisted rows are polled instead, and the stream switches to the live
- * record the moment the turn appears here.
+ * record the moment the turn appears here. A pulse is never persisted, so a
+ * reader on another replica has only the steps to go on, and the chat says so.
  *
  * A direct chat's turn is an assistant {@link ConversationMessage}; a
  * Workspace channel's is a `ChannelTurn`, read through its own
@@ -122,6 +126,16 @@ export async function followChatTurn(args: {
   present?: (event: ChatActivityEvent) => ChatActivityEvent | null;
   /** What this reader may see of a milestone; null hides it. Defaults to all of it. */
   presentProgress?: (progress: AgentProgress) => AgentProgress | null;
+  /**
+   * Whether this reader may see the AI Model's pulses. They hold no words, so
+   * a reader who sees the steps may; defaults to yes.
+   */
+  showPulse?: boolean;
+  /**
+   * Whether this reader may see what running commands print. It is a tool's
+   * result as it forms, so this reader must be one shown results; defaults to yes.
+   */
+  showToolOutput?: boolean;
   pollMs?: number;
   heartbeatMs?: number;
 }): Promise<void> {
@@ -151,6 +165,12 @@ export async function followChatTurn(args: {
   const sendProgress = (progress: AgentProgress) => {
     const shown = presentProgress(progress);
     if (shown) args.send("progress", shown);
+  };
+  const sendPulse = (pulse: ModelPulse) => {
+    if (args.showPulse !== false) args.send("pulse", pulse);
+  };
+  const sendToolOutput = (callId: string, output: string) => {
+    if (args.showToolOutput !== false) args.send("tool_output", { callId, output });
   };
 
   const heartbeat = setInterval(() => {
@@ -198,6 +218,8 @@ export async function followChatTurn(args: {
         if (live.isEnded) continue;
         sendEvents(live.eventsAfter(cursor));
         sendText(live.text);
+        if (live.latestPulse) sendPulse({ ...live.latestPulse, now: new Date().toISOString() });
+        for (const [callId, output] of live.toolOutputs) sendToolOutput(callId, output);
         const ended = await new Promise<"final" | "detached" | "aborted">((resolve) => {
           let unsubscribe: () => void = () => undefined;
           const onAbort = () => {
@@ -210,6 +232,8 @@ export async function followChatTurn(args: {
               lastText = (lastText ?? "") + frame.delta;
               args.send("chunk", { text: frame.delta });
             } else if (frame.type === "progress") sendProgress(frame.progress);
+            else if (frame.type === "pulse") sendPulse(frame.pulse);
+            else if (frame.type === "tool_output") sendToolOutput(frame.callId, frame.output);
             else if (frame.type === "context") {
               args.send("context", {
                 tokens: frame.usage.promptTokens,

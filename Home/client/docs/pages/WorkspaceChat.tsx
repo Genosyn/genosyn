@@ -148,9 +148,10 @@ export function WorkspaceChat() {
       <H3 id="who-sees-what">Who sees what</H3>
       <P>
         Everyone who can read the conversation sees that an AI Employee is working, its steps, how
-        long each took and what it is waiting on. What a step read and returned — its arguments,
-        its results, the AI Model&apos;s thinking — is seen in full only by the Member whose access
-        the reply uses: the person whose message started it. Everyone else sees each step without
+        long each took, what it is waiting on and whether its AI Model is sending anything. What a
+        step read and returned — its arguments, its results, what a command prints as it runs, the
+        AI Model&apos;s thinking — is seen in full only by the Member whose access the reply uses:
+        the person whose message started it. Everyone else sees each step without
         its details, marked with a lock, and the card says whose access hides them. That is the
         rule direct chat keeps, applied to a room: your reply&apos;s tools can reach what you can,
         and the room reads the reply, not your data.

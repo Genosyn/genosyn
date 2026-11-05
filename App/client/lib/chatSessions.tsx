@@ -1147,7 +1147,13 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
                     { event, data },
                   ),
                 }));
-              } else if (event === "turn" || event === "activity" || event === "heartbeat") {
+              } else if (
+                event === "turn" ||
+                event === "activity" ||
+                event === "heartbeat" ||
+                event === "pulse" ||
+                event === "tool_output"
+              ) {
                 update(empId, (s) => ({
                   ...s,
                   flights: patchLive(s.flights, flightKey, { event, data }),

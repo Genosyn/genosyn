@@ -30,6 +30,8 @@ import {
 } from "./opencodeRuntime.js";
 import { ADAPTIVE_THINKING_OUTPUT_LIMIT, THINKING_BUDGETS } from "./thinkingParams.js";
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
+import { ModelTurnWatch } from "./modelStream.js";
+import type { ModelCallDetail, ModelPulse } from "../../../shared/chatActivity.js";
 
 type ToolCall = { name: string; input: Record<string, unknown>; rawArguments?: string };
 /** Text the provider stops early, the way a server ends a response at max_tokens. */
@@ -593,6 +595,124 @@ function thinkingWatch() {
     },
   };
 }
+
+/** A watch on a turn's AI Model, collecting what it says. */
+function modelWatch(provider: OpenCodeModel["provider"], id: string) {
+  const pulses: ModelPulse[] = [];
+  const calls: ModelCallDetail[] = [];
+  const watch = new ModelTurnWatch({
+    provider,
+    model: id,
+    onPulse: (pulse) => pulses.push(pulse),
+    onCall: (call) => calls.push(call),
+  });
+  return { watch, pulses, calls, states: () => pulses.map((pulse) => pulse.state) };
+}
+
+test(
+  "a Claude turn's stream says it thought, wrote a tool call, and answered, through real OpenCode",
+  { timeout: 180_000 },
+  async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const fixture = await fakeProvider((_body, index) =>
+      index === 0 ? { name: "genosyn_fixture_echo", input: { value: "actual tool" } } : "Verified",
+    );
+    const { watch, calls, pulses, states } = modelWatch("anthropic", "claude-opus-5-5");
+    try {
+      const result = await realTurn(
+        claudeFixtureModel(fixture.baseURL),
+        [echoTool(seen)],
+        { modelWatch: watch },
+        undefined,
+        { modelWatch: watch },
+      );
+      assert.equal(result.finalText, "Verified");
+      assert.equal(seen.length, 1);
+      assert.deepEqual(
+        [...new Set(states())],
+        ["waiting", "thinking", "tool_input", "finished", "writing"],
+      );
+      assert.equal(
+        pulses.find((pulse) => pulse.state === "tool_input")?.tool,
+        "genosyn_fixture_echo",
+      );
+      assert.equal(calls.length, 2);
+      assert.equal(calls[0].inputTokens, 29);
+      assert.equal(calls[0].outputTokens, 20);
+      assert.equal(calls[0].stopReason, "tool_use");
+      assert.deepEqual(
+        calls[0].phases.map((phase) => phase.kind),
+        ["waiting", "thinking", "tool_input"],
+      );
+      assert.equal(calls[1].stopReason, "end_turn");
+      assert.ok(
+        !JSON.stringify([pulses, calls]).includes("actual tool"),
+        "nothing it wrote is passed on",
+      );
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "an OpenAI turn's stream reads the same way, through real OpenCode",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = await fakeProvider(() => ({ thinking: "Checking the ledger.", text: "Verified" }));
+    const { watch, calls, states } = modelWatch("openai", "gpt-5.1");
+    try {
+      const result = await realTurn(
+        thinkingModel("openai", "gpt-5.1", fixture.baseURL),
+        [],
+        { modelWatch: watch, effort: "low" },
+        undefined,
+        { modelWatch: watch },
+      );
+      assert.equal(result.finalText, "Verified");
+      assert.deepEqual([...new Set(states())], ["waiting", "thinking", "writing", "finished"]);
+      assert.equal(calls[0].inputTokens, 29);
+      assert.equal(calls[0].outputTokens, 5);
+      assert.equal(calls[0].stopReason, "completed");
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test(
+  "a self-hosted turn's stream reads the same way, through real OpenCode",
+  { timeout: 180_000 },
+  async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const fixture = await fakeProvider((_body, index) =>
+      index === 0
+        ? { name: "genosyn_fixture_echo", input: { value: "actual tool" } }
+        : { thinking: "Reading the result.", text: "Verified" },
+    );
+    const { watch, calls, states } = modelWatch("custom", "fixture-model");
+    try {
+      const result = await realTurn(
+        thinkingModel("custom", "fixture-model", fixture.baseURL),
+        [echoTool(seen)],
+        { modelWatch: watch },
+        undefined,
+        { modelWatch: watch },
+      );
+      assert.equal(result.finalText, "Verified");
+      assert.ok(states().includes("tool_input"));
+      assert.ok(states().includes("thinking"));
+      assert.ok(states().includes("writing"));
+      assert.equal(calls.length, 2);
+      assert.deepEqual(
+        calls[1].phases.map((phase) => phase.kind).filter((kind) => kind !== "waiting"),
+        ["thinking", "writing"],
+      );
+    } finally {
+      await fixture.close();
+    }
+  },
+);
 
 test(
   "a Claude thinking level turns adaptive thinking on and its summary reaches the activity",

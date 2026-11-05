@@ -43,18 +43,26 @@ import {
 import { api } from "../../lib/api";
 import {
   buildActivitySteps,
+  closeThoughtsBefore,
   countSteps,
   latestProgress,
+  thoughtInProgress,
   visibleSteps,
   type ActivityStep,
   type LiveTurnState,
+  type ThinkingStep,
   type ToolStep,
 } from "../../lib/chatActivity";
+import { formatTokensCompact } from "../../lib/chatContextUsage";
 import {
   describeLivePhase,
+  describePulseFacts,
+  describePulseSignal,
   deriveLivePhase,
   headlineOf,
+  phaseClockSince,
   type LivePhase,
+  type PulseSignal,
 } from "../../lib/chatLiveness";
 import type { ActivityWithheld } from "../../../shared/turnActivityAccess";
 import { ChatMarkdown } from "../ChatMarkdown";
@@ -69,13 +77,14 @@ import { clsx } from "../ui/clsx";
  * What an AI Employee is doing while it answers, and what it did once it has.
  *
  * A running turn is a card under the employee's name: one status line that
- * says what is happening right now and for how long — working, waiting on
- * something named, or quiet — a Stop button, the employee's own milestone
- * when it reported one, and the steps so far, newest last. The reply streams
- * in beneath it. A finished reply carries one quiet line, "Worked for 2m 14s
- * · 9 steps", that opens onto the same steps with their inputs, outputs and
- * errors. Both read the same recorded events, so a reload, another tab, or a
- * visit next week shows the same history.
+ * says what is happening right now and for how long, the evidence for it read
+ * off the AI Model's own stream ("Receiving now · claude-opus-5-5 · ~1.2K
+ * tokens"), a Stop button, the thought in progress as the model shares it, the
+ * employee's own milestone when it reported one, and the steps so far, newest
+ * last. The reply streams in beneath it. A finished reply carries one quiet
+ * line, "Worked for 2m 14s · 9 steps", that opens onto the same steps with their
+ * inputs, outputs and errors. Both read the same recorded events, so a reload,
+ * another tab, or a visit next week shows the same history.
  */
 
 /** Steps the live card shows before folding the older ones away. */
@@ -142,18 +151,43 @@ export function LiveTurnCard({
     connection: connectionState,
     stopping,
     hasReplyText: Boolean(streamingReply && streamingReply.length > 0),
+    pulse: live.pulse,
   });
   const words = describeLivePhase(phase, authorName, now);
-  const steps = React.useMemo(() => visibleSteps(buildActivitySteps(live.events)), [live.events]);
+  const pulse = live.pulse;
+  const pulseState = pulse?.state;
+  const pulseSince = pulse?.since;
+  // Keyed on the state alone: a pulse changes these only when the AI Model moves on.
+  const allSteps = React.useMemo(
+    () =>
+      visibleSteps(
+        closeThoughtsBefore(
+          buildActivitySteps(live.events),
+          pulseState && pulseSince ? { state: pulseState, since: pulseSince } : null,
+        ),
+      ),
+    [live.events, pulseState, pulseSince],
+  );
+  // The thought in progress is drawn on its own, as it forms; it joins the steps
+  // once it ends.
+  const thought = thoughtInProgress(allSteps);
+  const steps = thought ? allSteps.filter((step) => step !== thought) : allSteps;
   const milestone = latestProgress(live.events) ?? progress;
   const hasReply = Boolean(streamingReply && streamingReply.length > 0);
+  const clockSince = phaseClockSince(phase, startedAt);
+  // Silence is the status line itself by then; it needs no second telling.
+  const signal = phase.kind === "silent" ? null : describePulseSignal(pulse, now);
+  const facts = describePulseFacts(pulse);
+  // Markdown is re-parsed on every chunk: this lets a fast reply skip ahead
+  // rather than make the page keep up with each token.
+  const shownReply = React.useDeferredValue(streamingReply);
   // The live region speaks when the status changes, never on the clock's tick.
   const announcement = `${authorName}: ${words.announce}`;
 
   return (
     <div className="flex justify-start gap-2.5">
       <div className="w-9 shrink-0">{avatar}</div>
-      <div className="min-w-0 max-w-[85%] flex-1 sm:max-w-[75%]">
+      <div className="min-w-0 flex-1">
         <div className="mb-1 flex min-w-0 items-center gap-2 text-[11px]">
           <span className="shrink-0 font-medium text-slate-700 dark:text-slate-200">
             {authorName}
@@ -177,7 +211,7 @@ export function LiveTurnCard({
               <div className="flex min-w-0 items-baseline gap-2">
                 <span
                   className={clsx(
-                    "min-w-0 truncate text-sm font-medium",
+                    "line-clamp-2 min-w-0 text-sm font-medium sm:line-clamp-1",
                     words.tone === "warning"
                       ? "text-amber-800 dark:text-amber-300"
                       : "text-slate-800 dark:text-slate-100",
@@ -186,12 +220,12 @@ export function LiveTurnCard({
                 >
                   {words.title}
                 </span>
-                {phaseShowsOwnClock(phase) && (
+                {clockSince !== null && (
                   <span
                     className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400"
                     aria-hidden="true"
                   >
-                    {formatElapsed(Math.max(0, now - phase.since))}
+                    {formatElapsed(Math.max(0, now - clockSince))}
                   </span>
                 )}
                 <span
@@ -237,6 +271,8 @@ export function LiveTurnCard({
               </Button>
             )}
           </div>
+          <PulseLine signal={signal} facts={facts} />
+          {thought && <ThoughtInProgress thought={thought} />}
           {milestone && <Milestone authorName={authorName} {...milestone} />}
           {steps.length > 0 && (
             <ActivityStepList
@@ -245,6 +281,7 @@ export function LiveTurnCard({
               live
               limit={LIVE_STEP_WINDOW}
               companySlug={companySlug}
+              toolOutputs={live.toolOutputs}
             />
           )}
           {note && <VisibilityNote note={note} />}
@@ -252,7 +289,7 @@ export function LiveTurnCard({
         {stopError && <FormError message={stopError} className="mt-1.5" />}
         {hasReply && (
           <div className="mt-2 rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2 text-sm leading-relaxed text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-            <ChatMarkdown content={streamingReply ?? ""} />
+            <ChatMarkdown content={shownReply ?? ""} />
             <span
               aria-hidden="true"
               className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-[2px] bg-indigo-500 motion-reduce:hidden"
@@ -265,14 +302,85 @@ export function LiveTurnCard({
   );
 }
 
-/** A tool's own duration is on its row; the header clock is for waits and thinking. */
-function phaseShowsOwnClock(phase: LivePhase): phase is Extract<LivePhase, { since: number }> {
-  return phase.kind === "waiting" || phase.kind === "thinking" || phase.kind === "tool";
+/**
+ * The evidence for the status line: whether anything is arriving from the AI
+ * Model this moment, and the facts of the request. What is on screen a second
+ * from now can change the clock, so it stays out of the live region.
+ */
+function PulseLine({ signal, facts }: { signal: PulseSignal | null; facts: string[] }) {
+  if (!signal && facts.length === 0) return null;
+  const line = [signal?.text, ...facts].filter(Boolean).join(" · ");
+  return (
+    <div className="-mt-1 flex min-w-0 items-center gap-1.5 px-3.5 pb-2 text-xs text-slate-500 dark:text-slate-400 sm:pl-12">
+      {signal && (
+        <span aria-hidden="true" className="relative flex h-1.5 w-1.5 shrink-0">
+          {signal.tone === "live" && (
+            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60 motion-safe:animate-ping" />
+          )}
+          <span
+            className={clsx(
+              "relative inline-flex h-1.5 w-1.5 rounded-full",
+              signal.tone === "live" ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600",
+            )}
+          />
+        </span>
+      )}
+      <span className="min-w-0 truncate tabular-nums" title={line}>
+        {line}
+      </span>
+    </div>
+  );
+}
+
+/** Past this much text a thought in progress offers to show all of itself. */
+const THOUGHT_PREVIEW_CHARS = 280;
+
+/**
+ * The thought in progress, as the AI Model shares it. The newest lines stay in
+ * view and the older ones fade off the top, the way it reads over a shoulder;
+ * opening it shows the whole thought so far.
+ */
+function ThoughtInProgress({ thought }: { thought: ThinkingStep }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div className="border-t border-slate-100 px-3.5 py-2 dark:border-slate-800">
+      <div
+        className={clsx(
+          "text-xs leading-5 text-slate-500 dark:text-slate-400",
+          open
+            ? "max-h-80 overflow-y-auto"
+            : "flex max-h-[5.5rem] flex-col justify-end overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,black_1.25rem)]",
+        )}
+      >
+        <ChatMarkdown content={thought.text} />
+      </div>
+      {thought.truncated && (
+        <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+          This thought goes on; only the start of it is kept.
+        </p>
+      )}
+      {thought.text.length > THOUGHT_PREVIEW_CHARS && (
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className="touch-target relative mt-1 inline-flex items-center gap-1 rounded text-xs text-slate-500 transition hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus dark:text-slate-400 dark:hover:text-slate-200"
+        >
+          <ChevronRight
+            size={12}
+            aria-hidden="true"
+            className={clsx("transition-transform", open && "rotate-90")}
+          />
+          {open ? "Show less" : "Show all of this thought"}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function PhaseIcon({ phase }: { phase: LivePhase }) {
   const box = "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg";
-  if (phase.kind === "quiet") {
+  if (phase.kind === "silent" || (phase.kind === "quiet" && phase.before === "starting")) {
     return (
       <span
         className={clsx(box, "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300")}
@@ -369,12 +477,18 @@ export function shouldShowTurnSummary(summary: TurnActivitySummary | null | unde
   );
 }
 
-/** "Worked for 2m 14s · 9 steps", or "Thought for 12s" when there were no steps. */
+/**
+ * "Worked for 2m 14s · 9 steps", or "Thought for 12s" when there were no steps.
+ * A reply someone stopped says so: it did not think for that long, it was
+ * stopped after that long.
+ */
 export function turnSummaryLabel(summary: TurnActivitySummary): string {
   const time = formatElapsed(summary.durationMs);
-  if (summary.steps > 0) {
-    return `Worked for ${time} · ${summary.steps} ${summary.steps === 1 ? "step" : "steps"}`;
+  const steps = `${summary.steps} ${summary.steps === 1 ? "step" : "steps"}`;
+  if (summary.status === "interrupted") {
+    return summary.steps > 0 ? `Stopped after ${time} · ${steps}` : `Stopped after ${time}`;
   }
+  if (summary.steps > 0) return `Worked for ${time} · ${steps}`;
   return summary.reasoning ? `Thought for ${time}` : `Worked for ${time}`;
 }
 
@@ -505,10 +619,37 @@ export function TurnWorkSummary({
               companySlug={companySlug}
             />
           )}
+          {events && !error && <TurnFacts summary={summary} />}
           {note && events && !error && <VisibilityNote note={note} />}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The facts of a finished turn that are about the AI Model rather than a step.
+ * Tokens read counts each request's whole prompt, so a long turn reads the same
+ * conversation many times over.
+ */
+export function turnFacts(summary: TurnActivitySummary): string[] {
+  if (summary.modelCalls <= 0) return [];
+  return [
+    summary.model ?? "",
+    `${summary.modelCalls} AI Model ${summary.modelCalls === 1 ? "call" : "calls"}`,
+    summary.thinkingMs >= 1_000 ? `thought for ${formatElapsed(summary.thinkingMs)}` : "",
+    summary.inputTokens > 0 ? `${formatTokensCompact(summary.inputTokens)} tokens read` : "",
+    summary.outputTokens > 0 ? `${formatTokensCompact(summary.outputTokens)} written` : "",
+  ].filter(Boolean);
+}
+
+function TurnFacts({ summary }: { summary: TurnActivitySummary }) {
+  const facts = turnFacts(summary);
+  if (facts.length === 0) return null;
+  return (
+    <p className="border-t border-slate-100 px-3.5 py-2 text-xs tabular-nums text-slate-500 dark:border-slate-800 dark:text-slate-400">
+      {facts.join(" · ")}
+    </p>
   );
 }
 
@@ -520,6 +661,7 @@ export function ActivityStepList({
   live = false,
   limit,
   companySlug,
+  toolOutputs,
 }: {
   steps: ActivityStep[];
   now: number;
@@ -527,6 +669,8 @@ export function ActivityStepList({
   /** Show only the newest N, with the rest behind "Show N earlier steps". */
   limit?: number;
   companySlug: string;
+  /** What running commands have printed so far, by call. */
+  toolOutputs?: Record<string, string>;
 }) {
   const [showAll, setShowAll] = React.useState(false);
   const hidden = limit && !showAll ? Math.max(0, steps.length - limit) : 0;
@@ -549,7 +693,14 @@ export function ActivityStepList({
         aria-label={`Steps${counts.tools ? `: ${counts.tools} tool ${counts.tools === 1 ? "call" : "calls"}` : ""}${counts.failed ? `, ${counts.failed} failed` : ""}`}
       >
         {shown.map((step) => (
-          <StepRow key={step.key} step={step} now={now} live={live} companySlug={companySlug} />
+          <StepRow
+            key={step.key}
+            step={step}
+            now={now}
+            live={live}
+            companySlug={companySlug}
+            toolOutput={step.kind === "tool" ? (toolOutputs?.[step.callId] ?? null) : null}
+          />
         ))}
       </ol>
     </div>
@@ -586,11 +737,14 @@ function StepRow({
   now,
   live,
   companySlug,
+  toolOutput,
 }: {
   step: ActivityStep;
   now: number;
   live: boolean;
   companySlug: string;
+  /** What this command has printed so far, while it runs. */
+  toolOutput: string | null;
 }) {
   const [open, setOpen] = React.useState(false);
   const detailId = React.useId();
@@ -683,6 +837,14 @@ function StepRow({
           <span className="sr-only">{withheldText(withheld)}</span>
         </span>
       )}
+      {step.kind === "tool" && step.draftMs !== null && (
+        <span
+          className="hidden shrink-0 text-slate-400 dark:text-slate-500 sm:inline"
+          title={`The AI Model took ${formatElapsed(step.draftMs)} to write this call's arguments`}
+        >
+          written in {formatStepDuration(step.draftMs)}
+        </span>
+      )}
       {durationText && (
         <span className="shrink-0 tabular-nums text-slate-400 dark:text-slate-500">
           {durationText}
@@ -690,6 +852,7 @@ function StepRow({
       )}
     </>
   );
+  const failure = step.kind === "tool" && step.status === "failed" ? step.error : null;
 
   return (
     <li className="min-w-0">
@@ -711,6 +874,15 @@ function StepRow({
       ) : (
         <div className="flex min-w-0 items-center gap-2 px-3.5 py-1.5 text-xs">{content}</div>
       )}
+      {failure && !open && (
+        <p
+          className="-mt-1 truncate pb-1.5 pl-[3.25rem] pr-3.5 text-xs text-rose-700 dark:text-rose-300"
+          title={failure}
+        >
+          {failure}
+        </p>
+      )}
+      {running && toolOutput && !open && <LiveToolOutput output={toolOutput} />}
       {open && expandable && (
         <div
           id={detailId}
@@ -720,6 +892,18 @@ function StepRow({
         </div>
       )}
     </li>
+  );
+}
+
+/** The last lines a running command printed, newest at the bottom, as it prints them. */
+function LiveToolOutput({ output }: { output: string }) {
+  return (
+    <pre
+      aria-label="What this command has printed so far"
+      className="mx-3.5 mb-1.5 flex max-h-24 flex-col justify-end overflow-hidden whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs leading-4 text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300"
+    >
+      {output.trimEnd()}
+    </pre>
   );
 }
 

@@ -11,7 +11,7 @@ import {
   shortPath,
   shortUrl,
 } from "../../shared/chatActivity";
-import { shouldShowTurnSummary, turnSummaryLabel } from "../components/chat/TurnActivity";
+import { shouldShowTurnSummary, turnFacts, turnSummaryLabel } from "../components/chat/TurnActivity";
 
 /**
  * The words a step is shown with. Shared with the server, which writes each
@@ -184,7 +184,40 @@ describe("a finished turn's line", () => {
     reasoning: true,
     lastOrdinal: 20,
     status: "ok",
+    modelCalls: 0,
+    thinkingMs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    model: null,
   };
+
+  test("a reply someone stopped says it was stopped, not how long it thought", () => {
+    const stopped = { ...summary, status: "interrupted" };
+    assert.equal(turnSummaryLabel(stopped), "Stopped after 2m 14s · 9 steps");
+    assert.equal(turnSummaryLabel({ ...stopped, steps: 0 }), "Stopped after 2m 14s");
+  });
+
+  test("the AI Model's own facts say which model, how many calls and how much it read", () => {
+    assert.deepEqual(turnFacts(summary), [], "nothing on a reply recorded before they were kept");
+    assert.deepEqual(
+      turnFacts({
+        ...summary,
+        modelCalls: 3,
+        thinkingMs: 95_000,
+        inputTokens: 58_000,
+        outputTokens: 1_900,
+        model: "claude-opus-5-5",
+      }),
+      [
+        "claude-opus-5-5",
+        "3 AI Model calls",
+        "thought for 1m 35s",
+        "58K tokens read",
+        "1.9K written",
+      ],
+    );
+    assert.deepEqual(turnFacts({ ...summary, modelCalls: 1, thinkingMs: 400 }), ["1 AI Model call"]);
+  });
 
   test("reads like a sentence", () => {
     assert.equal(describeTurnSummary(summary), "Worked for 2m 14s · 9 steps · 1 failed");

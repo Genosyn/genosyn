@@ -27,6 +27,7 @@ import { openCodeModelLimits, updateOpenCodeGlobalConfig } from "./opencodeModel
 import { OpenCodeToolGate } from "./opencodeToolGate.js";
 import { recoverOpenCodePrompt } from "./opencodeRecovery.js";
 import { markModelUnavailable } from "./modelOutage.js";
+import { ModelTurnWatch } from "./modelStream.js";
 import { adoptServedModel } from "../servedModels.js";
 import { modelAvailabilityKey, recordKeyFailure, recordKeySuccess } from "../modelAvailability.js";
 
@@ -63,6 +64,8 @@ export type OpenCodeTurnParams = {
    * `false`, so checking the model neither takes a turn nor counts as work.
    */
   keySession?: boolean;
+  /** What the AI Model is doing, read off its stream; set by {@link runOpenCodeTurn}. */
+  modelWatch?: ModelTurnWatch;
 };
 export type OpenCodeTurnResult = { finalText: string; steps: number; stopReason: string };
 
@@ -122,13 +125,25 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
     params.callbacks?.onApiKeySession?.({ preview: model.keys.key.preview, keys: model.keys.size });
   }
   const gate = new OpenCodeToolGate(params.signal);
+  const { onModelPulse, onModelCall } = params.callbacks ?? {};
+  const modelWatch =
+    onModelPulse || onModelCall
+      ? new ModelTurnWatch({
+          provider: model.provider,
+          model: model.id,
+          onPulse: onModelPulse,
+          onCall: onModelCall,
+        })
+      : undefined;
   let bridge: Awaited<ReturnType<typeof serveOpenCodeTools>> | undefined;
   let proxy: Awaited<ReturnType<typeof serveOpenCodeModel>> | undefined;
   let server: OpenCodeServer | undefined;
   try {
+    modelWatch?.preparing("Starting its runtime");
     bridge = await serveOpenCodeTools({ ...params, beforeCall: (name) => gate.enter(name) });
     const availability = availabilityReporter(params.model);
     proxy = await serveOpenCodeModel(model, params.signal, {
+      modelWatch,
       holdOutages: turnWaitsForModel(params),
       onOutage: (outage) => params.callbacks?.onModelOutage?.(outage),
       onKeyFailover: (change) => params.callbacks?.onApiKeyFailover?.(change),
@@ -155,7 +170,7 @@ export async function runOpenCodeTurn(params: OpenCodeTurnParams): Promise<OpenC
       bashTimeoutMs: params.bashTimeoutMs,
       signal: params.signal,
     });
-    return await runOpenCodeSession(server, model.id, params, gate);
+    return await runOpenCodeSession(server, model.id, { ...params, modelWatch }, gate);
   } catch (error) {
     if (params.signal?.aborted) return { finalText: "", steps: 0, stopReason: "aborted" };
     // The proxy saw what OpenCode only reports as a status: a refused
@@ -244,6 +259,7 @@ async function runOpenCodeSessionWithClient(
     params.callbacks,
     params.model.contextWindow,
     (part) => toolGate?.observe(part),
+    (active) => params.modelWatch?.setCompacting(active),
   );
   const streamController = new AbortController();
   const promptController = new AbortController();

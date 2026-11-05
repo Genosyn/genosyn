@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, before, beforeEach, describe, test } from "node:test";
+import { after, before, beforeEach, describe, mock, test } from "node:test";
 
 import type { ChatActivityEvent } from "../../shared/chatActivity.js";
 import { AppDataSource } from "../db/datasource.js";
@@ -233,7 +233,7 @@ describe("what the feed never holds", () => {
     rec.toolUse("write_file", { path: "a.txt", content: "y".repeat(10_000) }, "w");
     rec.toolResult("read", { content: "x".repeat(50_000) }, "r");
     rec.toolResult("bash", { content: "z".repeat(50_000) }, "b");
-    rec.reasoning("t".repeat(9_000), "r1");
+    rec.reasoning("t".repeat(20_000), "r1");
     rec.reasoningEnd("r1");
     await rec.flush();
     const rows = await stored();
@@ -246,8 +246,314 @@ describe("what the feed never holds", () => {
     assert.ok(command.length > 7_900 && command.length < 8_200, "a command keeps 8,000");
     assert.match(command, /more characters/);
     const thought = rows[3].detail as { text: string; truncated?: boolean };
-    assert.equal(thought.text.length, 4_000);
+    assert.equal(thought.text.length, 12_000);
     assert.equal(thought.truncated, true);
+  });
+});
+
+describe("watching a thought form", () => {
+  /** A recorder on a clock these tests move, with its timers under their control. */
+  function thinking(context: { mock: Pick<typeof mock, "timers"> }) {
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const now = { ms: Date.parse("2026-10-30T10:00:00.000Z") };
+    const { rec, emitted } = recorder(1, now);
+    const pass = (ms: number) => {
+      now.ms += ms;
+      context.mock.timers.tick(ms);
+    };
+    const said = () =>
+      emitted
+        .filter((event) => event.kind === "reasoning")
+        .map((event) => (event.detail as { text: string }).text)
+        .join("");
+    return { rec, emitted, pass, said };
+  }
+
+  test("a model that never pauses is written as it goes, not when it stops", async (context) => {
+    const { rec, pass, said } = thinking(context);
+    for (let i = 0; i < 60; i += 1) {
+      rec.reasoning(`part ${i} of a long thought goes on `, "r1");
+      pass(300);
+    }
+    // 18 seconds of unbroken thinking: this is what used to write nothing at
+    // all, and read as a turn with no activity for as long as it went on.
+    assert.ok(said().startsWith("part 0 of a long thought"), said());
+    assert.ok(said().length > 1_500, `only ${said().length} characters so far`);
+    rec.reasoningEnd("r1");
+    assert.equal((said().match(/part \d+ of a long/g) ?? []).length, 60, "and none is lost");
+    await rec.flush();
+    context.mock.timers.reset();
+  });
+
+  test("a Secret arriving in pieces across two writes is still scrubbed whole", async (context) => {
+    const { rec, pass, said } = thinking(context);
+    const secret = "correct-horse-battery-staple-very-long-secret-value";
+    rec.setSensitiveValues([secret]);
+    rec.reasoning("word ".repeat(120), "r1");
+    pass(1_000);
+    rec.reasoning(secret.slice(0, 20), "r1");
+    pass(500);
+    rec.reasoning(`${secret.slice(20)} and then some more words `, "r1");
+    pass(1_500);
+    rec.reasoningEnd("r1");
+    assert.ok(!said().includes("correct-horse"), said());
+    assert.ok(!said().includes("very-long-secret"), said());
+    assert.match(said(), /\[redacted secret\]/);
+    await rec.flush();
+    context.mock.timers.reset();
+  });
+
+  test("a credential is not cut in two between writes", async (context) => {
+    const { rec, pass, said } = thinking(context);
+    rec.reasoning("word ".repeat(120), "r1");
+    pass(700);
+    rec.reasoning("the token=abc", "r1");
+    pass(800);
+    rec.reasoning("def123456789 is what it used, ", "r1");
+    pass(1_500);
+    rec.reasoningEnd("r1");
+    assert.ok(!/abcdef123456789/.test(said()), said());
+    assert.ok(!/token=abc/.test(said()), said());
+    await rec.flush();
+    context.mock.timers.reset();
+  });
+
+  test("a private key stays in one piece however many lines it runs to", async (context) => {
+    const { rec, pass, said } = thinking(context);
+    const line = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU2Nzg5\n";
+    rec.reasoning("-----BEGIN PRIVATE KEY-----\n", "r1");
+    for (let i = 0; i < 12; i += 1) {
+      rec.reasoning(line, "r1");
+      pass(500);
+    }
+    rec.reasoning("-----END PRIVATE KEY-----\n", "r1");
+    pass(1_500);
+    rec.reasoningEnd("r1");
+    assert.ok(!said().includes("QUJDREVG"), said());
+    await rec.flush();
+    context.mock.timers.reset();
+  });
+
+  test("a thought that pauses is written whole, however short", async (context) => {
+    const { rec, pass, said } = thinking(context);
+    rec.reasoning("A short thought.", "r1");
+    pass(1_500);
+    assert.equal(said(), "A short thought.");
+    await rec.flush();
+    context.mock.timers.reset();
+  });
+
+  test("watching a thought form leaves the turn as many steps to record", async (context) => {
+    const { rec, pass, emitted } = thinking(context);
+    for (let i = 0; i < 40; i += 1) {
+      rec.reasoning(`more words in this thought ${i} `.repeat(4), "r1");
+      pass(i % 2 ? 1_500 : 400);
+    }
+    const written = emitted.filter((event) => event.kind === "reasoning").length;
+    assert.ok(written > 10, `${written} writes`);
+    rec.reasoningEnd("r1");
+    for (let i = 0; i < 1_000; i += 1) rec.notice("x", `notice ${i}`);
+    const notices = emitted.filter((event) => event.kind === "notice").length;
+    assert.ok(notices >= 998, `${notices} notices: the writes of a thought counted against them`);
+    await rec.flush();
+    context.mock.timers.reset();
+  });
+});
+
+describe("what a running command prints", () => {
+  function watched() {
+    const heard: Array<[string, string]> = [];
+    const now = { ms: Date.parse("2026-10-30T10:00:00.000Z") };
+    const rec = new ChatTurnActivityRecorder(SCOPE, 1, {
+      onToolOutput: (callId, output) => heard.push([callId, output]),
+      now: () => now.ms,
+    });
+    return { rec, heard, now };
+  }
+
+  test("goes to whoever is watching, a whole line at a time, and never to a row", async () => {
+    const { rec, heard } = watched();
+    rec.toolUse("bash", { command: "npm test" }, "c1");
+    rec.toolOutput("bash", "line 1\nhalf a li", "c1");
+    assert.deepEqual(heard, [["c1", "line 1\n"]]);
+    await rec.flush();
+    const rows = await stored();
+    assert.deepEqual(
+      rows.map((row) => row.kind),
+      ["tool_use"],
+    );
+  });
+
+  test("no more than once a second, however fast it prints", () => {
+    const { rec, heard, now } = watched();
+    rec.toolUse("bash", {}, "c1");
+    rec.toolOutput("bash", "one\n", "c1");
+    now.ms += 100;
+    rec.toolOutput("bash", "one\ntwo\n", "c1");
+    assert.equal(heard.length, 1);
+    now.ms += 1_000;
+    rec.toolOutput("bash", "one\ntwo\nthree\n", "c1");
+    assert.deepEqual(heard[1], ["c1", "one\ntwo\nthree\n"]);
+  });
+
+  test("is scrubbed like the result will be", () => {
+    const { rec, heard } = watched();
+    const secret = "correct-horse-battery-staple";
+    rec.setSensitiveValues([secret]);
+    rec.toolUse("bash", {}, "c1");
+    rec.toolOutput("bash", `using ${secret} and token=abc123\nsk-live-1234567890abcdef\n`, "c1");
+    const [, text] = heard[0];
+    assert.ok(!text.includes(secret), text);
+    assert.ok(!text.includes("abc123"), text);
+    assert.match(text, /\[redacted secret\]/);
+  });
+
+  test("a line the window cut in two, or a key still arriving, is not shown in part", () => {
+    const { rec, heard, now } = watched();
+    rec.toolUse("bash", {}, "c1");
+    const secret = "x".repeat(50);
+    rec.setSensitiveValues([secret]);
+    rec.toolOutput("bash", `${secret}\n${"line\n".repeat(2_000)}`, "c1");
+    assert.ok(heard[0][1].length <= 2_000);
+    assert.ok(heard[0][1].startsWith("line\n"));
+    now.ms += 1_000;
+    rec.toolOutput(
+      "bash",
+      "done\n-----BEGIN PRIVATE KEY-----\nQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\n",
+      "c1",
+    );
+    assert.equal(heard[1][1], "done\n");
+  });
+
+  test("a line of nothing but output too long for the window shows nothing rather than a part", () => {
+    const { rec, heard } = watched();
+    rec.toolUse("bash", {}, "c1");
+    rec.toolOutput("bash", "y".repeat(10_000), "c1");
+    assert.deepEqual(heard, []);
+  });
+
+  test("a turn that keeps no payloads shows none of this, and a call that ended none either", () => {
+    const { rec, heard, now } = watched();
+    rec.toolUse("bash", {}, "c1");
+    rec.toolResult("bash", { content: "done" }, "c1");
+    rec.toolOutput("bash", "late\n", "c1");
+    assert.deepEqual(heard, []);
+    rec.toolUse("bash", {}, "c2");
+    rec.withholdPayloads("discussion");
+    now.ms += 2_000;
+    rec.toolOutput("bash", "kept back\n", "c2");
+    assert.deepEqual(heard, []);
+  });
+
+  test("the live record keeps the latest for a reader attaching now, until the call returns", () => {
+    const live = openLiveTurn("msg_output", "conv_activity");
+    const rec = new ChatTurnActivityRecorder({ ...SCOPE, messageId: "msg_output" }, 1, { live });
+    rec.toolUse("bash", {}, "c1");
+    rec.toolOutput("bash", "one\n", "c1");
+    assert.equal(live.toolOutputs.get("c1"), "one\n");
+    rec.toolResult("bash", { content: "one\n" }, "c1");
+    assert.equal(live.toolOutputs.size, 0);
+    live.finish();
+    releaseLiveTurn(live);
+  });
+});
+
+describe("the AI Model's own record", () => {
+  const CALL = {
+    request: 1,
+    model: "claude-opus-5-5",
+    sentAt: "2026-10-30T10:00:00.000Z",
+    durationMs: 42_000,
+    phases: [
+      { kind: "waiting" as const, startedAt: "2026-10-30T10:00:00.000Z", ms: 2_000 },
+      { kind: "thinking" as const, startedAt: "2026-10-30T10:00:02.000Z", ms: 30_000 },
+      {
+        kind: "tool_input" as const,
+        startedAt: "2026-10-30T10:00:32.000Z",
+        ms: 10_000,
+        tool: "bash",
+      },
+    ],
+    inputTokens: 1_000,
+    outputTokens: 400,
+    stopReason: "tool_use",
+  };
+
+  test("a pulse goes to the live record and whoever is watching, and never to a row", async () => {
+    const live = openLiveTurn("msg_pulse", "conv_activity");
+    const heard: unknown[] = [];
+    const rec = new ChatTurnActivityRecorder({ ...SCOPE, messageId: "msg_pulse" }, 1, {
+      live,
+      onPulse: (pulse) => heard.push(pulse),
+    });
+    const pulse = {
+      state: "thinking" as const,
+      label: null,
+      model: "m",
+      request: 1,
+      tool: null,
+      since: "2026-10-30T10:00:00.000Z",
+      sentAt: "2026-10-30T10:00:00.000Z",
+      lastDataAt: "2026-10-30T10:00:00.000Z",
+      chars: 0,
+      outputTokens: 0,
+      now: "2026-10-30T10:00:00.000Z",
+    };
+    rec.modelPulse(pulse);
+    assert.deepEqual(heard, [pulse]);
+    assert.deepEqual(live.latestPulse, pulse);
+    await rec.flush();
+    assert.deepEqual(await stored("msg_pulse"), [], "nothing was written");
+    live.finish();
+    releaseLiveTurn(live);
+  });
+
+  test("a finished request is one row, and the summary adds them up", async () => {
+    const { rec } = recorder();
+    rec.modelCall(CALL);
+    rec.modelCall({
+      ...CALL,
+      request: 2,
+      phases: [{ kind: "thinking", startedAt: "2026-10-30T10:01:00.000Z", ms: 5_000 }],
+      inputTokens: null,
+      outputTokens: 100,
+    });
+    await rec.flush();
+    const rows = await stored();
+    assert.deepEqual(
+      rows.map((row) => [row.kind, row.name]),
+      [
+        ["model_call", "1"],
+        ["model_call", "2"],
+      ],
+    );
+    assert.equal((rows[0].detail as { durationMs: number }).durationMs, 42_000);
+    const summary = rec.summarize({
+      status: "ok",
+      startedAt: new Date("2026-10-30T10:00:00.000Z"),
+    });
+    assert.equal(summary.modelCalls, 2);
+    assert.equal(summary.thinkingMs, 35_000);
+    assert.equal(summary.inputTokens, 1_000);
+    assert.equal(summary.outputTokens, 500);
+    assert.equal(summary.model, "claude-opus-5-5");
+    assert.equal(summary.steps, 0, "a request to the AI Model is not a step");
+  });
+
+  test("a turn finalized on another replica counts its requests from the rows", async () => {
+    const { rec } = recorder();
+    rec.modelCall(CALL);
+    await rec.flush();
+    const summary = await summarizeChatActivity({
+      messageId: SCOPE.messageId,
+      status: "interrupted",
+      startedAt: new Date("2026-10-30T10:00:00.000Z"),
+      endedAt: new Date("2026-10-30T10:01:00.000Z"),
+    });
+    assert.equal(summary.modelCalls, 1);
+    assert.equal(summary.thinkingMs, 30_000);
+    assert.equal(summary.outputTokens, 400);
+    assert.equal(summary.steps, 0);
   });
 });
 

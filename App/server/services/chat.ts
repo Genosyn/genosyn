@@ -35,6 +35,7 @@ import { getRoutineAccess } from "./routineAccess.js";
 import { DEFAULT_ROUTINE_ACCESS } from "../db/entities/EmployeeRoutineGrant.js";
 import { composeTaggedChatReferenceContext } from "./chatReferences.js";
 import { runEmployeeAgent, runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
+import { preparingPulse } from "./agent/modelStream.js";
 import type { ModelUnavailability } from "./agent/modelOutage.js";
 import type {
   AgentMessage,
@@ -279,6 +280,9 @@ type ChatBaseOptions = {
     | "onServedModelChange"
     | "onBackgroundWork"
     | "onThinkingFallback"
+    | "onModelPulse"
+    | "onModelCall"
+    | "onToolOutput"
   >;
   /**
    * Fired once the turn holds its reply lease and is about to run the model —
@@ -810,6 +814,10 @@ export async function streamChatWithEmployee(
           signal: controller.signal,
           callbacks: {
             onThinkingFallback: options.activity?.onThinkingFallback,
+            // How the model is working, and never what it wrote: a discussion
+            // keeps its narrow rules, and this holds no words to narrow.
+            onModelPulse: options.activity?.onModelPulse,
+            onModelCall: options.activity?.onModelCall,
             shouldStreamText: () => discussionSource.wasRead(),
             onModelRetry: (retry) => {
               console.warn(
@@ -921,10 +929,15 @@ export async function streamChatWithEmployee(
     const policiesContext = contextAccess.soulAndSkills ? await composePoliciesContext(co.id) : "";
     const cwd = employeeDir(co.slug, emp.slug);
     ensureDir(cwd);
-    const repositoriesContext =
-      contextAccess.repositories && repositoryMaterializationAllowed
-        ? (await materializeEmployeeRepositoryContext({ employeeId: emp.id, cwd })).context
-        : "";
+    const materializeRepositories = contextAccess.repositories && repositoryMaterializationAllowed;
+    // Fetching a Repository can take a good while, and the AI Model has not
+    // been asked anything yet.
+    if (materializeRepositories) {
+      options.activity?.onModelPulse?.(preparingPulse("Updating its Repositories", model.model));
+    }
+    const repositoriesContext = materializeRepositories
+      ? (await materializeEmployeeRepositoryContext({ employeeId: emp.id, cwd })).context
+      : "";
     const financeContext =
       contextAccess.finance && !repositoryWork ? await composeFinanceContext(emp.id) : "";
     const [
@@ -1172,6 +1185,9 @@ export async function streamChatWithEmployee(
           onServedModelChange: options.activity?.onServedModelChange,
           onBackgroundWork: options.activity?.onBackgroundWork,
           onThinkingFallback: options.activity?.onThinkingFallback,
+          onModelPulse: options.activity?.onModelPulse,
+          onModelCall: options.activity?.onModelCall,
+          onToolOutput: options.activity?.onToolOutput,
           // A chat turn that lost a capability should not be invisible either.
           onToolsDeferred: (d) => {
             if (d.deferred > 0) {

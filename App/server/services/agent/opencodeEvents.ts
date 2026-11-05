@@ -13,6 +13,7 @@ export class OpenCodeEvents {
   private startedTools = new Set<string>();
   private finishedTools = new Set<string>();
   private compacted = new Set<string>();
+  private toolOutputs = new Map<string, string>();
   private retries = new Set<string>();
   private endedReasoning = new Set<string>();
   private currentMessageId = "";
@@ -25,6 +26,8 @@ export class OpenCodeEvents {
     private callbacks?: StreamCallbacks,
     private window: number | null = null,
     private onMcpTool?: (part: Part) => void,
+    /** OpenCode started, or finished, writing a summary of older messages. */
+    private onCompacting?: (active: boolean) => void,
   ) {}
 
   accept(event: Event): void {
@@ -37,6 +40,10 @@ export class OpenCodeEvents {
         this.textReady.set(info.id, this.callbacks?.shouldStreamText?.() ?? true);
       this.assistants.set(info.id, info);
       this.currentMessageId = info.id;
+      // A summary's words reach nobody, so its request must not read as the
+      // reply being written. Any other message in progress means it is over.
+      if (info.summary || info.time.completed === undefined)
+        this.onCompacting?.(info.summary === true && info.time.completed === undefined);
       if (info.error && info.error.name !== "MessageAbortedError")
         this.error = openCodeError(info.error);
       return;
@@ -154,11 +161,19 @@ export class OpenCodeEvents {
         this.startedTools.add(part.id);
         this.callbacks?.onToolUse?.(part.tool, state.input, callId);
       }
+      if (state.status === "running") {
+        const output = state.metadata?.output;
+        if (typeof output === "string" && output && output !== this.toolOutputs.get(part.id)) {
+          this.toolOutputs.set(part.id, output);
+          this.callbacks?.onToolOutput?.(part.tool, output, callId);
+        }
+      }
       if (
         (state.status === "completed" || state.status === "error") &&
         !this.finishedTools.has(part.id)
       ) {
         this.finishedTools.add(part.id);
+        this.toolOutputs.delete(part.id);
         this.callbacks?.onToolResult?.(
           part.tool,
           {

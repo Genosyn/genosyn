@@ -13,6 +13,8 @@ import {
   MODEL_UNAVAILABLE_WAIT_LABEL,
   type ChatActivityEvent,
   type ChatActivityKind,
+  type ModelCallDetail,
+  type ModelPulse,
   type TurnActivitySummary,
 } from "../../shared/chatActivity.js";
 import { redactSensitiveText, redactSensitiveValue } from "./approvalRedaction.js";
@@ -41,7 +43,10 @@ import type { ActivityWithheld } from "../../shared/turnActivityAccess.js";
  * {@link ConversationActivityEvent} row, written in the order it was observed,
  * and is handed to the turn's live record (`chatTurnLive.ts`) in the same
  * tick so a watching browser sees it immediately. The reply's own text is not
- * an event: it is the reply, and it is persisted on the reply's row.
+ * an event: it is the reply, and it is persisted on the reply's row. Nor is the
+ * AI Model's pulse (`agent/modelStream.ts`), which goes to the live record and
+ * no further; each request it reports on leaves one `model_call` row when it
+ * ends, which is how a finished turn accounts for the time between its steps.
  *
  * ## Security
  *
@@ -74,9 +79,21 @@ const INPUT_JSON_CHARS = 8_000;
 const OUTPUT_CHARS = 4_000;
 const COMMAND_OUTPUT_CHARS = 8_000;
 /** Thinking kept per block; the rest is summarized as truncated. */
-const REASONING_BLOCK_CHARS = 4_000;
-/** Thinking is flushed when it goes quiet for this long, so it streams in chunks. */
+const REASONING_BLOCK_CHARS = 12_000;
+/** Thinking in progress is written at this pace, so a long thought is watched as it forms. */
 const REASONING_FLUSH_MS = 1_500;
+/**
+ * The tail of the thinking in progress held back until more has arrived. What is
+ * written is scrubbed first, and a credential cut in two by a write would match
+ * nothing on either side of it.
+ */
+const REASONING_HOLD_BACK_CHARS = 256;
+/** Writes of thinking still in progress, per turn. Past it a block is written when it ends. */
+const MAX_PARTIAL_REASONING_ROWS = 400;
+/** What is kept in view of what a running command has printed. */
+const LIVE_OUTPUT_CHARS = 2_000;
+/** A running command's output goes out at most this often. */
+const LIVE_OUTPUT_INTERVAL_MS = 1_000;
 const SUMMARY_CHARS = 300;
 /** A runaway backstop: past this many events a turn records only its end. */
 const MAX_EVENTS_PER_TURN = 1_000;
@@ -115,10 +132,24 @@ export class ChatTurnActivityRecorder {
   private reasoningBlock: string | null = null;
   private reasoningText = "";
   private reasoningTimer: ReturnType<typeof setTimeout> | null = null;
+  private reasoningAt = 0;
+  private partialReasoningRows = 0;
+  private readonly liveOutputAt = new Map<string, number>();
   private readonly reasoningKept = new Map<string, number>();
   private sensitive: string[] = [];
   private lastBackgroundCount = 0;
-  private stats = { steps: 0, failed: 0, held: 0, waitedMs: 0, reasoning: false };
+  private stats = {
+    steps: 0,
+    failed: 0,
+    held: 0,
+    waitedMs: 0,
+    reasoning: false,
+    modelCalls: 0,
+    thinkingMs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    model: null as string | null,
+  };
   private stoppedRecorded = false;
   private startedRecorded = false;
   private thinkingFallbackRecorded = false;
@@ -130,6 +161,8 @@ export class ChatTurnActivityRecorder {
     private readonly options: {
       live?: LiveTurn | null;
       onEvent?: (event: ChatActivityEvent) => void;
+      onPulse?: (pulse: ModelPulse) => void;
+      onToolOutput?: (callId: string, output: string) => void;
       now?: () => number;
     } = {},
   ) {
@@ -228,6 +261,10 @@ export class ChatTurnActivityRecorder {
     }
     // A result whose call was never seen still happened; it counts as a step.
     if (!call) this.stats.steps += 1;
+    if (call) {
+      this.options.live?.toolFinished(call.key);
+      this.liveOutputAt.delete(call.key);
+    }
     const content = typeof result.content === "string" ? result.content : "";
     const output = this.sanitizeOutput(name, content);
     const approval = approvalHeldIn(content);
@@ -270,15 +307,74 @@ export class ChatTurnActivityRecorder {
     this.reasoningKept.set(block, kept + piece.length);
     this.reasoningBlock = block;
     this.reasoningText += piece;
+    this.reasoningAt = this.now();
     this.stats.reasoning = true;
-    if (this.reasoningTimer) clearTimeout(this.reasoningTimer);
-    this.reasoningTimer = setTimeout(() => this.flushReasoning(), REASONING_FLUSH_MS);
-    this.reasoningTimer.unref?.();
+    // Never reset by the next delta: a model that thinks without pausing would
+    // otherwise write nothing until it stopped, and a reader would see a turn
+    // with nothing happening for as long as it thought hardest.
+    this.armReasoningFlush();
   }
 
   /** A reasoning block ended; whatever is buffered for it is written now. */
   reasoningEnd(block: string): void {
     if (this.reasoningBlock === block) this.flushReasoning();
+  }
+
+  /** What the AI Model is doing right now: for whoever is watching, and never a row. */
+  modelPulse(pulse: ModelPulse): void {
+    if (this.closed) return;
+    try {
+      this.options.live?.pulse(pulse);
+    } catch {
+      // The live record is best effort.
+    }
+    try {
+      this.options.onPulse?.(pulse);
+    } catch {
+      // A disconnected subscriber is not a failed turn.
+    }
+  }
+
+  /**
+   * What a running command has printed so far. For whoever is watching, never a
+   * row: the tool's result is the record, once there is one. It is scrubbed like
+   * that result, and a turn whose payloads are withheld shows none of it.
+   */
+  toolOutput(name: string, output: string, callId?: string): void {
+    if (this.closed || this.withheld || !callId || !this.openCalls.has(callId)) return;
+    const now = this.now();
+    const last = this.liveOutputAt.get(callId);
+    if (last !== undefined && now - last < LIVE_OUTPUT_INTERVAL_MS) return;
+    const tail = this.scrubbedOutputTail(output);
+    if (!tail) return;
+    this.liveOutputAt.set(callId, now);
+    try {
+      this.options.live?.toolOutput(callId, tail);
+    } catch {
+      // The live record is best effort.
+    }
+    try {
+      this.options.onToolOutput?.(callId, tail);
+    } catch {
+      // A disconnected subscriber is not a failed turn.
+    }
+  }
+
+  /** One request to the AI Model ended, and where its time went. */
+  modelCall(call: ModelCallDetail): void {
+    this.stats.modelCalls += 1;
+    this.stats.inputTokens += call.inputTokens ?? 0;
+    this.stats.outputTokens += call.outputTokens ?? 0;
+    this.stats.model = call.model ?? this.stats.model;
+    for (const phase of call.phases) {
+      if (phase.kind === "thinking") this.stats.thinkingMs += phase.ms;
+    }
+    this.record({
+      kind: "model_call",
+      name: String(call.request),
+      summary: `AI Model call ${call.request} · ${formatElapsed(call.durationMs)}`,
+      detail: { ...call },
+    });
   }
 
   progress(progress: AgentProgress): void {
@@ -441,6 +537,11 @@ export class ChatTurnActivityRecorder {
       // The finish event itself takes the next ordinal.
       lastOrdinal: this.nextOrdinal,
       status: args.status,
+      modelCalls: this.stats.modelCalls,
+      thinkingMs: this.stats.thinkingMs,
+      inputTokens: this.stats.inputTokens,
+      outputTokens: this.stats.outputTokens,
+      model: this.stats.model,
     };
   }
 
@@ -463,7 +564,7 @@ export class ChatTurnActivityRecorder {
         detail: { ...summary },
         isError: summary.status === "error",
       },
-      true,
+      { final: true },
     );
     this.closed = true;
     await this.chain;
@@ -489,7 +590,53 @@ export class ChatTurnActivityRecorder {
     this.stats.waitedMs += Math.max(0, this.now() - startedAt);
   }
 
-  private flushReasoning(): void {
+  private armReasoningFlush(): void {
+    if (this.reasoningTimer) return;
+    this.reasoningTimer = setTimeout(() => {
+      this.reasoningTimer = null;
+      if (this.now() - this.reasoningAt >= REASONING_FLUSH_MS) this.flushReasoning(true);
+      else {
+        this.flushReasoningInProgress();
+        if (this.reasoningText) this.armReasoningFlush();
+      }
+    }, REASONING_FLUSH_MS);
+    this.reasoningTimer.unref?.();
+  }
+
+  /**
+   * Write the thinking in progress, as far as it can be scrubbed: up to a break
+   * in the words, far enough back that a Secret or a credential still arriving
+   * is written whole or not at all. What is held back goes out on a later write.
+   */
+  private flushReasoningInProgress(): void {
+    const block = this.reasoningBlock;
+    if (block === null || this.partialReasoningRows >= MAX_PARTIAL_REASONING_ROWS) return;
+    const safe = this.scrub(this.reasoningText);
+    const holdBack = Math.max(REASONING_HOLD_BACK_CHARS, this.sensitive[0]?.length ?? 0);
+    const cut = lastBreakBefore(safe, safe.length - holdBack);
+    if (cut <= 0) {
+      // Scrubbed text is still the text, should the next write hold it again.
+      this.reasoningText = safe;
+      return;
+    }
+    const chunk = safe.slice(0, cut);
+    this.reasoningText = safe.slice(cut);
+    if (!chunk.trim()) return;
+    this.partialReasoningRows += 1;
+    this.record(
+      {
+        kind: "reasoning",
+        summary: firstLine(chunk).slice(0, 160),
+        detail: { text: chunk, block },
+      },
+      // Bounded on its own above, so that watching a thought form leaves the
+      // turn just as many steps to record.
+      { uncounted: true },
+    );
+  }
+
+  /** Write all the thinking held; `paused` when the model only paused, still mid-thought. */
+  private flushReasoning(paused = false): void {
     if (this.reasoningTimer) {
       clearTimeout(this.reasoningTimer);
       this.reasoningTimer = null;
@@ -501,11 +648,16 @@ export class ChatTurnActivityRecorder {
     if (block === null || !text.trim()) return;
     const truncated = (this.reasoningKept.get(block) ?? 0) >= REASONING_BLOCK_CHARS;
     const safe = this.scrub(text);
-    this.record({
-      kind: "reasoning",
-      summary: firstLine(safe).slice(0, 160),
-      detail: { text: safe, block, ...(truncated ? { truncated: true } : {}) },
-    });
+    const uncounted = paused && this.partialReasoningRows < MAX_PARTIAL_REASONING_ROWS;
+    if (uncounted) this.partialReasoningRows += 1;
+    this.record(
+      {
+        kind: "reasoning",
+        summary: firstLine(safe).slice(0, 160),
+        detail: { text: safe, block, ...(truncated ? { truncated: true } : {}) },
+      },
+      { uncounted },
+    );
   }
 
   private record(
@@ -517,11 +669,11 @@ export class ChatTurnActivityRecorder {
       detail?: Record<string, unknown>;
       isError?: boolean;
     },
-    final = false,
+    options: { final?: boolean; uncounted?: boolean } = {},
   ): void {
     if (this.closed) return;
-    if (!final && this.recorded >= MAX_EVENTS_PER_TURN) return;
-    this.recorded += 1;
+    if (!options.final && !options.uncounted && this.recorded >= MAX_EVENTS_PER_TURN) return;
+    if (!options.uncounted) this.recorded += 1;
     const ordinal = this.nextOrdinal++;
     const occurredAt = new Date(this.now());
     const dto: ChatActivityEvent = {
@@ -638,6 +790,25 @@ export class ChatTurnActivityRecorder {
   }
 
   /**
+   * The last whole lines of a command's output, scrubbed. Only whole ones: a
+   * credential still arriving, or cut off by the window, shows whole or not at all.
+   */
+  private scrubbedOutputTail(content: string): string {
+    const windowed = content.length > LIVE_OUTPUT_CHARS * 2;
+    let text = this.scrub(windowed ? content.slice(-LIVE_OUTPUT_CHARS * 2) : content);
+    const opened = text.lastIndexOf("-----BEGIN");
+    if (opened >= 0 && !text.includes("-----END", opened)) text = text.slice(0, opened);
+    // The last line may still be arriving.
+    const end = text.lastIndexOf("\n");
+    if (end < 0) return "";
+    text = text.slice(0, end + 1);
+    if (!windowed && text.length <= LIVE_OUTPUT_CHARS) return text;
+    // The window may have cut the first line in two.
+    const start = text.indexOf("\n", Math.max(0, text.length - LIVE_OUTPUT_CHARS));
+    return start < 0 ? "" : text.slice(start + 1);
+  }
+
+  /**
    * What a result was about, from its own fields — an email's subject and
    * sender, a record's title — so a finished step can say more than its verb.
    */
@@ -684,6 +855,17 @@ function senderOf(value: unknown): string | null {
     return textField(record, "name") ?? textField(record, "address") ?? textField(record, "email");
   }
   return null;
+}
+
+/** Where to cut `text` at or before `limit`: just after a space or a line break, or 0. */
+function lastBreakBefore(text: string, limit: number): number {
+  // Keep a private key block whole, however many lines it runs to.
+  const opened = text.lastIndexOf("-----BEGIN");
+  const bound = opened >= 0 && !text.includes("-----END", opened) ? Math.min(limit, opened) : limit;
+  for (let at = bound; at > 0; at -= 1) {
+    if (/\s/.test(text[at - 1])) return at;
+  }
+  return 0;
 }
 
 function firstLine(text: string): string {
@@ -818,9 +1000,23 @@ export async function summarizeChatActivity(args: {
   let failed = 0;
   let held = 0;
   let reasoning = false;
+  let modelCalls = 0;
+  let thinkingMs = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let model: string | null = null;
   const used = new Set<string>();
   for (const event of events) {
-    if (event.kind === "tool_use") {
+    if (event.kind === "model_call") {
+      const call = (event.detail ?? {}) as Partial<ModelCallDetail>;
+      modelCalls += 1;
+      inputTokens += call.inputTokens ?? 0;
+      outputTokens += call.outputTokens ?? 0;
+      model = call.model ?? model;
+      for (const phase of call.phases ?? []) {
+        if (phase.kind === "thinking") thinkingMs += phase.ms;
+      }
+    } else if (event.kind === "tool_use") {
       steps += 1;
       used.add(event.callId);
     } else if (event.kind === "tool_result") {
@@ -842,5 +1038,10 @@ export async function summarizeChatActivity(args: {
     reasoning,
     lastOrdinal: (events.at(-1)?.ordinal ?? 0) + 1,
     status: args.status,
+    modelCalls,
+    thinkingMs,
+    inputTokens,
+    outputTokens,
+    model,
   };
 }

@@ -167,6 +167,113 @@ describe("following a chat turn", () => {
     );
   });
 
+  test("a reader attaching mid-turn is told what the AI Model is doing, then each change", async () => {
+    const message = await workingTurn();
+    const live = openLiveTurn(message.id, SCOPE_BASE.conversationId);
+    const reading = (state: "thinking" | "writing") => ({
+      state,
+      label: null,
+      model: "m",
+      request: 1,
+      tool: null,
+      since: "2026-10-30T10:00:00.000Z",
+      sentAt: "2026-10-30T10:00:00.000Z",
+      lastDataAt: "2026-10-30T10:00:00.000Z",
+      chars: 0,
+      outputTokens: 0,
+      now: "2026-10-30T10:00:00.000Z",
+    });
+    live.pulse(reading("thinking"));
+    const reader = follow(message.id);
+    await reader.until((frames) => frames.some((frame) => frame.event === "pulse"));
+    const first = reader.frames.find((frame) => frame.event === "pulse");
+    assert.equal(first?.data.state, "thinking");
+    assert.notEqual(
+      first?.data.now,
+      "2026-10-30T10:00:00.000Z",
+      "the clock is the server's now, however old the reading",
+    );
+    live.pulse(reading("writing"));
+    await reader.until((frames) => frames.at(-1)?.data.state === "writing");
+    reader.controller.abort();
+    await reader.done;
+    live.finish();
+    releaseLiveTurn(live);
+  });
+
+  test("a reader who may not see the steps is not told the AI Model's state either", async () => {
+    const message = await workingTurn();
+    const live = openLiveTurn(message.id, SCOPE_BASE.conversationId);
+    live.pulse({
+      state: "thinking",
+      label: null,
+      model: "m",
+      request: 1,
+      tool: null,
+      since: "2026-10-30T10:00:00.000Z",
+      sentAt: null,
+      lastDataAt: null,
+      chars: 0,
+      outputTokens: 0,
+      now: "2026-10-30T10:00:00.000Z",
+    });
+    const frames: string[] = [];
+    const controller = new AbortController();
+    const done = followChatTurn({
+      messageId: message.id,
+      after: 0,
+      signal: controller.signal,
+      pollMs: 20,
+      heartbeatMs: 60_000,
+      showPulse: false,
+      send: (event) => frames.push(event),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.ok(frames.includes("turn"));
+    assert.ok(!frames.includes("pulse"));
+    controller.abort();
+    await done;
+    live.finish();
+    releaseLiveTurn(live);
+  });
+
+  test("what a running command printed reaches a reader who may see results, and no other", async () => {
+    const message = await workingTurn();
+    const live = openLiveTurn(message.id, SCOPE_BASE.conversationId);
+    live.toolOutput("c1", "before\n");
+    const reader = follow(message.id);
+    await reader.until((frames) => frames.some((frame) => frame.event === "tool_output"));
+    assert.deepEqual(reader.frames.find((frame) => frame.event === "tool_output")?.data, {
+      callId: "c1",
+      output: "before\n",
+    });
+    live.toolOutput("c1", "before\nafter\n");
+    await reader.until((frames) => frames.at(-1)?.data.output === "before\nafter\n");
+    reader.controller.abort();
+    await reader.done;
+
+    const frames: string[] = [];
+    const controller = new AbortController();
+    const done = followChatTurn({
+      messageId: message.id,
+      after: 0,
+      signal: controller.signal,
+      pollMs: 20,
+      heartbeatMs: 60_000,
+      showToolOutput: false,
+      send: (event) => frames.push(event),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    live.toolOutput("c1", "more\n");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(frames.includes("turn"));
+    assert.ok(!frames.includes("tool_output"));
+    controller.abort();
+    await done;
+    live.finish();
+    releaseLiveTurn(live);
+  });
+
   test("a turn running elsewhere is followed through its saved rows and text", async () => {
     const message = await workingTurn("Half");
     const reader = follow(message.id, 0);

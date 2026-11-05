@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { ModelCallDetail } from "../../../shared/chatActivity.js";
 import { config } from "../../../config.js";
 import { encryptSecret } from "../../lib/secret.js";
 import { closeTestDb, initTestDb } from "../../test/dbHarness.js";
@@ -237,6 +238,8 @@ test("a subscription turn streams its thinking and reports waiting for the model
     const ended: string[] = [];
     const waits: RuntimeWait[] = [];
     const text: string[] = [];
+    const pulses: string[] = [];
+    const modelCalls: ModelCallDetail[] = [];
     const turn = runCodexSubscriptionTurn({
       model,
       system: "Answer briefly.",
@@ -248,6 +251,8 @@ test("a subscription turn streams its thinking and reports waiting for the model
         onReasoningEnd: (block) => ended.push(block),
         onRuntimeWait: (wait) => waits.push(wait),
         onText: (delta) => text.push(delta),
+        onModelPulse: (pulse) => pulses.push(pulse.state),
+        onModelCall: (call) => modelCalls.push(call),
       },
     });
     await tick();
@@ -267,6 +272,14 @@ test("a subscription turn streams its thinking and reports waiting for the model
     ]);
     assert.deepEqual(ended, ["rs_1"]);
     assert.deepEqual(text, ["Done."], "thinking never leaks into the reply");
+    // The app-server's notifications say what its model is doing, as a stream does.
+    assert.deepEqual(pulses, ["preparing", "waiting", "thinking", "writing", "finished"]);
+    assert.equal(modelCalls.length, 1);
+    assert.deepEqual(
+      modelCalls[0].phases.map((phase) => phase.kind),
+      ["waiting", "thinking", "writing"],
+    );
+    assert.equal(modelCalls[0].phases[1].chars, "**Reading the books**".length);
   } finally {
     await closeTestDb();
     mutableConfig.sessionSecret = original.sessionSecret;
