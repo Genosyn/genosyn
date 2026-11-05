@@ -1,6 +1,21 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { CalendarDays, CircleDot, ListTodo, Mail, Play, Scale, Tags, UserRound, X } from "lucide-react";
+import {
+  CalendarDays,
+  CircleDot,
+  FileText,
+  GitBranch,
+  LifeBuoy,
+  ListTodo,
+  Mail,
+  Play,
+  Receipt,
+  ReceiptText,
+  Scale,
+  Tags,
+  UserRound,
+  X,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { useLiveRefetch } from "@/components/CompanySocket";
@@ -25,6 +40,11 @@ const KIND_ICON: Record<TodoLinkKind, LucideIcon> = {
   decision: Scale,
   meeting: CalendarDays,
   run: Play,
+  work_session: GitBranch,
+  estimate: FileText,
+  invoice: Receipt,
+  bill: ReceiptText,
+  ticket: LifeBuoy,
 };
 
 /** The words in front of a link: "From email" for where it came from. */

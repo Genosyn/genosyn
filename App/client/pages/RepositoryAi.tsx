@@ -305,6 +305,7 @@ export default function RepositoryAi() {
             <SessionPane
               key={`${currentUserId}:${sessionId}`}
               companyId={company.id}
+              companySlug={company.slug}
               currentUserId={currentUserId}
               repoId={repoId}
               base={base}

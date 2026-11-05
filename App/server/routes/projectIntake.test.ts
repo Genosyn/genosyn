@@ -15,6 +15,7 @@ import { MailAccount } from "../db/entities/MailAccount.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
 import { ProjectIntake } from "../db/entities/ProjectIntake.js";
+import { Todo } from "../db/entities/Todo.js";
 import { User } from "../db/entities/User.js";
 import { hashApiToken } from "../middleware/auth.js";
 import { errorHandler } from "../middleware/error.js";
@@ -307,5 +308,68 @@ describe("an AI Employee leaving", () => {
     const [row] = await intakes().find();
     assert.equal(row.assigneeEmployeeId, null);
     assert.equal(row.enabled, true, "email keeps being filed");
+  });
+});
+
+describe("a Todo's own page", () => {
+  const page = (userId: string, path: string) =>
+    as<{
+      project: { slug: string; myAccessLevel: string };
+      todo: { id: string; title: string; ceilingJson?: unknown };
+      related: Array<{ id: string; title: string }>;
+    }>(userId, "GET", path);
+
+  async function withFamily() {
+    const parent = await insert(Todo, {
+      projectId: project.id,
+      number: 12,
+      title: "The parent",
+      status: "todo",
+      priority: "none",
+    });
+    await insert(Todo, {
+      projectId: project.id,
+      number: 13,
+      title: "A subtask",
+      status: "todo",
+      priority: "none",
+      parentTodoId: parent.id,
+    });
+    await insert(Todo, {
+      projectId: project.id,
+      number: 14,
+      title: "Unrelated",
+      status: "todo",
+      priority: "none",
+    });
+    return parent;
+  }
+
+  test("reads one Todo by its number, with its family and nothing else", async () => {
+    const parent = await withFamily();
+    const answer = await page(member.id, "/projects/compliance/todos/12");
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
+    assert.equal(answer.body.todo.id, parent.id);
+    assert.equal(answer.body.project.myAccessLevel, "write");
+    assert.deepEqual(answer.body.related.map((row) => row.title), ["A subtask"]);
+    assert.ok(!("ceilingJson" in answer.body.todo), "what a session may do isn't a Todo's field");
+
+    const child = await page(member.id, "/projects/compliance/todos/13");
+    assert.deepEqual(child.body.related.map((row) => row.title), ["The parent"]);
+  });
+
+  test("a number that isn't there is a 404, and one that isn't a number is refused", async () => {
+    await withFamily();
+    assert.equal((await page(member.id, "/projects/compliance/todos/99")).status, 404);
+    assert.equal((await page(member.id, "/projects/compliance/todos/nope")).status, 400);
+    assert.equal((await page(member.id, "/projects/compliance/todos/0")).status, 400);
+    assert.equal((await page(member.id, "/projects/nowhere/todos/12")).status, 404);
+  });
+
+  test("a Project the Member can't open stays closed", async () => {
+    await withFamily();
+    await AppDataSource.getRepository(Project).update({ id: project.id }, { accessMode: "restricted" });
+    assert.equal((await page(member.id, "/projects/compliance/todos/12")).status, 403);
+    assert.equal((await page(owner.id, "/projects/compliance/todos/12")).status, 200);
   });
 });

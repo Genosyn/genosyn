@@ -1,3 +1,4 @@
+import { FROM_TODO_PARAM, linkSavedToTodo } from "@/components/todos/linkFromTodo";
 import React from "react";
 import {
   Link,
@@ -400,6 +401,9 @@ function InvoiceForm() {
         isEdit && invoiceSlug
           ? await api.patch<Invoice>(`/api/companies/${company.id}/invoices/${invoiceSlug}`, body)
           : await api.post<Invoice>(`/api/companies/${company.id}/invoices`, body);
+      if (!isEdit) {
+        await linkSavedToTodo(company.id, searchParams.get(FROM_TODO_PARAM), "invoice", inv.id);
+      }
       // The detail page opens its resend dialog, where the recipients and a
       // note are confirmed before anything is emailed.
       navigate(

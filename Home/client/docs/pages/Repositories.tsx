@@ -533,6 +533,16 @@ export function Repositories() {
         dependencies using the App container&apos;s network. If required dependencies cannot be
         installed, the employee reports the checks it could not run.
       </Callout>
+      <H2 id="tasks">Sessions and Tasks</H2>
+      <P>
+        A session can belong to a todo. An AI Employee working a todo links the session it starts to
+        that todo, and can wait on it, so the todo carries on when the session&apos;s turn ends and
+        hears about its pull request. From a todo, <Strong>Start work session</Strong> starts one
+        with the todo&apos;s text. From a session, the <Strong>Tasks</Strong> card shows what it&apos;s
+        linked to, and <Strong>Create task</Strong> files a new todo linked to it.{" "}
+        <DocLink to="/docs/tasks#code">Todos and code</DocLink> has the rest.
+      </P>
+
       <H2 id="proactive-work">Work that starts from email or a Routine</H2>
       <P>
         An AI Employee can read a customer&apos;s bug report and related evidence before asking you

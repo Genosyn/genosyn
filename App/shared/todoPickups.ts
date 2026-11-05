@@ -29,7 +29,9 @@ export type TodoPickupTrigger =
   /** The Decision it was waiting on was answered or dismissed. */
   | "decision_answered"
   /** The email or work it proposed for review was discarded, declined, or finished. */
-  | "review_outcome";
+  | "review_outcome"
+  /** The Repository work session it was waiting on ended its turn. */
+  | "work_session_ended";
 
 /** What an `in_progress` Todo can be waiting on. */
 export type TodoWaitKind =
@@ -39,6 +41,7 @@ export type TodoWaitKind =
   | "mail_review"
   | "work_review"
   | "browser_approval"
+  | "work_session"
   | "date";
 
 export const TODO_WAIT_LABEL: Record<TodoWaitKind, string> = {
@@ -48,6 +51,7 @@ export const TODO_WAIT_LABEL: Record<TodoWaitKind, string> = {
   mail_review: "Waiting on email review",
   work_review: "Waiting on work review",
   browser_approval: "Waiting on browser approval",
+  work_session: "Waiting on a work session",
   date: "Waiting until a date",
 };
 
@@ -74,6 +78,7 @@ export const TODO_PICKUP_TRIGGER_LABEL: Record<TodoPickupTrigger, string> = {
   wait_stopped: "Told to carry on",
   decision_answered: "Decision answered",
   review_outcome: "Review came back",
+  work_session_ended: "Work session ended",
 };
 
 /** What a queued pickup is held by, in words for its Todo's panel. */
@@ -107,6 +112,8 @@ export type TodoPickupView = {
   requester: { id: string; name: string } | null;
   /** It can't send mail, use the browser or start other work on its own. */
   preparationOnly: boolean;
+  /** Preparing, plus the browser: an owner trusts the sender of the email behind it. */
+  withBrowser?: boolean;
   attempt: number;
   /** When it was asked for, ISO with milliseconds. */
   startedAt: string;
@@ -128,6 +135,8 @@ export type TodoQueueItem = {
   title: string;
   /** Nobody at the company wrote this text, so it is a request, not an instruction. */
   untrustedText: boolean;
+  /** Outside words started this, so its session works within limits. */
+  heldToLimits: boolean;
   projectSlug: string;
   projectName: string;
   status: string;

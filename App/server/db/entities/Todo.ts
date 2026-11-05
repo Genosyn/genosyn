@@ -140,6 +140,15 @@ export class Todo {
   tainted!: boolean;
 
   /**
+   * The most an automatic session on this Todo may do, as JSON: a stranger's email
+   * or a restricted turn touched it, so everything that follows it is held to that
+   * (`services/todoPickups.ts`). It only narrows. Only a Member asking for a session
+   * themselves runs outside it, and that doesn't lift it for what comes after.
+   */
+  @Column({ type: "text", nullable: true })
+  ceilingJson!: string | null;
+
+  /**
    * What this `in_progress` Todo is waiting on, or null when it isn't. A state of
    * `in_progress` rather than a status of its own (`services/todoWaits.ts`).
    */

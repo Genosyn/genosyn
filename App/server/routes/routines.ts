@@ -15,7 +15,6 @@ import {
 import { Run } from "../db/entities/Run.js";
 import { Approval } from "../db/entities/Approval.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
-import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import crypto from "node:crypto";
 import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
 import {
@@ -24,7 +23,6 @@ import {
   requireCompanyMember,
   requireCompanyRoleForMutations,
   onRoutePaths,
-  roleAtLeast,
   usesBearerCredential,
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
@@ -56,6 +54,7 @@ import {
 import { pageRunHistory, routineRunsQuerySchema, runHistoryQuery } from "../services/runHistory.js";
 import { ListQueryError } from "../services/listPaging.js";
 import { recordAudit } from "../services/audit.js";
+import { mayWatchBrowserRecording } from "../services/browserRecordingAccess.js";
 import { getOwnedMemberBrowser } from "../services/memberBrowsers.js";
 import { revokeDisabledBrowserSessionsForEmployee } from "../services/browserAccess.js";
 import {
@@ -964,19 +963,11 @@ async function loadCompanyRun(companyId: string, runId: string): Promise<Run | n
  * and nobody else. A recording shows the whole viewport, sign-in screens
  * included, so there is no wider audience to fall back to.
  */
-async function canReadBrowserRecording(
+function canReadBrowserRecording(
   req: Parameters<typeof requireBrowserSession>[0],
   session: BrowserSession,
 ): Promise<boolean> {
-  if (session.memberBrowserId) {
-    if (!req.userId) return false;
-    return AppDataSource.getRepository(MemberBrowser).existsBy({
-      id: session.memberBrowserId,
-      companyId: session.companyId,
-      ownerUserId: req.userId,
-    });
-  }
-  return Boolean(req.companyRole && roleAtLeast("admin", req.companyRole));
+  return mayWatchBrowserRecording({ userId: req.userId, role: req.companyRole }, session);
 }
 
 async function recordingsVisibleToRequester(

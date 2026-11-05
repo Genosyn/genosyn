@@ -65,7 +65,7 @@ export function Pipelines() {
           },
           {
             term: "Task created",
-            def: "A new task in Projects + Todos starts it.",
+            def: "A new task in Projects + Todos starts it, unless the task is held to limits because it came from outside words, like an email. What a Pipeline files from an email or a webhook is held that way too.",
           },
         ]}
       />

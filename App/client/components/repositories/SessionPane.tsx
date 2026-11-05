@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  Activity,
+Activity,
   AlertCircle,
   Archive,
   ArchiveRestore,
@@ -13,11 +13,12 @@ import {
   GitBranch,
   GitMerge,
   GitPullRequest,
+  ListPlus,
   Lock,
   MessageSquareText,
   OctagonX,
-  Pencil,
   Paperclip,
+  Pencil,
   Square,
   Trash2,
   Upload,
@@ -30,6 +31,8 @@ import { useDialog } from "../ui/Dialog";
 import { useLiveRefetch } from "../CompanySocket";
 import { ChatMarkdown } from "../ChatMarkdown";
 import { formatRelative } from "../decisions/relative";
+import { CreateTaskModal } from "../todos/CreateTaskModal";
+import { LinkedTodosCard } from "../todos/TodoLinks";
 import { DiffStats, DiffView } from "./DiffView";
 import { SessionActivity } from "./SessionActivity";
 import { InlineRetry, TONE_CLASS } from "./sessionChrome";
@@ -141,8 +144,11 @@ export function SessionPane({
   onChanged,
   onGone,
   layout = "page",
+  companySlug,
 }: {
   companyId: string;
+  /** Where its Tasks open. Left out in a panel beside chat, which has no room for them. */
+  companySlug?: string;
   currentUserId: string;
   repoId: string | null;
   base: string;
@@ -166,6 +172,8 @@ export function SessionPane({
   const [detail, setDetail] = React.useState<RepositoryWorkSessionDetail | null>(null);
   const [diff, setDiff] = React.useState<RepositoryWorkSessionDiff | null | undefined>(undefined);
   const [view, setView] = React.useState<WorkspaceView>("activity");
+  const [taskOpen, setTaskOpen] = React.useState(false);
+  const [tasksKey, setTasksKey] = React.useState(0);
   const [instruction, setInstruction] = usePersistedDraft(
     `repository-ai-revision-draft:${currentUserId}:${sessionId}`,
   );
@@ -712,7 +720,38 @@ export function SessionPane({
                 <ExternalLink size={10} />
               </a>
             )}
+            {companySlug && (
+              <button
+                type="button"
+                onClick={() => setTaskOpen(true)}
+                className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200"
+              >
+                <ListPlus size={11} /> Create task
+              </button>
+            )}
           </div>
+          {companySlug && (
+            <LinkedTodosCard
+              className="mt-3"
+              companyId={companyId}
+              companySlug={companySlug}
+              kind="work_session"
+              targetId={session.id}
+              reloadKey={tasksKey}
+            />
+          )}
+          {companySlug && (
+            <CreateTaskModal
+              open={taskOpen}
+              onClose={() => setTaskOpen(false)}
+              companyId={companyId}
+              companySlug={companySlug}
+              link={{ kind: "work_session", targetId: session.id }}
+              what="this work session"
+              suggestedTitle={session.title}
+              onCreated={() => setTasksKey((key) => key + 1)}
+            />
+          )}
         </div>
 
         <div

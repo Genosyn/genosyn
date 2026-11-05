@@ -134,8 +134,6 @@ export async function gatherEmployeeTools(params: {
   nativeCoding?: boolean;
   /** Expose tool sources that do not have a Member-level ACL. */
   allowPrivilegedToolSources?: boolean;
-  /** The browser alone, when the privileged sources are otherwise closed. */
-  allowBrowser?: boolean;
   /** Work that spans turns without a conversation, to come back to the same page. */
   browserSessionKey?: string;
   /**
@@ -167,18 +165,24 @@ export async function gatherEmployeeTools(params: {
   const tokenInfo = resolveMcpToken(params.genosynToken);
   const reviewScope =
     selfReviewToolScope(tokenInfo?.selfReviewOnly) ??
-    proactiveReviewToolScope(tokenInfo?.proactiveReview, preparationMayReply(tokenInfo)) ??
+    proactiveReviewToolScope(tokenInfo?.proactiveReview, {
+      mayReply: preparationMayReply(tokenInfo),
+      trustedSender: tokenInfo?.trustedSender,
+    }) ??
     collaborationToolScope(tokenInfo?.collaboration);
   const scope = reviewScope ?? params.toolScope ?? null;
   const allowPrivileged = (params.allowPrivilegedToolSources ?? true) && !scope?.surfaceOnly;
   const [genosynAll, browser, userServers] = await Promise.all([
     loadGenosynTools(params.genosynToken, params.signal, params.onDeprecatedFamily),
-    allowPrivileged || (params.allowBrowser === true && !scope?.surfaceOnly)
+    // The token decides, whatever the caller passed: a trusted sender's preparation
+    // turn gets this one source, and every other stays closed.
+    allowPrivileged || tokenInfo?.trustedSender === true
       ? loadBrowserConfig(params.employeeId, {
           routineId: params.routineId,
           conversationId: params.conversationId,
           runId: params.runId,
-          sessionKey: params.browserSessionKey,
+          todoId: params.browserSessionKey,
+          todoPickupId: tokenInfo?.todoPickupId,
         })
       : Promise.resolve<BrowserConfig>({
           enabled: false,

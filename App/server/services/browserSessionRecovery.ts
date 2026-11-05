@@ -104,6 +104,8 @@ export async function recoverBrowserSession(args: {
     employeeId: previous.employeeId,
     conversationId: previous.conversationId,
     runId: previous.runId,
+    todoId: previous.todoId,
+    todoPickupId: previous.todoPickupId,
     memberBrowserId: previous.memberBrowserId,
     viewportWidth: previous.viewportWidth,
     viewportHeight: previous.viewportHeight,

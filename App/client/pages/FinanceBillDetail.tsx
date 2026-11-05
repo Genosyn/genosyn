@@ -1,3 +1,4 @@
+import { RecordTasks } from "@/components/todos/RecordTasks";
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { ArrowLeft, Ban, CheckCircle2, Plus, Trash2, Undo2 } from "lucide-react";
@@ -259,6 +260,16 @@ export default function FinanceBillDetail() {
           </div>
         )}
       </div>
+
+      <RecordTasks
+        className="mb-6"
+        companyId={company.id}
+        companySlug={company.slug}
+        kind="bill"
+        targetId={bill.id}
+        what="this bill"
+        suggestedTitle={`Follow up on bill ${bill.number || ""}`.trim()}
+      />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
