@@ -43,6 +43,7 @@ import { VaultSources } from "@/docs/pages/VaultSources";
 import { Connect } from "@/docs/pages/Connect";
 import { Email } from "@/docs/pages/Email";
 import { Support } from "@/docs/pages/Support";
+import { SupportChatWidget } from "@/docs/pages/SupportChatWidget";
 import { HelpCenter } from "@/docs/pages/HelpCenter";
 import { Meetings } from "@/docs/pages/Meetings";
 import { Tasks } from "@/docs/pages/Tasks";
@@ -120,6 +121,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/connect": Connect,
   "/docs/email": Email,
   "/docs/support": Support,
+  "/docs/support-chat-widget": SupportChatWidget,
   "/docs/help-center": HelpCenter,
   "/docs/meetings": Meetings,
   "/docs/tasks": Tasks,

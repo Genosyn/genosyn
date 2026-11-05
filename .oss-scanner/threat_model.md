@@ -133,6 +133,18 @@ trusted-origin check, is in `App/server/index.ts`.
      conversation and the published Articles, or through `list_support_tickets`
      and `get_support_ticket`, both taint sources. Its HTML is sanitized and its
      remote images blocked when a Member opens it. Attachments always download.
+   - **The Chat widget**: `/support-chat/<key>`, `/support-chat/loader.js`,
+     `/support-chat/confirm/<token>` and `/api/support-chat`
+     (`App/server/routes/publicSupportChat.ts`,
+     `App/server/routes/supportChatPages.ts`, `App/server/services/support/chatVisitors.ts`).
+     Anyone may post to a widget that is on, with no account: a visitor is a stranger
+     whose words reach an AI Employee only through the same restricted turn as email,
+     or the two taint sources. The token a visitor is handed (kept only as a hash) is
+     their only credential, and reaches rows stamped with their own id and nothing
+     else. An email address they type is only a claim until a person presses Confirm on
+     a link sent to it. The list of allowed origins is `frame-ancestors`, a fence for
+     browsers: the throttles in `App/server/services/support/chatThrottle.ts` are the
+     control against a script.
    - OAuth callbacks for Integrations, and the return page Genosyn Connect
      sends the browser back to: `App/server/routes/integrationsOauth.ts`,
      `App/server/services/hostedOauth.ts`.
@@ -320,6 +332,14 @@ trusted-origin check, is in `App/server/index.ts`.
   signing in as a Member of that company is a finding. Any Member may read
   and act on applications; owners and admins alone change Recruiting
   settings, the careers site, its domain, and AI access.
+- **The Chat widget is public by choice.** Once a company turns it on, anyone with
+  its key, which sits in the page's source, can write through it from anywhere,
+  including from outside the sites on its list, and each message becomes a row. The
+  throttles are what bound that. Reaching another visitor's conversation, anything
+  of a ticket beyond its visitor's own rows (a note, a draft, its number, a Member's
+  name), making a typed address a requester or sending it a reply without a person
+  confirming it, reading the do-not-email list through the widget's answers, or
+  starting a model turn past the budget, is a finding.
 - **A help center is public by choice.** A published Article's title, body and
   edit date, the company's name, and the name of a Topic with a published Article
   are meant for anyone. A draft or archived Article, a Ticket, a note, a knowledge
@@ -471,7 +491,7 @@ Most, roughly in order:
    `App/server/services/browserRequestBoundary.ts` (the App refuses its own
    API to the AI's browser, even with a Member's cookies).
 9. **Public routes**: forms, signing, data room guests, webhooks, chat
-   surfaces, phone number webhooks, unsubscribe, the careers site and its
+   surfaces, the Chat widget, phone number webhooks, unsubscribe, the careers site and its
    custom-domain host guard, the help center, and OAuth callbacks (listed above).
 10. **Files and parsers**: upload limits and types, how stored files are
     served (Content-Type, Content-Disposition, sandboxing), document parsing,

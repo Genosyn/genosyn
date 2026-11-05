@@ -20,10 +20,12 @@ export function Support() {
         title="Support"
         lead={
           <>
-            Customer email becomes Tickets. Connect the mailbox your customers write to, say which
-            addresses count, and an AI Employee summarizes and files every Ticket and drafts its
-            reply from your published Articles, quoting them. A Member sends the reply or, where you
-            allow it and every check holds, the AI Employee does.
+            Customer email becomes Tickets, and so do messages from a{" "}
+            <DocLink to="/docs/support-chat-widget">chat widget</DocLink> on your own site. Connect
+            the mailbox your customers write to, say which addresses count, and an AI Employee
+            summarizes and files every Ticket and drafts its reply from your published Articles,
+            quoting them. A Member sends the reply or, where you allow it and every check holds, the
+            AI Employee does.
           </>
         }
       />
@@ -119,6 +121,12 @@ export function Support() {
         </LI>
       </UL>
 
+      <P>
+        A <DocLink to="/docs/support-chat-widget">chat widget</DocLink> is a second way in: off until
+        you turn it on, only on the sites you name, and its Tickets follow the inbox&apos;s AI
+        Employee and how far it goes.
+      </P>
+
       <H2 id="how-far">How far the AI Employee goes</H2>
       <P>
         <Strong>How far it goes</Strong> is set per inbox, and each step adds to the last:
@@ -195,7 +203,9 @@ export function Support() {
         Each reason is written on the draft, under <Strong>Held for a person because:</Strong>. On
         Draft replies the same card says <Strong>Would wait for a person because:</Strong> or{" "}
         <Strong>Every check passed</Strong>, so you can read how it would behave before you let it
-        send. Asking for a draft yourself never sends one, on any setting.
+        send. Asking for a draft yourself never sends one, on any setting.{" "}
+        <DocLink to="/docs/support-chat-widget#ai">In a chat</DocLink>, the checks about an address
+        do not apply, since the reply does not go to one.
       </P>
       <P>
         Customers are told. Every reply it sends on its own ends with{" "}
@@ -401,8 +411,8 @@ export function Support() {
         Tickets stay, and so does every message&apos;s text, because Support keeps its own copy.
         Attachments do not move: their bytes stay on the mail server, so after a disconnect a file
         says it is no longer in the mailbox. You cannot reply on those Tickets until you connect the
-        mailbox again under <Strong>Support → Settings</Strong>. Removing a Support inbox keeps its
-        Tickets too.
+        mailbox again under <Strong>Support → Settings</Strong>, except in a chat, whose replies need
+        no mailbox. Removing a Support inbox keeps its Tickets too, and ends its chat widget.
       </P>
     </>
   );

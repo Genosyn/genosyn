@@ -272,6 +272,7 @@ code, UI copy, commits, and docs.
 | **Guest** (one person outside the company invited to one Data room through their own private link — `DataRoomGuest`) | Visitor, Viewer, User, Member (Members are the company's own people) |
 | **Ticket** (one customer's request to the company, handled in Support — `SupportTicket`; the customer who wrote is its **requester**) | Case, Issue, Conversation, Inquiry; never "Task" |
 | **Support inbox** (a mailbox and the addresses on it that count as support — `SupportInbox`, holding no credential of its own) | Queue, Channel, Connection, Shared inbox |
+| **Chat widget** (the web chat a company embeds on its own site, one per Support inbox — `SupportChatWidget`; whoever writes through it is a **visitor** — `SupportChatVisitor` — and the words open and continue a Ticket) | Live chat, Messenger, Chat surface (Slack, Teams and the like own that), Bot, Conversation |
 | **Article** (one piece of what the company knows, written for answering customers; published ones are the only company knowledge an AI reply reads — `SupportArticle`) | Doc, FAQ, KB entry, Resource |
 | **Help center** (a company's published Articles, readable by anyone at `/help/<company-slug>` once an owner or admin turns it on — `SupportSettings.helpCenterEnabled`) | Knowledge base, KB, FAQ site, Docs site, Portal |
 | **Saved reply** (a reply a Member writes once and inserts into the composer, with blanks — `SupportSavedReply`) | Macro, Canned response, Template, Snippet |
@@ -843,6 +844,36 @@ Trigger on `support_ticket` fires when a customer writes, never on the updates a
 Routine's own work makes. Keep those boundaries: do not show a reply turn anything
 it could not safely repeat to whoever wrote the email, give it a tool, let a model
 decide a send, retry a send on a guess, or create a Contact from an email.
+
+**A Chat widget visitor is a stranger with a token, and an address they type is a
+claim.** The widget (`services/support/chat*.ts`, `routes/publicSupportChat.ts`) is the
+one Support surface a browser nobody signed in to can post to. A company's page runs a
+loader that opens a frame on the install, so the API is same-origin and sends no CORS
+headers, and the visitor's token stays in that frame's storage, out of the page's
+reach, in a header and never a URL. Off by default, and owners and admins alone turn it
+on, per inbox, with exact origins that become the frame's `frame-ancestors`; a request
+saying it is a top-level document gets a 404, or a popup would walk around that list.
+That list is a fence for browsers and says nothing to `curl`, so the throttles
+(`chatThrottle.ts`) are the real cost control: per visitor, address and company, with an
+AI-turn budget spent inside the job, before the model, on every setting. A token is kept
+only as a hash, is bound to its widget and lapses after a month; it reads rows stamped
+`SupportMessage.chatVisitorId` and nothing else, which is the whole boundary: no ticket
+number, status, note, draft or Member's name reaches a browser, and a chat merges only
+with another of the same visitor's. A typed address earns one email in fixed words and
+nothing more until a person presses Confirm on the page it links to (mail scanners open
+links): it is not `requesterEmail`, matches no Customer or Contact and receives no
+reply, and the visitor's answer is the same whatever becomes of it, so the endpoint
+says nothing about the do-not-email list. Replies are written to the conversation, with
+the AI's disclosure in the stored body; what a confirmed visitor has not read goes by
+email through `sendAutomatedMessage`. The AI works the same restricted turn, and
+`autoReplyHolds` still decides: `delivery: "chat"` drops only the checks about an address
+a chat reply does not go to, adds that somebody must be able to read it, and counts the
+per-customer limit per visitor. A chat row wakes no Routine through the subscriber; its
+own path wakes one only when a ticket becomes owed. No AI tool reads or writes a widget.
+Do not read a visitor's rows by following a ticket, add CORS or a cookie to the API, let
+an unconfirmed address reach a requester or a reply, start a model turn before the
+budget, or put a token in a URL. Keep `/support-chat/` out of the service worker: its
+headers only hold if the server is the one answering.
 
 **A help center shows what was published, to anyone, and nothing else.** It is off
 until an owner or admin turns it on, from Support → Settings and by no AI tool, and
