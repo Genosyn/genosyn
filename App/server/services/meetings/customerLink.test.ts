@@ -715,6 +715,15 @@ describe("a Member's choice is final", () => {
     assert.equal(rows.filter((row) => row.contactId).length, 1);
   });
 
+  test("moving a meeting with no transcript still lets go of the old Deal", async () => {
+    const mine = await insert(Customer, { companyId: CO, name: "Mine", slug: "mine" });
+    const meeting = await insert(Meeting, { companyId: CO, title: "Plan", dealId: "old_deal" });
+
+    await setMeetingCustomer(CO, meeting.id, mine.id);
+
+    assert.equal((await reload(meeting.id)).dealId, null);
+  });
+
   test("removing the link clears a Deal that only the customer pointed at", async () => {
     const customer = await insert(Customer, { companyId: CO, name: "Acme", slug: "acme" });
     const meeting = await insert(Meeting, {

@@ -319,8 +319,15 @@ export async function setMeetingCustomer(
   }
 
   // A partial save rewrites only these columns, and still tells open pages.
-  await repo.save({ id: meeting.id, customerId, customerChosen: true });
-  if (meeting.customerId !== customerId) {
+  const moved = meeting.customerId !== customerId;
+  await repo.save({
+    id: meeting.id,
+    customerId,
+    customerChosen: true,
+    // The old customer's Deal isn't this one's. The link pass finds its own.
+    ...(moved ? { dealId: null } : {}),
+  });
+  if (moved) {
     await moveMeetingTimelineRow(companyId, meetingId, customerId);
     // A meeting with something on a timeline belongs on its new customer's too.
     if (meeting.transcriptText.trim()) await linkMeetingSafely(companyId, meetingId);
