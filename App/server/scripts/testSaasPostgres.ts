@@ -1372,9 +1372,245 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
     await reconcileOrphanedRuns({ boot: true, now: new Date() });
     await dispatchDueMeetings(new Date());
     console.log("PASS Postgres scheduler heartbeat: boot recovery and notetaker dispatch queries");
+
+    await exerciseSupportChat();
+    console.log("PASS Postgres Chat widget: a browser's ids and text, one sequence per visitor");
   } finally {
     await stopChildren();
     if (AppDataSource.isInitialized) await AppDataSource.destroy();
+  }
+}
+
+/**
+ * The Chat widget against the database that can refuse what SQLite lets pass: a
+ * browser nobody signed in to sends ids and text here, Postgres types primary keys as
+ * uuid and refuses a NUL byte, and two messages at once really do run at once. So
+ * nothing a browser sends may come back as a 500, and a visitor's sequence must hold
+ * under concurrency.
+ */
+async function exerciseSupportChat(): Promise<void> {
+  const { randomUUID: uuid } = await import("node:crypto");
+  const { AppDataSource } = await import("../db/datasource.js");
+  const { createApp } = await import("../app.js");
+  const { errorHandler } = await import("../middleware/error.js");
+  const { Company } = await import("../db/entities/Company.js");
+  const { MailAccount } = await import("../db/entities/MailAccount.js");
+  const { SupportInbox } = await import("../db/entities/SupportInbox.js");
+  const { SupportMessage } = await import("../db/entities/SupportMessage.js");
+  const { SupportTicket } = await import("../db/entities/SupportTicket.js");
+  const { saveChatWidget } = await import("../services/support/chatWidgets.js");
+  const { setSupportQueueAutoKickForTests } = await import("../services/support/queue.js");
+  const { sendTicketReply } = await import("../services/support/replies.js");
+  const { runSupportSweep } = await import("../services/support/sweep.js");
+  const { listTickets, mergeTickets, ticketDetail } = await import("../services/support/tickets.js");
+  const { spendChatAiTurn } = await import("../services/support/chatThrottle.js");
+
+  setSupportQueueAutoKickForTests(false);
+  const suffix = uuid().slice(0, 8);
+  const company = await AppDataSource.getRepository(Company).save(
+    AppDataSource.getRepository(Company).create({
+      name: "Chat widget smoke",
+      slug: `chat-${suffix}`,
+      ownerId: uuid(),
+    }),
+  );
+  const account = await AppDataSource.getRepository(MailAccount).save(
+    AppDataSource.getRepository(MailAccount).create({
+      companyId: company.id,
+      connectionId: "never",
+      provider: "imap",
+      address: `team-${suffix}@acme.example.test`,
+      status: "active",
+      backfilledAt: new Date(),
+    }),
+  );
+  const inbox = await AppDataSource.getRepository(SupportInbox).save(
+    AppDataSource.getRepository(SupportInbox).create({
+      companyId: company.id,
+      accountId: account.id,
+      name: "Support",
+      addressesJson: "[]",
+      aiMode: "off",
+      watchFrom: new Date(),
+      importStatus: "done",
+    }),
+  );
+  const widget = await saveChatWidget({
+    companyId: company.id,
+    inbox,
+    patch: { enabled: true, allowedOrigins: ["https://www.acme.example.test"] },
+    actor: { kind: "system" },
+  });
+  const key = widget.publicKey;
+
+  const app = createApp();
+  app.use(errorHandler);
+  const server = await new Promise<import("node:http").Server>((resolve) => {
+    const listening = app.listen(0, "127.0.0.1", () => resolve(listening));
+  });
+  const { port } = server.address() as import("node:net").AddressInfo;
+  const base = `http://127.0.0.1:${port}/api/support-chat`;
+  const call = async (
+    method: string,
+    path: string,
+    options: { token?: string; body?: unknown } = {},
+  ): Promise<{ status: number; body: Record<string, unknown> }> => {
+    const response = await fetch(`${base}/${path}`, {
+      method,
+      headers: {
+        ...(options.body !== undefined ? { "content-type": "application/json" } : {}),
+        ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+    const text = await response.text();
+    return { status: response.status, body: text ? (JSON.parse(text) as never) : {} };
+  };
+  try {
+    const started = await call("POST", `${key}/visitors`, { body: {} });
+    assert.equal(started.status, 201);
+    const token = String(started.body.token);
+
+    // Everything a browser could send that a uuid column or a text column would refuse.
+    const junk = "not-a-uuid";
+    assert.equal((await call("GET", junk)).status, 404);
+    assert.equal((await call("GET", "A".repeat(22))).status, 404);
+    assert.equal((await call("GET", `confirm/${junk}`)).status, 404);
+    assert.equal((await call("GET", `confirm/${"a".repeat(43)}`)).status, 404);
+    assert.equal(
+      (await call("POST", `confirm/${"a".repeat(43)}`, { body: {} })).status,
+      404,
+    );
+    assert.equal(
+      (await call("GET", `${key}/conversation`, { token: "a".repeat(43) })).status,
+      401,
+    );
+    assert.equal((await call("GET", `${key}/conversation?after=${junk}`, { token })).status, 400);
+    assert.equal(
+      (await call("GET", `${key}/conversation?after=99999999999`, { token })).status,
+      400,
+    );
+    assert.equal(
+      (await call("POST", `${key}/messages`, { token, body: { clientId: junk, text: "Hi" } }))
+        .status,
+      400,
+    );
+    assert.equal(
+      (await call("POST", `${key}/read`, { token, body: { seq: 99_999_999_999 } })).status,
+      400,
+    );
+    const withNul = await call("POST", `${key}/messages`, {
+      token,
+      body: { clientId: uuid(), text: "Has a\u0000 NUL byte" },
+    });
+    assert.equal(withNul.status, 201, JSON.stringify(withNul.body));
+    assert.equal(
+      (await call("POST", `${key}/email`, { token, body: { email: "ada\u0000@customer.example.test" } }))
+        .status,
+      400,
+    );
+    const named = await call("POST", `${key}/email`, {
+      token,
+      body: { email: "ada@customer.example.test", name: "A\u0000da" },
+    });
+    assert.equal(named.status, 202, JSON.stringify(named.body));
+
+    // At once, as a page with a flaky connection would: one ticket and one sequence.
+    const clientId = uuid();
+    const sends = await Promise.all([
+      ...Array.from({ length: 8 }, (_, index) =>
+        call("POST", `${key}/messages`, {
+          token,
+          body: { clientId: uuid(), text: `Message ${index}` },
+        }),
+      ),
+      call("POST", `${key}/messages`, { token, body: { clientId, text: "Twice" } }),
+      call("POST", `${key}/messages`, { token, body: { clientId, text: "Twice" } }),
+    ]);
+    for (const send of sends) assert.ok(send.status < 300, JSON.stringify(send.body));
+    const page = await call("GET", `${key}/conversation?after=0`, { token });
+    assert.equal(page.status, 200, JSON.stringify(page.body));
+    const lines = page.body.messages as Array<{ seq: number; text: string }>;
+    assert.equal(lines.length, 10, "one row for the message sent twice");
+    assert.deepEqual(
+      lines.map((line) => line.seq),
+      [...lines.map((line) => line.seq)].sort((a, b) => a - b),
+    );
+    assert.equal(new Set(lines.map((line) => line.seq)).size, lines.length);
+    assert.equal(lines[0].text, "Has a NUL byte");
+    const tickets = await AppDataSource.getRepository(SupportTicket).find({
+      where: { companyId: company.id },
+    });
+    assert.equal(tickets.length, 1, "messages racing agree on one ticket");
+    const [ticket] = tickets;
+    assert.equal(ticket.source, "chat");
+    assert.equal(
+      await AppDataSource.getRepository(SupportMessage).count({
+        where: { ticketId: ticket.id, kind: "customer" },
+      }),
+      10,
+    );
+
+    const reply = await sendTicketReply({
+      companyId: company.id,
+      ticketId: ticket.id,
+      body: "An answer.",
+      actor: { kind: "system" },
+    });
+    const read = await call("POST", `${key}/read`, {
+      token,
+      body: { seq: reply.message.chatSeq },
+    });
+    assert.deepEqual(read.body, { readSeq: reply.message.chatSeq });
+    const after = await call("GET", `${key}/conversation?after=${lines[lines.length - 1].seq}`, {
+      token,
+    });
+    assert.deepEqual(
+      (after.body.messages as Array<{ text: string }>).map((line) => line.text),
+      ["An answer."],
+    );
+
+    // The Member's side and the sweep, whose ids and columns differ in type here.
+    const other = await call("POST", `${key}/visitors`, { body: {} });
+    await call("POST", `${key}/messages`, {
+      token: String(other.body.token),
+      body: { clientId: uuid(), text: "Someone else" },
+    });
+    const otherTicket = await AppDataSource.getRepository(SupportTicket).findOneOrFail({
+      where: { companyId: company.id, subject: "Someone else" },
+    });
+    await assert.rejects(
+      mergeTickets({
+        companyId: company.id,
+        sourceId: ticket.id,
+        targetId: otherTicket.id,
+        actor: { kind: "system" },
+      }),
+      /same visitor/,
+    );
+    const detail = await ticketDetail(company.id, ticket.id);
+    assert.equal(detail.chat?.reachable, true);
+    const listed = await listTickets({
+      companyId: company.id,
+      viewerUserId: null,
+      filters: { source: "chat" },
+      page: {},
+    });
+    assert.equal(listed.rows.length, 2);
+    assert.equal(
+      await spendChatAiTurn({
+        visitorId: ticket.chatVisitorId as string,
+        settings: { companyId: company.id, chatAiTurnsPerDay: 5 },
+      }),
+      null,
+    );
+    await runSupportSweep();
+    const ended = await call("DELETE", `${key}/visitor`, { token });
+    assert.equal(ended.status, 200);
+    assert.equal((await call("GET", `${key}/conversation`, { token })).status, 401);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
   }
 }
 

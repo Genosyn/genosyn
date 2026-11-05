@@ -103,6 +103,11 @@ import { marketingRouter } from "./routes/marketing.js";
 import { recruitingRouter } from "./routes/recruiting.js";
 import { supportRouter } from "./routes/support.js";
 import { publicSupportRouter, publicSupportSecurityHeaders } from "./routes/publicSupport.js";
+import {
+  publicSupportChatBody,
+  publicSupportChatHeaders,
+  publicSupportChatRouter,
+} from "./routes/publicSupportChat.js";
 import { helpCenterSecurityHeaders, publicHelpCenterRouter } from "./routes/publicHelpCenter.js";
 import { careersRouter } from "./routes/careers.js";
 import { careersHostGuard } from "./routes/careersSite.js";
@@ -207,6 +212,10 @@ export function createApp(): express.Express {
   // So is a customer's link to rate a ticket.
   app.use("/api/feedback", publicSupportSecurityHeaders);
   app.use("/feedback", publicSupportSecurityHeaders);
+  // And a Chat widget visitor's token, or the link confirming their address. Anyone
+  // can post to the widget, so it reads a far smaller body than the App's own limit.
+  app.use("/api/support-chat", publicSupportChatHeaders, publicSupportChatBody);
+  app.use("/support-chat/confirm", publicSupportChatHeaders);
   // A help center carries no credential, but it is kept out of search engines and
   // caches on purpose, so its 404s must carry the same headers as its pages.
   app.use("/api/help", helpCenterSecurityHeaders);
@@ -227,6 +236,9 @@ export function createApp(): express.Express {
   app.use("/api/room", publicDataRoomsRouter);
   // A customer rating a ticket: no account, no session, just their link.
   app.use("/api/feedback", publicSupportRouter);
+  // A visitor on a company's own site: no account and no session, so no Member's
+  // cookie can lend it anything. Its token and the origin gate are checked by the router.
+  app.use("/api/support-chat", publicSupportChatRouter);
   // A company's public help center: no account, no session, and only what its
   // owners turned on.
   app.use("/api/help", publicHelpCenterRouter);

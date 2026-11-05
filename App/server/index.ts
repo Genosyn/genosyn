@@ -36,6 +36,7 @@ import { finalizeInterruptedAskAiTurns } from "./services/askAi/assistant.js";
 import { bootRoutineTriggers } from "./services/routineTriggers.js";
 import { bootPhone } from "./services/phone/sync.js";
 import { appShellFallback, careersPagesRouter } from "./routes/careersSite.js";
+import { supportChatPagesRouter } from "./routes/supportChatPages.js";
 import { helpCenterPagesRouter } from "./routes/publicHelpCenter.js";
 import { bootCareersHosts } from "./services/recruiting/domains.js";
 import { bootScreeningQueue } from "./services/recruiting/screeningQueue.js";
@@ -278,6 +279,33 @@ async function main() {
         }
         careersTemplate ??= await fs.promises.readFile(careersTemplatePath, "utf8");
         return careersTemplate;
+      },
+    }),
+  );
+
+  // The Chat widget's frame and the loader a company's own page runs, before the
+  // App shell for the same reason: their own small bundle, and headers of their own.
+  const chatFramePath = path.join(clientDir, "chat-widget.html");
+  const chatLoaderPath = path.join(clientDir, "support-chat-loader.js");
+  let chatFrame: string | null = null;
+  let chatLoader: string | null = null;
+  app.use(
+    supportChatPagesRouter({
+      isDev,
+      loadPage: async (url) => {
+        if (vite) {
+          return vite.transformIndexHtml(url, await fs.promises.readFile(chatFramePath, "utf8"));
+        }
+        chatFrame ??= await fs.promises.readFile(chatFramePath, "utf8");
+        return chatFrame;
+      },
+      loadLoader: async () => {
+        if (vite) {
+          const built = await vite.transformRequest("/chat-widget/loader.ts");
+          return built?.code ?? "";
+        }
+        chatLoader ??= await fs.promises.readFile(chatLoaderPath, "utf8");
+        return chatLoader;
       },
     }),
   );

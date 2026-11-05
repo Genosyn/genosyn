@@ -160,6 +160,8 @@ import { DataRoomQuestion } from "../db/entities/DataRoomQuestion.js";
 import { EmployeeDataRoomGrant } from "../db/entities/EmployeeDataRoomGrant.js";
 import { EmployeeSupportGrant } from "../db/entities/EmployeeSupportGrant.js";
 import { SupportArticle } from "../db/entities/SupportArticle.js";
+import { SupportChatVisitor } from "../db/entities/SupportChatVisitor.js";
+import { SupportChatWidget } from "../db/entities/SupportChatWidget.js";
 import { SupportDraft } from "../db/entities/SupportDraft.js";
 import { SupportEvent } from "../db/entities/SupportEvent.js";
 import { SupportInbox } from "../db/entities/SupportInbox.js";
@@ -686,6 +688,8 @@ export async function deleteCompanyCascade(args: {
     await m.delete(SupportEvent, { companyId });
     await m.delete(SupportMessage, { companyId });
     await m.delete(SupportTicket, { companyId });
+    await m.delete(SupportChatVisitor, { companyId });
+    await m.delete(SupportChatWidget, { companyId });
     await m.delete(SupportInbox, { companyId });
     await m.delete(SupportArticle, { companyId });
     await m.delete(SupportSavedReply, { companyId });

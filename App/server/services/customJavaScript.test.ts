@@ -139,6 +139,7 @@ test("credential-bearing, authentication, public, and safe-mode page loads are e
   for (const value of [
     "/SIGN/secret",
     "/forms/secret",
+    "/support-chat/confirm/secret",
     "/forms",
     "/help",
     "/help/acme",

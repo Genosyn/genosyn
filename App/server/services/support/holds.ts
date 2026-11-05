@@ -16,8 +16,23 @@ import { domainOf, isNoReplyAddress } from "./mailSignals.js";
  * customer writes can argue its way past a check by talking to the model. Each
  * reason is shown to the Member who reviews the draft instead. The default answer
  * is no, and an empty list is the only yes.
+ *
+ * Most of this was written for mail, so each check is kept for the Chat widget on
+ * purpose or dropped on purpose. Kept, because they have nothing to do with how a
+ * reply travels: everything about the answer, the Topic, the sentiment, who holds it,
+ * the limits, its age. Dropped, because they are about an address a chat reply does
+ * not go to: who else is copied, whether an address takes replies or is on the
+ * do-not-email list, and whether the reply address matches the sender. The email of
+ * what a visitor did not read goes through `sendAutomatedMessage`, which checks the
+ * address for itself. Only a chat can have nobody at the other end, so that is the
+ * one check it adds, and "customer" for its daily limit means the visitor rather
+ * than an address most visitors never gave.
  */
 export type AutoReplyFacts = {
+  /** How this reply would reach them: by email, or in the Chat widget. */
+  delivery: "mail" | "chat";
+  /** On a chat: their widget no longer opens and they confirmed no address. */
+  visitorUnreachable: boolean;
   answerable: boolean;
   citationCount: number;
   droppedQuotes: number;
@@ -86,18 +101,23 @@ export function autoReplyHolds(facts: AutoReplyFacts): string[] {
   if (facts.autoRepliesFromInboxToday >= facts.inboxDailyLimit) {
     holds.push(`This inbox reached its limit of ${facts.inboxDailyLimit} automatic replies a day.`);
   }
-  if (facts.ccCount > SUPPORT_MAX_AUTO_REPLY_CC) {
-    holds.push(
-      `${facts.ccCount} other people are copied, and a person should choose who hears back.`,
-    );
-  }
   if (facts.automatedKind) holds.push("The message looks automated.");
-  if (isNoReplyAddress(facts.ticket.requesterEmail)) {
-    holds.push("The customer's address does not take replies.");
+  if (facts.delivery === "mail") {
+    if (facts.ccCount > SUPPORT_MAX_AUTO_REPLY_CC) {
+      holds.push(
+        `${facts.ccCount} other people are copied, and a person should choose who hears back.`,
+      );
+    }
+    if (isNoReplyAddress(facts.ticket.requesterEmail)) {
+      holds.push("The customer's address does not take replies.");
+    }
+    if (facts.requesterSuppressed) holds.push("This address is on the do-not-email list.");
+    if (facts.fromEmail && domainOf(facts.fromEmail) !== domainOf(facts.ticket.requesterEmail)) {
+      holds.push("The reply address is on a different domain from the sender.");
+    }
   }
-  if (facts.requesterSuppressed) holds.push("This address is on the do-not-email list.");
-  if (facts.fromEmail && domainOf(facts.fromEmail) !== domainOf(facts.ticket.requesterEmail)) {
-    holds.push("The reply address is on a different domain from the sender.");
+  if (facts.delivery === "chat" && facts.visitorUnreachable) {
+    holds.push("This visitor can no longer be reached, so nobody would read it.");
   }
   if (facts.now.getTime() - facts.sentAt.getTime() > SUPPORT_AUTO_REPLY_MAX_AGE_MS) {
     holds.push("The message waited too long to be answered automatically.");

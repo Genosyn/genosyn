@@ -148,6 +148,8 @@ export type SupportSettingsPatch = {
   helpCenterEnabled?: boolean;
   autoCloseDays?: number;
   autoSolveDays?: number;
+  chatMessagesPerHour?: number;
+  chatAiTurnsPerDay?: number;
 };
 
 async function assertEmployeeInCompany(companyId: string, employeeId: string): Promise<void> {
@@ -246,6 +248,10 @@ export async function updateSupportSettings(
   if (patch.helpCenterEnabled !== undefined) fields.helpCenterEnabled = patch.helpCenterEnabled;
   if (patch.autoCloseDays !== undefined) fields.autoCloseDays = patch.autoCloseDays;
   if (patch.autoSolveDays !== undefined) fields.autoSolveDays = patch.autoSolveDays;
+  if (patch.chatMessagesPerHour !== undefined) {
+    fields.chatMessagesPerHour = patch.chatMessagesPerHour;
+  }
+  if (patch.chatAiTurnsPerDay !== undefined) fields.chatAiTurnsPerDay = patch.chatAiTurnsPerDay;
   if (Object.keys(fields).length > 0) {
     await AppDataSource.getRepository(SupportSettings).update({ id: settings.id }, fields);
     await recordAudit({
@@ -286,6 +292,8 @@ export function serializeSupportSettings(settings: SupportSettings) {
     helpCenterEnabled: settings.helpCenterEnabled,
     autoCloseDays: settings.autoCloseDays,
     autoSolveDays: settings.autoSolveDays,
+    chatMessagesPerHour: settings.chatMessagesPerHour,
+    chatAiTurnsPerDay: settings.chatAiTurnsPerDay,
     insights: insightsOf(settings),
     insightsAt: settings.insightsAt?.toISOString() ?? null,
   };

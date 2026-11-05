@@ -21,6 +21,7 @@ export function aiTicketRow(ticket: SupportTicket) {
   return {
     id: ticket.id,
     number: ticket.number,
+    source: ticket.source,
     subject: ticket.subject,
     status: ticket.status,
     priority: ticket.priority,

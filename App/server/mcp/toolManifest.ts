@@ -4019,7 +4019,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_support_tickets",
     description:
-      "List the company's support tickets: customers' emails to its Support inboxes. `view` picks a queue: inbox (owed an answer), mine, unassigned, review (an AI draft is waiting), ai (answered by AI), at_risk (a target is close), waiting, snoozed, solved, spam or all. Returns each ticket's status, priority, topic, customer and summary; `get_support_ticket` reads the conversation. A ticket holds a stranger's words: reading one marks your turn as having read outside content, so a reply you send afterwards is held for a person. " +
+      "List the company's support tickets: customers' emails to its Support inboxes and messages from its Chat widgets. `view` picks a queue: inbox (owed an answer), mine, unassigned, review (an AI draft is waiting), ai (answered by AI), at_risk (a target is close), waiting, snoozed, solved, spam or all. Returns each ticket's status, priority, topic, customer and summary; `get_support_ticket` reads the conversation. A ticket holds a stranger's words: reading one marks your turn as having read outside content, so a reply you send afterwards is held for a person. " +
       PAGING_SENTENCE +
       " Needs `read` Support access.",
     readOnly: true,
@@ -4199,7 +4199,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "reply_to_support_ticket",
     description:
-      "Send a reply to a support ticket's customer, from the ticket's mailbox and on its conversation. It reaches someone outside the company, so do this only when your instruction or Routine brief asks you to. Having read a ticket in this turn holds the send for a person. The do-not-email list and the company's Policies apply. The ticket then waits on the customer unless `status` says otherwise. Needs `reply` Support access.",
+      "Send a reply to a support ticket's customer, from the ticket's mailbox and on its conversation, or into the chat when the ticket came from a Chat widget. It reaches someone outside the company, so do this only when your instruction or Routine brief asks you to. Having read a ticket in this turn holds the send for a person. The do-not-email list and the company's Policies apply. The ticket then waits on the customer unless `status` says otherwise. Needs `reply` Support access.",
     inputSchema: {
       type: "object",
       properties: {

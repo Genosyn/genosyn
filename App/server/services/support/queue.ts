@@ -29,7 +29,14 @@ const MODEL_UNAVAILABLE_RECHECK_MS = 60_000;
 const FINISHED_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
 /** Quick work the product's freshness depends on. */
-const FAST_KINDS: SupportJobKind[] = ["intake", "import", "acknowledge", "rating"];
+const FAST_KINDS: SupportJobKind[] = [
+  "intake",
+  "import",
+  "acknowledge",
+  "rating",
+  "chat_confirm",
+  "chat_email",
+];
 /** Model turns. */
 const AI_KINDS: SupportJobKind[] = ["work", "article", "insights"];
 const LANE_CONCURRENCY = { fast: 3, ai: 3 } as const;
@@ -220,6 +227,10 @@ async function runJob(job: SupportJob): Promise<SupportJobOutcome> {
       return (await import("./replies.js")).runAcknowledgeJob(job);
     case "rating":
       return (await import("./ratings.js")).runRatingJob(job);
+    case "chat_confirm":
+      return (await import("./chatEmail.js")).runChatConfirmJob(job);
+    case "chat_email":
+      return (await import("./chatEmail.js")).runChatEmailJob(job);
     case "work":
     case "article":
     case "insights":

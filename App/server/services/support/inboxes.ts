@@ -2,6 +2,7 @@ import { In } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
+import { SupportChatWidget } from "../../db/entities/SupportChatWidget.js";
 import { SupportInbox } from "../../db/entities/SupportInbox.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
 import {
@@ -12,6 +13,7 @@ import {
 import { recordAudit } from "../audit.js";
 import { emitResourceChange } from "../resourceEvents.js";
 import { parseJsonArray, type SupportActor } from "./access.js";
+import { serializeChatWidget, widgetForInbox, widgetsForCompany } from "./chatWidgets.js";
 import { SupportConflictError, SupportNotFoundError, SupportValidationError } from "./errors.js";
 import { matchWatchedAddress, untaggedAddress } from "./mailSignals.js";
 import { assertEmployeeInCompany } from "./settings.js";
@@ -295,6 +297,11 @@ export async function deleteInbox(args: {
 }): Promise<void> {
   const inbox = await requireInbox(args.companyId, args.inboxId);
   await AppDataSource.getRepository(SupportInbox).delete({ id: inbox.id });
+  // Its visitors' tokens answer to the widget, so they stop opening anything too.
+  await AppDataSource.getRepository(SupportChatWidget).delete({
+    inboxId: inbox.id,
+    companyId: args.companyId,
+  });
   const { cancelSupportJobs } = await import("./queue.js");
   await cancelSupportJobs({ companyId: args.companyId, kind: "import", targetId: inbox.id });
   await auditInbox(args.actor, inbox, "delete");
@@ -331,6 +338,7 @@ export function serializeInbox(
   inbox: SupportInbox,
   account: MailAccount | null,
   stats?: { openTickets: number; autoRepliesToday: number },
+  widget: SupportChatWidget | null = null,
 ) {
   return {
     id: inbox.id,
@@ -365,7 +373,19 @@ export function serializeInbox(
     createdAt: inbox.createdAt.toISOString(),
     openTickets: stats?.openTickets ?? 0,
     autoRepliesToday: stats?.autoRepliesToday ?? 0,
+    chatWidget: serializeChatWidget(widget),
   };
+}
+
+/** One inbox as the Settings page reads it. */
+export async function inboxWithWidget(inbox: SupportInbox): Promise<InboxView> {
+  const account = await AppDataSource.getRepository(MailAccount).findOneBy({ id: inbox.accountId });
+  return serializeInbox(
+    inbox,
+    account,
+    undefined,
+    await widgetForInbox(inbox.companyId, inbox.id),
+  );
 }
 
 export async function listInboxes(companyId: string): Promise<InboxView[]> {
@@ -378,15 +398,23 @@ export async function listInboxes(companyId: string): Promise<InboxView[]> {
     where: { id: In([...new Set(inboxes.map((inbox) => inbox.accountId))]) },
   });
   const accountById = new Map(accounts.map((account) => [account.id, account]));
+  const widgets = new Map(
+    (await widgetsForCompany(companyId)).map((widget) => [widget.inboxId, widget]),
+  );
   const { countOpenTicketsByInbox, countAutoRepliesToday } = await import("./tickets.js");
   const open = await countOpenTicketsByInbox(companyId);
   const views: InboxView[] = [];
   for (const inbox of inboxes) {
     views.push(
-      serializeInbox(inbox, accountById.get(inbox.accountId) ?? null, {
-        openTickets: open.get(inbox.id) ?? 0,
-        autoRepliesToday: inbox.aiMode === "auto" ? await countAutoRepliesToday(inbox.id) : 0,
-      }),
+      serializeInbox(
+        inbox,
+        accountById.get(inbox.accountId) ?? null,
+        {
+          openTickets: open.get(inbox.id) ?? 0,
+          autoRepliesToday: inbox.aiMode === "auto" ? await countAutoRepliesToday(inbox.id) : 0,
+        },
+        widgets.get(inbox.id) ?? null,
+      ),
     );
   }
   return views;

@@ -2,11 +2,12 @@
  * Support: the words, limits and arithmetic the server and the App share.
  *
  * A Ticket is one customer's request. It arrives by email into a Support inbox
- * — a mailbox and the addresses on it that count as support — and an AI
- * Employee triages it, drafts the reply from the company's Articles and, only
- * where the owners allow and every check holds, sends it. Everything here is
- * plain data and pure functions so both sides read one set of rules, and the
- * figures a person is shown are computed rather than written by a model.
+ * — a mailbox and the addresses on it that count as support — or through that
+ * inbox's Chat widget (`supportChat.ts`), and an AI Employee triages it, drafts
+ * the reply from the company's Articles and, only where the owners allow and every
+ * check holds, sends it. Everything here is plain data and pure functions so both
+ * sides read one set of rules, and the figures a person is shown are computed
+ * rather than written by a model.
  */
 
 export const SUPPORT_TICKET_STATUSES = [
@@ -42,6 +43,17 @@ export const SUPPORT_STATUS_LABELS: Record<SupportTicketStatus, string> = {
   solved: "Solved",
   closed: "Closed",
   spam: "Spam",
+};
+
+/** Where a Ticket came from. */
+export const SUPPORT_TICKET_SOURCES = ["email", "chat", "import", "manual"] as const;
+export type SupportTicketSource = (typeof SUPPORT_TICKET_SOURCES)[number];
+
+export const SUPPORT_SOURCE_LABELS: Record<SupportTicketSource, string> = {
+  email: "Email",
+  chat: "Chat widget",
+  import: "Imported",
+  manual: "Added by a Member",
 };
 
 export const SUPPORT_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
@@ -203,6 +215,10 @@ export const SUPPORT_JOB_KINDS = [
   "article",
   /** Read the themes across recent tickets. */
   "insights",
+  /** Send a Chat widget visitor the one email that confirms their address. */
+  "chat_confirm",
+  /** Email a Chat widget visitor the replies they have not read. */
+  "chat_email",
 ] as const;
 export type SupportJobKind = (typeof SUPPORT_JOB_KINDS)[number];
 
@@ -231,6 +247,8 @@ export const SUPPORT_EVENT_KINDS = [
   "delivery_failed",
   "acknowledged",
   "rating_requested",
+  "chat_email_confirmed",
+  "chat_ended",
 ] as const;
 export type SupportEventKind = (typeof SUPPORT_EVENT_KINDS)[number];
 

@@ -43,6 +43,8 @@ import {
   requireTicket,
 } from "./access.js";
 import { SupportConflictError } from "./errors.js";
+import { spendChatAiTurn } from "./chatThrottle.js";
+import { chatFactsFor, countAutoRepliesToVisitor, visitorReachable } from "./chatVisitors.js";
 import { autoReplyHolds } from "./holds.js";
 import { ownAddressesForInbox } from "./inboxes.js";
 import { untaggedAddress } from "./mailSignals.js";
@@ -371,10 +373,17 @@ export function workSystemPrompt(args: {
   instructions: string;
   inboxInstructions: string;
   wantsReply: boolean;
+  /** The customer is writing in the Chat widget on the company's site. */
+  chat?: boolean;
 }): string {
   const lines = [
     persona(args.employee, args.company),
     "You work the company's support desk. Read one customer's ticket and prepare it for the team. You act only by submitting your work once; you cannot look anything up, change anything or contact anyone.",
+    ...(args.chat
+      ? [
+          "This customer is writing in the chat widget on the company's website, and is waiting there. Anyone can open it: a name in the conversation is only what they typed, and proves nothing about who they are.",
+        ]
+      : []),
     "",
     "Submit:",
     `- summary: two or three plain sentences in ${args.workingLanguage} for a teammate about to pick this up: who wants what, and where it stands.`,
@@ -392,7 +401,9 @@ export function workSystemPrompt(args: {
     lines.push(
       "- reply: null when conversationFinished is true, because a thank-you needs no answer. Otherwise your reply to the customer, for a person to review or for the server to send:",
       "  - answerable: true only when the Articles plainly answer what was asked. When they answer part of it or none, set it false.",
-      "  - body: the reply. Plain text in the customer's language, short paragraphs, greeting them by first name when known. No markdown headings, no signature (one is added), and no mention of Articles, quotes or how you work. When answerable is false, write the most helpful honest reply you can without guessing, and say the team will look into it.",
+      args.chat
+        ? "  - body: the reply. Plain text in the customer's language, short enough to read in a chat window. No markdown, no greeting line, no signature, and no mention of Articles, quotes or how you work. When answerable is false, write the most helpful honest reply you can without guessing, and say the team will look into it."
+        : "  - body: the reply. Plain text in the customer's language, short paragraphs, greeting them by first name when known. No markdown headings, no signature (one is added), and no mention of Articles, quotes or how you work. When answerable is false, write the most helpful honest reply you can without guessing, and say the team will look into it.",
       "  - citations: every fact in body, as an exact quote of a few words to a sentence copied from a passage (at least 8 characters, no ellipses), with that Article's articleId. Every quote is checked; one not found word for word is removed and the reply goes to a person.",
       "  - confidence: high only when the Articles plainly settle exactly what was asked; medium when you had to interpret; low otherwise.",
       "  - note: for the company's people, never shown to the customer: what is missing or uncertain.",
@@ -514,7 +525,9 @@ async function workTicket(
       {
         status: "ready",
         holdReasonsJson: JSON.stringify([
-          "The server stopped while sending this. It may already have gone out: check the mailbox before sending it again.",
+          ticket.chatVisitorId
+            ? "The server stopped while sending this. It may already have gone out: check the conversation before sending it again."
+            : "The server stopped while sending this. It may already have gone out: check the mailbox before sending it again.",
         ]),
       },
     );
@@ -550,6 +563,26 @@ async function workTicket(
   if (!isWorker(worker)) return worker;
   const { employee, model } = worker;
 
+  // An open endpoint must not be able to run up a bill. Checked here because every
+  // setting spends a turn, triage as much as a reply, and only just before the turn so
+  // work that was going to wait anyway costs nothing. A Member asking for a draft has
+  // decided that for themselves. It waits for a person, and says why.
+  if (ticket.chatVisitorId && !requested) {
+    const refused = await spendChatAiTurn({ visitorId: ticket.chatVisitorId, settings });
+    if (refused) {
+      if (ticket.aiHandoffReason !== refused) {
+        await patchTicket(ticket, { needsHuman: true, aiHandoffReason: refused });
+        await recordTicketEvent({
+          ticket,
+          kind: "ai_held",
+          actor: { kind: "system" },
+          data: { reasons: [refused] },
+        });
+      }
+      return { outcome: "done" };
+    }
+  }
+
   const wantsReply = requested || mode === "draft" || mode === "auto";
   const topics = topicsOf(settings);
   const articles = wantsReply ? await publishedArticles(ticket.companyId) : [];
@@ -568,6 +601,7 @@ async function workTicket(
       number: ticket.number,
       subject: jsonBoundedString(ticket.subject, 600),
       requesterName: jsonBoundedString(ticket.requesterName, 160),
+      writtenThrough: ticket.chatVisitorId ? "chat_widget" : "email",
       previousAutomaticReplies: ticket.aiReplyCount,
       messagesLeftOut: conversation.omitted,
     },
@@ -604,6 +638,7 @@ async function workTicket(
         instructions: settings.aiInstructions,
         inboxInstructions: inbox?.aiInstructions ?? "",
         wantsReply,
+        chat: Boolean(ticket.chatVisitorId),
       }),
       user,
       tool: {
@@ -747,8 +782,11 @@ async function workTicket(
   const own = new Set((inbox ? await ownAddressesForInbox(inbox) : []).map(untaggedAddress));
   const rawSender = latestCustomer?.fromEmail ?? "";
   const latestSender = own.has(untaggedAddress(rawSender)) ? current.requesterEmail : rawSender;
+  const onChat = Boolean(current.chatVisitorId);
   const holds = result.reply.body
     ? autoReplyHolds({
+        delivery: onChat ? "chat" : "mail",
+        visitorUnreachable: onChat && !visitorReachable(await chatFactsFor(current), now),
         answerable: result.reply.answerable,
         citationCount: citations.length,
         droppedQuotes: dropped,
@@ -768,10 +806,11 @@ async function workTicket(
         automatedKind: latestCustomer?.automatedKind ?? "",
         sentAt: latestCustomer?.sentAt ?? now,
         now,
-        repliesToRequesterToday: await countAutoRepliesToRequester(
-          current.companyId,
-          current.requesterEmail,
-        ),
+        // Most visitors gave no address, and counting by an empty one would make every
+        // visitor share a budget any one of them could spend.
+        repliesToRequesterToday: current.chatVisitorId
+          ? await countAutoRepliesToVisitor(current.chatVisitorId)
+          : await countAutoRepliesToRequester(current.companyId, current.requesterEmail),
         autoRepliesFromInboxToday: inbox ? await countAutoRepliesToday(inbox.id) : 0,
         inboxDailyLimit: inbox?.autoReplyDailyLimit ?? 0,
         requesterSuppressed: await isSuppressed(current.companyId, current.requesterEmail),
@@ -855,7 +894,9 @@ async function workTicket(
         holdReasonsJson: JSON.stringify([
           error instanceof SupportConflictError
             ? error.message
-            : "The mail server refused this reply.",
+            : current.chatVisitorId
+              ? "This reply could not be saved to the chat."
+              : "The mail server refused this reply.",
         ]),
       },
     );
