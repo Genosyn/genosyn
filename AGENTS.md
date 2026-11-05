@@ -272,6 +272,7 @@ code, UI copy, commits, and docs.
 | **Ticket** (one customer's request to the company, handled in Support — `SupportTicket`; the customer who wrote is its **requester**) | Case, Issue, Conversation, Inquiry; never "Task" |
 | **Support inbox** (a mailbox and the addresses on it that count as support — `SupportInbox`, holding no credential of its own) | Queue, Channel, Connection, Shared inbox |
 | **Article** (one piece of what the company knows, written for answering customers; published ones are the only company knowledge an AI reply reads — `SupportArticle`) | Doc, FAQ, KB entry, Resource |
+| **Help center** (a company's published Articles, readable by anyone at `/help/<company-slug>` once an owner or admin turns it on — `SupportSettings.helpCenterEnabled`) | Knowledge base, KB, FAQ site, Docs site, Portal |
 | **Saved reply** (a reply a Member writes once and inserts into the composer, with blanks — `SupportSavedReply`) | Macro, Canned response, Template, Snippet |
 | **Topic** (what a Ticket is about, and what follows from that: who holds it, whether a reply may go out on its own — a `SupportTopic` in Support's settings) | Category, Tag, Label, Queue |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
@@ -841,6 +842,26 @@ Trigger on `support_ticket` fires when a customer writes, never on the updates a
 Routine's own work makes. Keep those boundaries: do not show a reply turn anything
 it could not safely repeat to whoever wrote the email, give it a tool, let a model
 decide a send, retry a send on a guess, or create a Contact from an email.
+
+**A help center shows what was published, to anyone, and nothing else.** It is off
+until an owner or admin turns it on, from Support → Settings and by no AI tool, and
+off answers exactly like a company that never existed: a draft, another company's
+Article and a malformed slug or id all give the one 404 (`routes/publicHelpCenter.ts`),
+counted against the address. Everything reads through `published()`
+(`services/support/helpCenter.ts`) and answers field by field, so an Article's source
+Ticket, authors and citation counts cannot reach a stranger, and a Topic shows only
+its name, only once it has a published Article. A public request writes nothing to a
+company: not `getSupportSettings`, which makes the row. A read leaves no throttle row
+either. A paging cursor is not signed, so one is checked before it reaches a query:
+on Postgres a non-uuid id raises 22P02 and a NUL raises 22021, each a 500 anyone could
+ask for, and SQLite shows neither, so `scripts/testSaasPostgres.ts` runs them for real.
+Search is throttled by address and answers no `total`. Its pages are `noindex` and
+never cached on purpose: search engines keep a copy after the switch goes off or an
+Article is taken back, so indexing would be its own switch with its own server-rendered
+pages. Because publishing now reaches the public, a turn that read a Ticket has its
+publish held as an Approval (`CONDITIONAL_TAINT_SINK_TOOLS`, decided in the tool since
+a draft reaches nobody). Do not read an Article's other columns into an answer, drop
+the `noindex`, cache a page, or start AI work from one.
 
 **A group discussion talks; it does not act.** Several AI Employees take turns
 on one Member's question in a Workspace channel — in a group chat every Member

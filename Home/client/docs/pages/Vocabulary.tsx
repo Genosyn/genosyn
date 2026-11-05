@@ -380,6 +380,16 @@ export function Vocabulary() {
             def: "An answer the company has written down. Published Articles are all an AI Employee working a Ticket can tell a customer, and every quote it uses is checked against one, word for word.",
           },
           {
+            term: "Help center",
+            def: (
+              <>
+                A company&apos;s published Articles on a public page anyone can read with no
+                sign-in, once an owner or admin turns it on. See{" "}
+                <DocLink to="/docs/help-center">Help center</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "Saved reply",
             def: "An answer a Member writes once and inserts from the composer, with blanks such as the customer's first name filled in.",
           },

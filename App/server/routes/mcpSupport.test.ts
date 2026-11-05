@@ -30,7 +30,11 @@ import { composeSupportContext } from "../services/support/grants.js";
 import { createArticle } from "../services/support/knowledge.js";
 import { setSupportQueueAutoKickForTests } from "../services/support/queue.js";
 import { setSupportMailboxForTests } from "../services/support/replies.js";
-import { TAINT_SINK_TOOLS, isTaintSource } from "../services/taintPolicy.js";
+import {
+  TAINT_SINK_TOOLS,
+  isTaintSource,
+  parseTaintedToolPayload,
+} from "../services/taintPolicy.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { FakeMailbox } from "../test/fakeMailbox.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
@@ -386,6 +390,55 @@ describe("what each level may do", () => {
     });
     assert.equal(approval.kind, "tainted_tool");
     assert.equal(mailbox.calls.length, 0, "nothing went out");
+  });
+
+  test("a turn that read a ticket drafts freely, but its publishing waits for a person", async () => {
+    await grant("reply");
+    const existing = await tool<{ article: { id: string } }>("create_support_article", {
+      title: "Already public",
+      body: "Words",
+      publish: true,
+    });
+    assert.equal(existing.status, 200, "an untainted turn publishes as it always has");
+    const open = await ticket();
+    assert.equal((await tool("get_support_ticket", { ticketId: open.id })).status, 200);
+    assert.equal(isTokenTainted(token), true);
+
+    const articles = AppDataSource.getRepository(SupportArticle);
+    const drafted = await tool<{ article: { id: string; status: string } }>(
+      "create_support_article",
+      { title: "From this ticket", body: "Words" },
+    );
+    assert.equal(drafted.body.article.status, "draft", "a draft reaches nobody");
+    const edited = await tool("update_support_article", {
+      articleId: drafted.body.article.id,
+      body: "Better words",
+    });
+    assert.equal(edited.status, 200, "nor does changing one");
+    assert.equal((await articles.findOneByOrFail({ id: drafted.body.article.id })).body, "Better words");
+
+    const calls: Array<[string, Record<string, unknown>]> = [
+      ["create_support_article", { title: "Call this number", body: "Words", publish: true }],
+      ["update_support_article", { articleId: drafted.body.article.id, status: "published" }],
+      ["update_support_article", { articleId: existing.body.article.id, body: "Defaced" }],
+      ["update_support_article", { articleId: existing.body.article.id, title: "Defaced" }],
+    ];
+    for (const [name, args] of calls) {
+      const held = await tool<{ status: string; approvalId: string }>(name, args);
+      assert.equal(held.body.status, "pending_approval", `${name} ${JSON.stringify(args)}`);
+      const approval = await AppDataSource.getRepository(Approval).findOneByOrFail({
+        id: held.body.approvalId,
+      });
+      assert.equal(approval.kind, "tainted_tool");
+      // What a person approves is replayed verbatim, so the replay must accept it.
+      assert.equal(parseTaintedToolPayload(approval.payloadJson).tool, name);
+    }
+
+    assert.equal((await articles.countBy({ title: "Call this number" })), 0);
+    assert.equal((await articles.findOneByOrFail({ id: drafted.body.article.id })).status, "draft");
+    const untouched = await articles.findOneByOrFail({ id: existing.body.article.id });
+    assert.equal(untouched.body, "Words");
+    assert.equal(untouched.title, "Already public");
   });
 
   test("spam stays shut, and another company's tickets are simply not there", async () => {

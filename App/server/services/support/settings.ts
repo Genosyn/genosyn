@@ -145,6 +145,7 @@ export type SupportSettingsPatch = {
   slaEnabled?: boolean;
   businessHours?: SupportBusinessHours | null;
   ratingsEnabled?: boolean;
+  helpCenterEnabled?: boolean;
   autoCloseDays?: number;
   autoSolveDays?: number;
 };
@@ -242,6 +243,7 @@ export async function updateSupportSettings(
     fields.businessHoursJson = patch.businessHours ? JSON.stringify(patch.businessHours) : null;
   }
   if (patch.ratingsEnabled !== undefined) fields.ratingsEnabled = patch.ratingsEnabled;
+  if (patch.helpCenterEnabled !== undefined) fields.helpCenterEnabled = patch.helpCenterEnabled;
   if (patch.autoCloseDays !== undefined) fields.autoCloseDays = patch.autoCloseDays;
   if (patch.autoSolveDays !== undefined) fields.autoSolveDays = patch.autoSolveDays;
   if (Object.keys(fields).length > 0) {
@@ -255,7 +257,13 @@ export async function updateSupportSettings(
       targetType: "support_settings",
       targetId: settings.id,
       targetLabel: "Support settings",
-      metadata: { fields: Object.keys(fields) },
+      metadata: {
+        fields: Object.keys(fields),
+        // Which way it went: this is what puts Articles in front of the public.
+        ...(fields.helpCenterEnabled === undefined
+          ? {}
+          : { helpCenterEnabled: fields.helpCenterEnabled }),
+      },
     });
     emitResourceChange(companyId, "support_settings", undefined, { trigger: false });
   }
@@ -275,6 +283,7 @@ export function serializeSupportSettings(settings: SupportSettings) {
     slaEnabled: settings.slaEnabled,
     businessHours: businessHoursOf(settings),
     ratingsEnabled: settings.ratingsEnabled,
+    helpCenterEnabled: settings.helpCenterEnabled,
     autoCloseDays: settings.autoCloseDays,
     autoSolveDays: settings.autoSolveDays,
     insights: insightsOf(settings),

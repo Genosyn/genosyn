@@ -1277,7 +1277,7 @@ export const PRODUCTS: ProductDef[] = [
       {
         icon: "bookOpenCheck",
         title: "What no Article answers becomes the next Article",
-        body: "Knowledge lists what customers asked in the last 30 days that no Article answers, most-asked first, with Write it beside each. From a Ticket, Write an Article from this has the AI Employee write a draft for a Member to publish. Saved replies, with blanks for names and numbers, cover what your team writes by hand.",
+        body: "Knowledge lists what customers asked in the last 30 days that no Article answers, most-asked first, with Write it beside each. From a Ticket, Write an Article from this has the AI Employee write a draft for a Member to publish. Saved replies, with blanks for names and numbers, cover what your team writes by hand. Turn on a help center and customers can read and search what you published for themselves.",
       },
       {
         icon: "clock",
@@ -1327,7 +1327,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Is there a public help center or a chat widget?",
-        a: "No. Support works email today. Articles are not published on a site of their own: they are what your team and the AI Employee answer from, and a customer sees them through the replies that quote them.",
+        a: "A help center, once you turn it on. An owner or admin switches it on under Support → Settings, and anyone with the link can then read and search your published Articles at /help/your-company, with no sign-in. Drafts, Tickets and who wrote what stay private, and search engines are asked not to list it. There is no chat widget: Support works email today.",
       },
       {
         q: "What happens when the AI Model is down?",
@@ -1346,6 +1346,7 @@ export const PRODUCTS: ProductDef[] = [
       "open source Zendesk alternative",
       "AI ticket triage",
       "knowledge base answers with citations",
+      "self-hosted help center",
     ],
   },
 

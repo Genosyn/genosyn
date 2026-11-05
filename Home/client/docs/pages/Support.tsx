@@ -261,8 +261,9 @@ export function Support() {
         <Strong>New Article</Strong>, give it a <Strong>Title</Strong>, a <Strong>Topic</Strong> if
         one fits and the <Strong>Answer</Strong>, then <Strong>Save draft</Strong> or{" "}
         <Strong>Publish</Strong>. Only published Articles are read, so what is published is what
-        customers can be told. <Strong>Unpublish</Strong> takes one back. Support has no public help
-        center: a customer sees an Article only through the replies that quote it.
+        customers can be told. <Strong>Unpublish</Strong> takes one back. A customer sees an Article
+        through the replies that quote it or, once you turn it on, on your public{" "}
+        <DocLink to="/docs/help-center">help center</DocLink>.
       </P>
       <P>
         <Strong>Asked, and no Article answers it</Strong> lists the last 30 days&apos; questions
@@ -366,7 +367,8 @@ export function Support() {
       <P>
         A Ticket holds what a stranger wrote. Listing or reading Tickets marks the turn under the{" "}
         <DocLink to="/docs/policies#taint-policy">taint policy</DocLink>, so a reply sent in that
-        turn is held as an Approval for a person. The do-not-email list and the company&apos;s
+        turn is held as an Approval for a person, and so is publishing an Article or changing a
+        published one&apos;s words. The do-not-email list and the company&apos;s
         Policies apply to every reply. Replies that go out on their own come only from the
         inbox&apos;s restricted turn.
       </P>

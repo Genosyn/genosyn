@@ -89,6 +89,7 @@ import {
   slaTargetsSchema,
   updateSupportSettings,
 } from "../services/support/settings.js";
+import { helpCenterUrl } from "../services/support/helpCenter.js";
 import {
   bulkUpdateTickets,
   listTickets,
@@ -745,6 +746,7 @@ const settingsBody = z
     slaEnabled: z.boolean().optional(),
     businessHours: businessHoursSchema.nullable().optional(),
     ratingsEnabled: z.boolean().optional(),
+    helpCenterEnabled: z.boolean().optional(),
     autoCloseDays: z.number().int().min(0).max(365).optional(),
     autoSolveDays: z.number().int().min(0).max(365).optional(),
   })
@@ -754,7 +756,12 @@ supportRouter.get(
   "/support/settings",
   validateParams(companyParams),
   route(async (req, res) => {
-    res.json({ settings: serializeSupportSettings(await getSupportSettings(cid(req))) });
+    res.json({
+      settings: {
+        ...serializeSupportSettings(await getSupportSettings(cid(req))),
+        helpCenterUrl: await helpCenterUrl(cid(req)),
+      },
+    });
   }),
 );
 
@@ -768,7 +775,12 @@ supportRouter.patch(
       req.body as z.infer<typeof settingsBody>,
       actor(req),
     );
-    res.json({ settings: serializeSupportSettings(settings) });
+    res.json({
+      settings: {
+        ...serializeSupportSettings(settings),
+        helpCenterUrl: await helpCenterUrl(cid(req)),
+      },
+    });
   }),
 );
 

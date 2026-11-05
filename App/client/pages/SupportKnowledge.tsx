@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
 import { SkeletonList } from "@/components/ui/Skeleton";
 import { Textarea } from "@/components/ui/Textarea";
+import { clsx } from "@/components/ui/clsx";
 import { errorMessage } from "@/lib/errors";
 import { agoText, supportApi, type SupportArticle, type SupportKnowledgeGap } from "@/lib/support";
 import {
@@ -35,7 +36,7 @@ const STATUS_TONE: Record<SupportArticleStatus, "success" | "neutral" | "warning
  * list of what to write next.
  */
 export function SupportKnowledge() {
-  const { company, topics } = useOutletContext<SupportOutletContext>();
+  const { company, topics, helpCenterUrl } = useOutletContext<SupportOutletContext>();
   const api = React.useMemo(() => supportApi(company.id), [company.id]);
   const [articles, setArticles] = React.useState<SupportArticle[] | null>(null);
   const [gaps, setGaps] = React.useState<SupportKnowledgeGap[]>([]);
@@ -99,6 +100,8 @@ export function SupportKnowledge() {
           </Link>
         }
       />
+
+      {helpCenterUrl && <HelpCenterNote url={helpCenterUrl} className="mb-4" />}
 
       {gaps.length > 0 && (
         <Card className="mb-6 p-4">
@@ -257,9 +260,22 @@ export function SupportKnowledge() {
   );
 }
 
+/** With the help center on, publishing is publishing to anyone. Say so where it happens. */
+function HelpCenterNote({ url, className }: { url: string; className?: string }) {
+  return (
+    <p className={clsx("text-xs text-slate-500 dark:text-slate-400", className)}>
+      Your help center is on, so anyone can read a published Article at{" "}
+      <a href={url} target="_blank" rel="noreferrer" className="break-all underline">
+        {url}
+      </a>
+      .
+    </p>
+  );
+}
+
 /** Write or change one Article. Publishing is what lets replies quote it. */
 export function SupportArticleEditor() {
-  const { company, topics } = useOutletContext<SupportOutletContext>();
+  const { company, topics, helpCenterUrl } = useOutletContext<SupportOutletContext>();
   const { articleId } = useParams<{ articleId: string }>();
   const navigate = useNavigate();
   const dialog = useDialog();
@@ -423,6 +439,7 @@ export function SupportArticleEditor() {
           value={body}
           onChange={(event) => setBody(event.target.value)}
         />
+        {helpCenterUrl && <HelpCenterNote url={helpCenterUrl} />}
         <FormError message={error} />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>

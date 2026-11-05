@@ -103,6 +103,7 @@ import { marketingRouter } from "./routes/marketing.js";
 import { recruitingRouter } from "./routes/recruiting.js";
 import { supportRouter } from "./routes/support.js";
 import { publicSupportRouter, publicSupportSecurityHeaders } from "./routes/publicSupport.js";
+import { helpCenterSecurityHeaders, publicHelpCenterRouter } from "./routes/publicHelpCenter.js";
 import { careersRouter } from "./routes/careers.js";
 import { careersHostGuard } from "./routes/careersSite.js";
 import { unsubscribeRouter } from "./routes/unsubscribe.js";
@@ -206,6 +207,10 @@ export function createApp(): express.Express {
   // So is a customer's link to rate a ticket.
   app.use("/api/feedback", publicSupportSecurityHeaders);
   app.use("/feedback", publicSupportSecurityHeaders);
+  // A help center carries no credential, but it is kept out of search engines and
+  // caches on purpose, so its 404s must carry the same headers as its pages.
+  app.use("/api/help", helpCenterSecurityHeaders);
+  app.use("/help", helpCenterSecurityHeaders);
   app.use(express.json({ limit: "1mb" }));
   // The OAuth registration, token and revocation endpoints: called by the
   // clients' own servers with no cookie, so ahead of the session — the client
@@ -222,6 +227,9 @@ export function createApp(): express.Express {
   app.use("/api/room", publicDataRoomsRouter);
   // A customer rating a ticket: no account, no session, just their link.
   app.use("/api/feedback", publicSupportRouter);
+  // A company's public help center: no account, no session, and only what its
+  // owners turned on.
+  app.use("/api/help", publicHelpCenterRouter);
 
   let sessionMiddleware: ReturnType<typeof cookieSession> | null = null;
   let sessionMiddlewareSecret = "";

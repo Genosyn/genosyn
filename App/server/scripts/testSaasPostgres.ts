@@ -90,6 +90,107 @@ function parentMessage(command: string): Promise<void> {
   );
 }
 
+/**
+ * The public help center, against the real thing. Anyone can send these, and on
+ * Postgres an Article's id is a uuid and text cannot hold a NUL, so a value that
+ * reaches a query unchecked raises and answers 500. SQLite compares both happily,
+ * which is why the unit tests cannot say this.
+ */
+async function exerciseHelpCenter(
+  AppDataSource: (typeof import("../db/datasource.js"))["AppDataSource"],
+): Promise<void> {
+  const { default: express } = await import("express");
+  const { Company } = await import("../db/entities/Company.js");
+  const { SupportArticle } = await import("../db/entities/SupportArticle.js");
+  const { SupportSettings } = await import("../db/entities/SupportSettings.js");
+  const { errorHandler } = await import("../middleware/error.js");
+  const { publicHelpCenterRouter } = await import("../routes/publicHelpCenter.js");
+
+  const companies = AppDataSource.getRepository(Company);
+  const company = await companies.save(
+    companies.create({ name: "Help Center Postgres", slug: "help-postgres", ownerId: "o" }),
+  );
+  const settings = AppDataSource.getRepository(SupportSettings);
+  await settings.save(settings.create({ companyId: company.id, helpCenterEnabled: true }));
+  const articles = AppDataSource.getRepository(SupportArticle);
+  const rows = await articles.save(
+    ["Bravo", "Alpha", "Charlie"].map((title) =>
+      articles.create({
+        companyId: company.id,
+        title,
+        body: "shared words",
+        status: "published",
+        publishedAt: new Date(),
+      }),
+    ),
+  );
+  const draft = await articles.save(
+    articles.create({ companyId: company.id, title: "Draft", body: "shared", status: "draft" }),
+  );
+
+  const app = express();
+  app.use("/api/help", publicHelpCenterRouter);
+  app.use(errorHandler);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address() as { port: number };
+  const get = async (urlPath: string) => {
+    const response = await fetch(`http://127.0.0.1:${port}${urlPath}`);
+    return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+  };
+  try {
+    assert.equal((await get("/api/help/help-postgres")).status, 200);
+    assert.equal((await get(`/api/help/help-postgres/articles/${rows[0].id}`)).status, 200);
+    for (const urlPath of [
+      "/api/help/help-postgres/articles/not-a-uuid",
+      "/api/help/help-postgres/articles/%00",
+      `/api/help/help-postgres/articles/${draft.id}`,
+      "/api/help/ac%00me",
+      "/api/help/no-such-company",
+    ]) {
+      const answer = await get(urlPath);
+      assert.equal(answer.status, 404, urlPath);
+      assert.deepEqual(answer.body, { error: "This page is not available." }, urlPath);
+    }
+
+    const page = await get("/api/help/help-postgres/search?q=shared&limit=1");
+    assert.equal(page.status, 200);
+    assert.deepEqual(
+      (page.body.rows as Array<{ title: string }>).map((row) => row.title),
+      ["Alpha"],
+    );
+    const next = await get(
+      `/api/help/help-postgres/search?q=shared&limit=1&cursor=${String(page.body.nextCursor)}`,
+    );
+    assert.equal(next.status, 200, "a real cursor reads on");
+    assert.deepEqual(
+      (next.body.rows as Array<{ title: string }>).map((row) => row.title),
+      ["Bravo"],
+    );
+    assert.equal((await get("/api/help/help-postgres/search?q=%00shared")).status, 200);
+    assert.equal((await get("/api/help/help-postgres/search?q=%00")).status, 200);
+
+    const cursor = JSON.parse(
+      Buffer.from(String(page.body.nextCursor), "base64url").toString("utf8"),
+    ) as { k: unknown[] };
+    const rewritten = (k: unknown[]) =>
+      Buffer.from(JSON.stringify({ ...cursor, k }), "utf8").toString("base64url");
+    for (const k of [
+      ["Alpha", "not-a-uuid"],
+      ["Al\u0000pha", cursor.k[1]],
+      [1, cursor.k[1]],
+      ["Alpha"],
+    ]) {
+      const answer = await get(
+        `/api/help/help-postgres/search?q=shared&limit=1&cursor=${rewritten(k)}`,
+      );
+      assert.equal(answer.status, 400, JSON.stringify(k));
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
 async function childMain(mode: string): Promise<void> {
   const url = localPostgresUrl(process.env.GENOSYN_TEST_POSTGRES_URL);
   const dataDir = process.env.GENOSYN_TEST_DATA_DIR;
@@ -1227,6 +1328,9 @@ async function exercisePostgres(url: URL, dataDir: string): Promise<void> {
     });
     assert.equal(await resolveUserSession(expired), null);
     console.log("PASS Postgres browser sessions: individual logout, account revocation and expiry");
+
+    await exerciseHelpCenter(AppDataSource);
+    console.log("PASS Postgres help center: malformed ids, slugs, words and cursors are never a 500");
 
     const { BrowserSession } = await import("../db/entities/BrowserSession.js");
     const { reconcileOrphanedRuns } = await import("../services/runRecovery.js");
