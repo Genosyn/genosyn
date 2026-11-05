@@ -103,6 +103,7 @@ import {
   type TodoPickupCeiling,
 } from "../services/todoPickups.js";
 import { TodoPickup } from "../db/entities/TodoPickup.js";
+import { filedSince } from "../services/todoIntake.js";
 import {
   MAX_TODO_FOLLOW_UPS,
   TodoWaitError,
@@ -12727,6 +12728,9 @@ mcpInternalRouter.post(
         mcpProjectActors(req),
         { limit: body.limit, cursor: body.cursor, budgetChars: TOOL_PAGE_BUDGET_CHARS },
       );
+      if (rows.some((row) => row.heldToLimits) && !req.mcpProactiveReview) {
+        markTokenTainted(req.mcpToken!);
+      }
       res.json({
         ...info,
         note:
@@ -12756,15 +12760,17 @@ mcpInternalRouter.post(
   validateBody(getTodoSchema),
   async (req: McpRequest, res, next) => {
     try {
-      res.json(
-        await getTodoForEmployee({
-          ...(req.body as z.infer<typeof getTodoSchema>),
-          financeAccessLimit: delegatedMemberFinanceAccess(req),
-          companyId: req.mcpCompany!.id,
-          employeeId: req.mcpEmployee!.id,
-          additionalActors: mcpProjectActors(req).filter((actor) => actor.kind === "user"),
-        }),
-      );
+      const read = await getTodoForEmployee({
+        ...(req.body as z.infer<typeof getTodoSchema>),
+        financeAccessLimit: delegatedMemberFinanceAccess(req),
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        additionalActors: mcpProjectActors(req).filter((actor) => actor.kind === "user"),
+      });
+      // Outside words are in this turn now. A session held to preparing already can't act
+      // on them, and tainting it would hold the one reply an owner let it send.
+      if (read.todo.heldToLimits && !req.mcpProactiveReview) markTokenTainted(req.mcpToken!);
+      res.json(read);
     } catch (error) {
       if (!(error instanceof TodoReaderError)) return next(error);
       res.status(error.status).json({ error: error.message });
@@ -12826,6 +12832,7 @@ mcpInternalRouter.post(
     }
     if (isTokenTainted(req.mcpToken!)) await markTodoTainted(todo.id);
     await holdTodoToTurn(todo, await ownWorkCeilingOf(req, todo.id));
+    const limited = pickupCeilingOf(req);
     const repo = AppDataSource.getRepository(TodoComment);
     const comment = await repo.save(
       repo.create({
@@ -12834,6 +12841,7 @@ mcpInternalRouter.post(
         authorEmployeeId: self.id,
         body: body.body,
         pending: false,
+        fromLimitedTurn: limited.proactiveReview === true || Boolean(limited.mailDeliveryMode),
       }),
     );
     await recordAudit({
@@ -13031,6 +13039,16 @@ async function startHandedOverTodo(
   }
 }
 
+/** Filed emails have their own cap, so a flood of them can't stop a turn filing a Todo. */
+async function heldTodosFromTurnsToday(companyId: string): Promise<number> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [held, filed] = await Promise.all([
+    heldTodosSince(companyId, since),
+    filedSince(companyId, since),
+  ]);
+  return Math.max(0, held - filed);
+}
+
 const createTodoSchema = z
   .object({
     projectSlug: z.string().min(1).max(120),
@@ -13067,8 +13085,7 @@ mcpInternalRouter.post(
     // many Todos one email talks them into.
     if (
       req.mcpProactiveReview &&
-      (await heldTodosSince(co.id, new Date(Date.now() - 24 * 60 * 60 * 1000))) >=
-        MAX_HELD_TODOS_PER_COMPANY_PER_DAY
+      (await heldTodosFromTurnsToday(co.id)) >= MAX_HELD_TODOS_PER_COMPANY_PER_DAY
     ) {
       return res.status(429).json({
         error: `This company has ${MAX_HELD_TODOS_PER_COMPANY_PER_DAY} Todos from outside words filed today, so this wasn't. Put it in your report.`,

@@ -237,7 +237,9 @@ trusted-origin check, is in `App/server/index.ts`.
   or the opted-in reply; a later automatic session on such a Todo going further than
   it did (`Todo.ceilingJson` only narrows); a Member's comment, assignment, @-mention or
   Stop waiting lifting those limits, since only Use my access on the Todo does, for one
-  session; a held Todo starting a Pipeline; an API key, a plain Member or an AI tool
+  session; a queued session starting without limits its Todo has since been held to; an
+  unlimited session reading a held Todo and staying untainted; a held Todo starting a
+  Pipeline; an API key, a plain Member or an AI tool
   changing an intake; or `verifySender` accepting a sender the mailbox's own receiving
   server didn't verify (a forged lower `Authentication-Results`, or a result quoted
   inside a comment, say). It vouches for a domain, not an address, by design, and a

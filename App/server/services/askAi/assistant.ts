@@ -947,6 +947,10 @@ async function answerAsEmployee(input: {
         .filter((id): id is string => Boolean(id)),
     );
 
+    // A record with outside words on it keeps its limits, however it comes into view.
+    const held = rendered.visible.find((item) => item.heldLimits)?.heldLimits;
+    const startTainted = rendered.visible.some((item) => item.heldLimits || item.startsTainted);
+
     const runChat = args.runChat ?? streamChatWithEmployee;
     const busyRetryDelayMs = args.busyRetryDelayMs ?? BUSY_RETRY_DELAY_MS;
     const busyMaxWaitMs = args.busyMaxWaitMs ?? BUSY_MAX_WAIT_MS;
@@ -967,6 +971,13 @@ async function answerAsEmployee(input: {
           throwOnWorkloadUnavailable: true,
           requesterUserId: args.member.userId,
           requesterSessionVersion: args.requesterSessionVersion,
+          ...(startTainted ? { startTainted } : {}),
+          ...(held
+            ? {
+                proactiveReview: held.proactiveReview === true,
+                mailDeliveryMode: held.mailDeliveryMode ?? null,
+              }
+            : {}),
         });
         break;
       } catch (error) {
