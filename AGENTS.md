@@ -391,7 +391,7 @@ for a Member and an AI Employee alike (`FINANCE_KINDS`). The Todo can wait on a 
 session (`work_session`), and its turn ending wakes the Todo through
 `runRepositoryWorkSession`, with the report as data, under what the last session had. A
 check-back after a day is there for a session lost to a restart. A person's **Start
-work session** runs under that person and is refused for a Todo held to limits, since
+work session** runs under that person and is refused for a Todo with outside words on it, since
 a Work session runs commands. Do not add another way to start a Work session from a
 Todo, or make the link grant anything.
 

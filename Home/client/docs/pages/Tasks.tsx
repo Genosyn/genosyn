@@ -298,7 +298,7 @@ export function Tasks() {
         You can do the same by hand. On a todo assigned to an AI Employee with access to a
         Repository, <Strong>Start work session</Strong> starts one with the todo&apos;s text as its
         instruction, under your access. <Strong>Create task</Strong> on a session&apos;s page goes the
-        other way. A todo held to limits can&apos;t start a session, because a session runs commands
+        other way. A todo with outside words on it can&apos;t start a session, because a session runs commands
         and those words came from outside. Create a task in your own words instead.
       </P>
       <H2 id="waiting">Waiting on someone</H2>
