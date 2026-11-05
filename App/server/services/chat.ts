@@ -212,6 +212,15 @@ type ChatBaseOptions = {
    */
   mailThreadId?: string | null;
   mailDeliveryMode?: MailDeliveryMode | null;
+  /**
+   * Keep this one privileged source open under `mailDeliveryMode`, which otherwise
+   * closes every source it can't govern. Only a Todo pickup from a trusted, verified
+   * sender sets it (`services/todoIntake.ts`). The browser answers to its own host
+   * list, submit approval and Vault Grants.
+   */
+  browserUnderMailCeiling?: boolean;
+  /** Turns of one piece of work share a browser page, as a conversation's do. */
+  browserSessionKey?: string;
   proactiveReview?: boolean;
   selfReviewOnly?: boolean;
   mailHandoverId?: string | null;
@@ -1128,6 +1137,8 @@ export async function streamChatWithEmployee(
         extraToolsAuthority: helpSource ? "member" : undefined,
         conversationId: options.conversationId,
         allowPrivilegedToolSources: privilegedToolSourcesAllowed && !options.mailDeliveryMode,
+        allowBrowser: privilegedToolSourcesAllowed && options.browserUnderMailCeiling === true,
+        browserSessionKey: options.browserSessionKey,
         authorizePrivilegedToolCall,
         toolScope: repositoryWork
           ? { genosynTools: options.extraToolset ?? [], surfaceOnly: true }

@@ -230,7 +230,7 @@ function trustedDkimResults(value: string, trusted: string): TrustedDkimResult[]
   return results;
 }
 
-function authResultProperty(segment: string, property: string): string {
+export function authResultProperty(segment: string, property: string): string {
   const escaped = property.replace(".", "\\.");
   const match = segment.match(
     new RegExp(`(?:^|\\s)${escaped}\\s*=\\s*(?:"([^"]+)"|([^\\s;()]+))`, "i"),

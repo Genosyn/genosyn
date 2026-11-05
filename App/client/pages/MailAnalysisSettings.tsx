@@ -13,6 +13,7 @@ import {
 } from "../lib/mailAnalysis";
 import { MAX_MAIL_ANALYSIS_INSTRUCTIONS_LENGTH } from "../../shared/mailAnalysisInstructions";
 import { InstructionsEditor } from "../components/InstructionsEditor";
+import { MailboxIntakes } from "../components/mail/MailboxIntakes";
 import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
@@ -229,6 +230,8 @@ export function MailAnalysisSettingsCard({
               setData((current) => (current ? { ...current, ...state } : current))
             }
           />
+
+          <MailboxIntakes companyId={companyId} accountId={accountId} />
         </>
       )}
     </section>

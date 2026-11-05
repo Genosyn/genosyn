@@ -252,6 +252,48 @@ export function Tasks() {
         mail on its thread in their bell.
       </P>
 
+      <H2 id="email-intake">Email that becomes work</H2>
+      <P>
+        A Project can take incoming email by itself: the AI Employee reading each mailbox files what
+        belongs there as a todo, linked to the email, and whoever works these starts on it. It is off
+        until an owner or admin turns it on under <Strong>Project settings → Email intake</Strong>.
+        Say which email belongs there, who works it, and how to work it. Anyone can email you, so
+        nothing in an email can grant anything. What it can do is what you set here ahead of time:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "On, as it starts",
+            def: "It can research and prepare, keep its own todos, and propose replies and bigger work. A person sends each reply from the Decision stack and approves the rest, then it carries on.",
+          },
+          {
+            term: "Send replies without review",
+            def: "It may also answer without anyone reading first, on the email's own thread, to the people already on it, without attachments, at most 3 times a thread in 24 hours. It needs Send access to the mailbox. Everything else stays preparation.",
+          },
+          {
+            term: "Trusted senders",
+            def: "Mail from an address or @domain you list, which the receiving mail server verifies, runs with this employee's tools and browser under its Grants, with no one approving first. Email still follows the Replies setting. Gmail mailboxes only for now, because an IMAP mailbox can't show who verified what.",
+          },
+        ]}
+      />
+      <P>
+        For the admin job this was built for, a store emailing that an agreement needs accepting: put
+        the store&apos;s address under Trusted senders, assign someone with the login in{" "}
+        <DocLink to="/docs/vault">Vault</DocLink> and the site on their browser host list, and write
+        how to do it in the instruction. It files the todo, signs in from the saved login rather than
+        any link in the email, and reports on the thread. Leave browser approval on for an act that
+        binds the company: each submit waits for a person, the todo says{" "}
+        <Strong>Waiting on browser approval</Strong>, and your decision starts it again.
+      </P>
+      <P>
+        It also needs <DocLink to="/docs/email#analysis">AI analysis</DocLink> on for the mailbox, and
+        whoever works these needs Mail access to it. If they don&apos;t have it the todo is filed
+        unassigned and owners hear why. It reads each email once, as it arrives, and nothing else
+        files one: reading an email again, a mailbox&apos;s instructions, and older mail don&apos;t.
+        Spam, marketing, auto-replies, blocked senders and a thread with open work are never filed.
+        A reply on a thread with open work wakes that work instead, under these same limits.
+      </P>
+
       <Callout kind="warn" title="AI assignment requires a browser session.">
         Starting an AI Employee is an interactive delegation, so creating or changing an AI assignee
         requires a logged-in browser session. Personal API keys can still automate ordinary todo

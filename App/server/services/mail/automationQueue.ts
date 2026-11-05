@@ -11,6 +11,7 @@ import { applyAutomaticAnalysisActions } from "./analysisAutomation.js";
 import { hasBlockedSender } from "./blockedSenders.js";
 import { runRulesForNewMessage } from "./rules.js";
 import { reconcileProactiveDefaults } from "../proactive/defaults.js";
+import { eventCeilingForTodo, fileIntakeProposal } from "../todoIntake.js";
 import { wakeTodosForInboundMail } from "../todoWaits.js";
 
 const DISCOVERY_INTERVAL_MS = 5_000;
@@ -49,6 +50,7 @@ type MailDefaultEffectsDependencies = {
   applyRules?: typeof runRulesForNewMessage;
   dispatchReceived?: typeof dispatchEmailReceived;
   wakeTodos?: typeof wakeTodosForInboundMail;
+  fileIntake?: typeof fileIntakeProposal;
 };
 
 export async function runDefaultMailEffects(
@@ -148,14 +150,27 @@ export async function runDefaultMailEffects(
     // A reply on a thread a Todo is linked to sends its assignee back to work.
     // Follow-through is worth keeping apart from this message's other effects, so
     // anything but a pause only costs that, and the Pipelines still run.
+    //
+    // How far that session may go is the Project's email intake's to say. Waking
+    // goes first, because a thread with open work isn't filed again.
     await beforeEffect();
-    await (dependencies.wakeTodos ?? wakeTodosForInboundMail)(account, message).catch(
-      async (error) => {
+    await (dependencies.wakeTodos ?? wakeTodosForInboundMail)(account, message, {
+      ceilingFor: (todo, reply, mailbox) => eventCeilingForTodo(todo, reply, mailbox),
+    }).catch(async (error) => {
+      await assertRunnable();
+      // eslint-disable-next-line no-console
+      console.error(`[mail] waking Todos for message ${message.id} failed:`, error);
+    });
+    if (analysis) {
+      await (dependencies.fileIntake ?? fileIntakeProposal)(account, message, analysis.id, {
+        assertRunnable,
+        beforeEffect,
+      }).catch(async (error) => {
         await assertRunnable();
         // eslint-disable-next-line no-console
-        console.error(`[mail] waking Todos for message ${message.id} failed:`, error);
-      },
-    );
+        console.error(`[mail] filing message ${message.id} failed:`, error);
+      });
+    }
     await (dependencies.dispatchReceived ?? dispatchEmailReceived)(message.id, {
       failOnRejected: true,
       beforeEffect,

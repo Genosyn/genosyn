@@ -184,12 +184,43 @@ export const PROACTIVE_REVIEW_BRIEF = composeProactiveReviewBrief(
   REQUEST_DECISION_LINE,
 );
 
+/**
+ * Whether this is the one preparation session that may send: a Todo pickup with a
+ * `reply` ceiling fixed to one thread, which only a Project intake set to "Send
+ * replies without review" produces (`services/todoIntake.ts`). `send_mail` holds it
+ * to that thread and its people (`routes/mcpInternal.ts`).
+ */
+export function preparationMayReply(
+  turn:
+    | {
+        proactiveReview?: boolean;
+        mailDeliveryMode?: string | null;
+        mailThreadId?: string | null;
+        todoPickupId?: string | null;
+      }
+    | null
+    | undefined,
+): boolean {
+  return Boolean(
+    turn?.proactiveReview &&
+    turn.mailDeliveryMode === "reply" &&
+    turn.mailThreadId &&
+    turn.todoPickupId,
+  );
+}
+
+/** What that session is told, after the brief that says it can't send. */
+export const PREPARATION_REPLY_BRIEF =
+  "One exception: an owner let this work answer the email it came from without review. You may call send_mail with only threadId and bodyText, on that thread. It goes to the thread's existing participants, with no attachments, at most 3 times a day. Never put anything in a reply that the sender wouldn't already be entitled to see.";
+
 export function proactiveReviewToolError(
   enabled: boolean | undefined,
   toolName: string,
   args: Record<string, unknown> = {},
+  mayReply = false,
 ): string | null {
   if (!enabled) return null;
+  if (toolName === "send_mail" && mayReply) return null;
   const boundary =
     "Allowed factual preparation needs no approval. Stay within the supported fields and existing Grants; record or skip minor unsupported steps. Use request_work_review only for substantive work requiring a consequential human choice, with its specific stakes.";
   if (!(PROACTIVE_REVIEW_TOOLS as readonly string[]).includes(toolName))
@@ -202,8 +233,15 @@ export function proactiveReviewToolError(
   return null;
 }
 
-export function proactiveReviewToolScope(enabled: boolean | undefined): ToolScope | undefined {
+export function proactiveReviewToolScope(
+  enabled: boolean | undefined,
+  mayReply = false,
+): ToolScope | undefined {
   return enabled
-    ? { genosynTools: [...PROACTIVE_REVIEW_TOOLS], surfaceOnly: true, discovery: true }
+    ? {
+        genosynTools: [...PROACTIVE_REVIEW_TOOLS, ...(mayReply ? ["send_mail"] : [])],
+        surfaceOnly: true,
+        discovery: true,
+      }
     : undefined;
 }

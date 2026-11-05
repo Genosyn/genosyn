@@ -6,6 +6,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
+import { ProjectIntake } from "../db/entities/ProjectIntake.js";
 import {
   PROJECT_ACCESS_LEVELS,
   ProjectAccessLevel,
@@ -20,6 +21,7 @@ import {
   requireAuth,
   requireBrowserSession,
   requireCompanyMember,
+  requireCompanyRole,
   usesBearerCredential,
 } from "../middleware/auth.js";
 import { wakeTodoForMemberComment } from "../services/todoWaits.js";
@@ -36,6 +38,14 @@ import {
   stopTodoPickupsFor,
 } from "../services/todoPickups.js";
 import { kickoffTodoReview } from "../services/reviewKickoff.js";
+import {
+  PROJECT_INTAKE_PAGE,
+  ProjectIntakeError,
+  pageProjectIntakes,
+  presentProjectIntake,
+  projectIntakeInputSchema,
+  saveProjectIntake,
+} from "../services/todoIntake.js";
 import { insertTodo, spawnNextRecurrence } from "../services/todos.js";
 import {
   LINKED_TODO_PAGE,
@@ -358,6 +368,7 @@ projectsRouter.delete("/projects/:pSlug", async (req, res) => {
   await deleteTodoLinks(todoIds.map((todo) => todo.id));
   await deleteTodoPickups(todoIds.map((todo) => todo.id));
   await AppDataSource.getRepository(Todo).delete({ projectId: p.id });
+  await AppDataSource.getRepository(ProjectIntake).delete({ projectId: p.id });
   await deleteTagAssignments("project", p.id);
   await AppDataSource.getRepository(Project).delete({ id: p.id });
   await recordAudit({
@@ -1376,6 +1387,74 @@ const linkedTodosQuerySchema = z.object({
   targetId: z.string().uuid().describe("The record's id."),
   ...pageQueryShape,
 });
+
+// A Project's email intake. Anyone who can open the Project can see how it is set.
+projectsRouter.get("/projects/:pSlug/intake", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const p = await loadProjectBySlug(cid, req.params.pSlug);
+  if (!p) return res.status(404).json({ error: "Project not found" });
+  if (!(await hasProjectAccess(p, actorOf(req), "read"))) {
+    return res.status(403).json({ error: "No access to that project" });
+  }
+  const intake = await AppDataSource.getRepository(ProjectIntake).findOneBy({ projectId: p.id });
+  res.json(presentProjectIntake(intake));
+});
+
+// This is the human gate moved ahead of time, so only an owner or admin moves it,
+// signed in themselves. An API key, a connected app and an AI Employee can't.
+projectsRouter.put(
+  "/projects/:pSlug/intake",
+  requireBrowserSession,
+  requireCompanyRole("admin"),
+  validateBody(projectIntakeInputSchema),
+  async (req, res, next) => {
+    try {
+      const cid = (req.params as Record<string, string>).cid;
+      const p = await loadProjectBySlug(cid, req.params.pSlug);
+      if (!p) return res.status(404).json({ error: "Project not found" });
+      if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
+        return res.status(403).json({ error: "No access to that project" });
+      }
+      const saved = await saveProjectIntake({
+        project: p,
+        input: req.body as z.infer<typeof projectIntakeInputSchema>,
+        userId: req.userId!,
+      });
+      res.json(presentProjectIntake(saved));
+    } catch (err) {
+      if (err instanceof ProjectIntakeError) return res.status(400).json({ error: err.message });
+      next(err);
+    }
+  },
+);
+
+const projectIntakesQuerySchema = z
+  .object({
+    accountId: z.string().uuid().optional(),
+    limit: z.coerce.number().int().min(1).optional(),
+    cursor: z.string().max(4_096).optional(),
+  })
+  .strict();
+
+// Which Projects are taking email, for a mailbox's settings.
+projectsRouter.get(
+  "/project-intakes",
+  validateQuery(projectIntakesQuerySchema),
+  async (req, res, next) => {
+    try {
+      const cid = (req.params as Record<string, string>).cid;
+      const query = req.query as unknown as z.infer<typeof projectIntakesQuerySchema>;
+      const { rows, ...info } = await pageProjectIntakes(cid, actorOf(req), query.accountId, {
+        limit: query.limit,
+        cursor: query.cursor,
+      });
+      res.json({ ...info, limits: PROJECT_INTAKE_PAGE, projects: rows });
+    } catch (err) {
+      if (err instanceof ListQueryError) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 // The way back from a record to the work it started: the Todos linked to one
 // email thread, Customer or Deal, limited to the Projects the caller can open.

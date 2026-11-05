@@ -70,7 +70,13 @@ const BROWSER_DISABLED: BrowserConfig = {
  */
 export async function loadBrowserConfig(
   employeeId: string,
-  options: { routineId?: string; conversationId?: string; runId?: string },
+  options: {
+    routineId?: string;
+    conversationId?: string;
+    runId?: string;
+    /** Work that spans turns without a conversation, to come back to the same page. */
+    sessionKey?: string;
+  },
 ): Promise<BrowserConfig> {
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
   if (!employee) return BROWSER_DISABLED;
@@ -128,7 +134,7 @@ export async function loadBrowserConfig(
   const session = await createBrowserSession({
     companyId: employee.companyId,
     employeeId: employee.id,
-    conversationId: options.conversationId ?? null,
+    conversationId: options.sessionKey ?? options.conversationId ?? null,
     runId: options.runId ?? null,
     memberBrowserId: memberBrowser?.id ?? null,
   });

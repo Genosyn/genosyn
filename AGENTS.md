@@ -254,6 +254,8 @@ code, UI copy, commits, and docs.
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
 | **Pickup** (one session an AI Employee spends on one Todo — `TodoPickup`) | Run (a Routine's), Work session (a Repository's), Job, Attempt, Kickoff |
 | **Waiting** (an `in_progress` Todo paused for a customer's reply, a person, a Decision, a review or a date — `Todo.waitingOn`; never a Todo status of its own) | Blocked, Snoozed, Paused, On hold |
+| **Email intake** (a Project's setting for which email becomes its Todos and how far they may go — `ProjectIntake`) | Inbox rule, Routing rule, Auto-triage |
+| **Trusted sender** (an address or `@domain` on an Email intake whose receiving-server-verified mail may use the employee's tools and browser) | Allowlist, Safe sender, VIP |
 | **Work queue** (an AI Employee's queued Runs and Pickups; for Pickups, the `todo_pickups` table itself, which the scheduler's heartbeat starts) | Backlog (a Todo status), Inbox, Scheduler |
 | **Todo link** (a Todo's link to the record it came from or is about — an email thread, Customer, Contact, Deal, Decision, Meeting or Run; `TodoLink`, one of which may be its **source**) | Relation, Reference, Attachment |
 | **Goal** (a measurable objective — `Goal`, linked from `Routine.goalId`) | Objective, OKR, KPI, Target (as a noun) |
@@ -328,6 +330,29 @@ Three checks with no reply and the employee must close the Todo or ask a person.
 Do not add a Todo status for waiting, wake a session above preparation on an
 inbound email without an owner having asked for it in advance, or schedule a
 check-back any way but a Pickup.
+
+**An email grants nothing; an owner moves the gate ahead of time.** A
+`ProjectIntake` (`services/todoIntake.ts`) is the only thing that widens what an
+email can start, one per Project, off by default, written by an owner or admin from
+a browser session, and by no AI tool, for the same reason none writes a Check. It
+rides the arrival read: the model picks a number from the closed list of Projects
+with intake on, and the server resolves it, files the Todo through
+`services/todos.ts`, links the thread and queues the Pickup, once, on arrival only.
+`eventPickupCeiling` is the whole policy and it is pure: by default preparation
+scope with review-only replies; `replyMode: send` lets `send_mail` answer the source
+thread only, to its existing participants worked out by the server, with no
+attachments, at most 3 a day, under a Send Grant; a trusted sender verified by the
+receiving server (`services/mail/senderVerification.ts`, topmost
+`Authentication-Results` only, and only for a mailbox whose server can be named)
+gets the employee's tools plus the browser, and nothing else a delivery ceiling
+closes. `TodoPickup.trustedSender` narrows like the rest of a ceiling and isn't
+inherited. Do not widen a mailbox's instructions list
+(`mail/analysisAutomation.ts`) to do this, let the model name a target, give an AI
+tool a way to read or write an intake, treat `From:` as evidence, let an email's
+Pickup send any other way, or file from anything but the arrival read. A browser
+action a Pickup queues for approval ends the session with its Todo waiting; the
+decision starts it again on the same page (`browserSessionKey`), held open for 2
+hours, because approving only lets the session fire it.
 
 **"Connection" stays reserved** for one authenticated account inside an
 Integration. An app a Member approved through OAuth to use the Genosyn MCP

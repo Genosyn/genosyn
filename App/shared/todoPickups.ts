@@ -20,6 +20,8 @@ export type TodoPickupTrigger =
   | "wait_over"
   /** A new email arrived on a thread linked to the Todo. */
   | "email_reply"
+  /** A Project's email intake filed this Todo from an email. */
+  | "email_intake"
   /** A Member answered on the thread while it waited on a person. */
   | "member_comment"
   /** A Member ended the wait from the Todo's panel. */
@@ -36,6 +38,7 @@ export type TodoWaitKind =
   | "decision"
   | "mail_review"
   | "work_review"
+  | "browser_approval"
   | "date";
 
 export const TODO_WAIT_LABEL: Record<TodoWaitKind, string> = {
@@ -44,6 +47,7 @@ export const TODO_WAIT_LABEL: Record<TodoWaitKind, string> = {
   decision: "Waiting on a Decision",
   mail_review: "Waiting on email review",
   work_review: "Waiting on work review",
+  browser_approval: "Waiting on browser approval",
   date: "Waiting until a date",
 };
 
@@ -65,6 +69,7 @@ export const TODO_PICKUP_TRIGGER_LABEL: Record<TodoPickupTrigger, string> = {
   left_open: "Left unfinished",
   wait_over: "Checking back",
   email_reply: "New email",
+  email_intake: "Filed from email",
   member_comment: "A person answered",
   wait_stopped: "Told to carry on",
   decision_answered: "Decision answered",

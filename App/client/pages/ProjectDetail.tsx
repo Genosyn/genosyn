@@ -82,6 +82,7 @@ import {
   STATUS_LABEL,
   STATUS_ORDER,
 } from "../components/todos/todoShared";
+import { ProjectIntakeTab } from "@/components/todos/ProjectIntakeTab";
 import { TodoDetailPanel } from "../components/todos/TodoDetail";
 
 type ProjectTodos = { project: Project; todos: Todo[] };
@@ -1474,7 +1475,7 @@ function ProjectSettingsModal({
   onSaved: () => Promise<void>;
   onDeleted: () => void;
 }) {
-  const [tab, setTab] = React.useState<"general" | "access" | "history">("general");
+  const [tab, setTab] = React.useState<"general" | "access" | "intake" | "history">("general");
   // A viewer served with `read` can't write anything here — the server would
   // 403 every one of these controls, so don't offer them.
   const canEdit = project.myAccessLevel !== "read";
@@ -1493,6 +1494,9 @@ function ProjectSettingsModal({
         </TabButton>
         <TabButton active={tab === "access"} onClick={() => setTab("access")}>
           <Users size={12} /> Access
+        </TabButton>
+        <TabButton active={tab === "intake"} onClick={() => setTab("intake")}>
+          <Mail size={12} /> Email intake
         </TabButton>
         <TabButton active={tab === "history"} onClick={() => setTab("history")}>
           <HistoryIcon size={12} /> History
@@ -1524,6 +1528,13 @@ function ProjectSettingsModal({
           canEdit={canEdit}
           onClose={onClose}
           onSaved={onSaved}
+        />
+      ) : tab === "intake" ? (
+        <ProjectIntakeTab
+          company={company}
+          project={project}
+          employees={employees}
+          members={members}
         />
       ) : (
         <RecordHistory
