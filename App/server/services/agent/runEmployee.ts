@@ -43,7 +43,12 @@ import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 import { CompanyAgentCapacityError, withCompanyAgentCapacity } from "../companyAgentCapacity.js";
 import { issueDelegatedMcpToken, resolveMcpToken, revokeMcpToken } from "../mcpTokens.js";
 import { selfReviewToolScope } from "../proactive/reviewPolicy.js";
-import { proactiveReviewBrief, proactiveReviewToolScope } from "../proactive/workReviewPolicy.js";
+import {
+  PREPARATION_REPLY_BRIEF,
+  preparationMayReply,
+  proactiveReviewBrief,
+  proactiveReviewToolScope,
+} from "../proactive/workReviewPolicy.js";
 import { collaborationToolScope } from "../collaborationScope.js";
 import { decisionStackStateOf, getDecisionStackState } from "../decisionStackSettings.js";
 
@@ -115,6 +120,10 @@ export type EmployeeAgentParams = {
    * them; ordinary interactive Members stay on the governed Genosyn surface.
    */
   allowPrivilegedToolSources?: boolean;
+  /** The browser alone, when the privileged sources are otherwise closed. */
+  allowBrowser?: boolean;
+  /** Work that spans turns without a conversation, to come back to the same page. */
+  browserSessionKey?: string;
   /** Re-check administrative Member authority before every ambient tool call. */
   authorizePrivilegedToolCall?: PrivilegedToolCallAuthorizer;
   /**
@@ -278,7 +287,7 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
   // way a review is: the token decides, whatever scope the caller passed.
   const reviewScope =
     selfReviewToolScope(tokenInfo?.selfReviewOnly) ??
-    proactiveReviewToolScope(tokenInfo?.proactiveReview) ??
+    proactiveReviewToolScope(tokenInfo?.proactiveReview, preparationMayReply(tokenInfo)) ??
     collaborationToolScope(tokenInfo?.collaboration);
   if (tokenInfo?.proactiveReview) {
     // The brief follows the company's live Decision stack settings, so a
@@ -286,7 +295,11 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     const decisionStack =
       (await getDecisionStackState(tokenInfo.companyId).catch(() => null)) ??
       decisionStackStateOf({});
-    params = { ...params, system: `${params.system}\n\n${proactiveReviewBrief(decisionStack)}` };
+    const brief = [
+      proactiveReviewBrief(decisionStack),
+      ...(preparationMayReply(tokenInfo) ? [PREPARATION_REPLY_BRIEF] : []),
+    ].join("\n");
+    params = { ...params, system: `${params.system}\n\n${brief}` };
   }
   if (reviewScope) {
     params = {
@@ -392,6 +405,8 @@ async function runEmployeeTurn(params: EmployeeAgentParams): Promise<EmployeeAge
     runId: params.runId,
     signal: params.signal,
     allowPrivilegedToolSources: params.allowPrivilegedToolSources,
+    allowBrowser: params.allowBrowser,
+    browserSessionKey: params.browserSessionKey,
     authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
     toolScope: params.toolScope,
     nativeCoding: config.agent.codingTools.executionMode === "host",

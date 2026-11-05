@@ -10,7 +10,10 @@ import {
   withHumanDecisionReason,
 } from "../services/humanDecisionGuidance.js";
 import { proactivePreparationError } from "../services/proactive/preparationScope.js";
-import { proactiveReviewToolError } from "../services/proactive/workReviewPolicy.js";
+import {
+  preparationMayReply,
+  proactiveReviewToolError,
+} from "../services/proactive/workReviewPolicy.js";
 import {
   collaborationToolError,
   type CollaborationTurn,
@@ -51,7 +54,8 @@ import {
   serializeToolset,
   validateToolset,
 } from "../services/skillToolset.js";
-import { In, IsNull } from "typeorm";
+import { In, IsNull, MoreThanOrEqual } from "typeorm";
+import { holdPageForApproval } from "../services/browserChromium.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -381,6 +385,7 @@ import {
   createMailDraft,
   performThreadAction,
   sendMailDraft,
+  replyAllRecipients,
   sendMailMessage,
   updateMailDraft,
 } from "../services/mail/actions.js";
@@ -390,7 +395,7 @@ import {
   readMailMessageForAgent,
   serializeMailMessageForAgent,
 } from "../services/mail/agentReads.js";
-import { columnToLabelIds } from "../services/mail/store.js";
+import { columnHasLabel, columnToLabelIds } from "../services/mail/store.js";
 import type { MimeAttachment } from "../services/mail/gmailClient.js";
 import {
   ATTACHMENT_MAX_COUNT,
@@ -1272,7 +1277,17 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
   if (req.path === "/integrations/_list") return res.json({ tools: [] });
   const name = /^\/tools\/([^/]+)$/.exec(req.path)?.[1];
   const error = name
-    ? proactiveReviewToolError(true, name, req.body ?? {})
+    ? proactiveReviewToolError(
+        true,
+        name,
+        req.body ?? {},
+        preparationMayReply({
+          proactiveReview: true,
+          mailDeliveryMode: req.mcpMailDeliveryMode,
+          mailThreadId: req.mcpMailThreadId,
+          todoPickupId: req.mcpTodoPickupId,
+        }),
+      )
     : "Proactive review cannot use external Connections or other work surfaces.";
   if (error) return res.status(403).json({ error });
   try {
@@ -12781,6 +12796,23 @@ function pickupCeilingOf(req: McpRequest): TodoPickupCeiling {
   };
 }
 
+/**
+ * What this same work keeps when it comes back to the same employee: the turn's
+ * ceiling, and a verified sender's trust, which a colleague it hands to doesn't get.
+ */
+async function ownWorkCeilingOf(req: McpRequest): Promise<TodoPickupCeiling> {
+  const ceiling = pickupCeilingOf(req);
+  if (!req.mcpTodoPickupId) return ceiling;
+  const pickup = await AppDataSource.getRepository(TodoPickup).findOne({
+    where: { id: req.mcpTodoPickupId },
+    select: { id: true, employeeId: true, trustedSender: true },
+  });
+  return {
+    ...ceiling,
+    trustedSender: pickup?.employeeId === req.mcpEmployee!.id && pickup.trustedSender,
+  };
+}
+
 /** How deep in a chain of AI hand-offs this turn's next Todo sits. */
 async function nextAiChainDepth(req: McpRequest): Promise<number> {
   if (!req.mcpTodoPickupId) return 0;
@@ -12804,7 +12836,7 @@ async function nextAiChainDepth(req: McpRequest): Promise<number> {
  */
 async function waitOnThisPickupsTodo(
   req: McpRequest,
-  on: "decision" | "mail_review" | "work_review",
+  on: "decision" | "mail_review" | "work_review" | "browser_approval",
   refId: string,
   reason: string,
 ): Promise<void> {
@@ -12837,7 +12869,7 @@ async function waitOnThisPickupsTodo(
       reason,
       checkAt: null,
       authority,
-      ceiling: pickupCeilingOf(req),
+      ceiling: await ownWorkCeilingOf(req),
     });
   } catch (error) {
     // eslint-disable-next-line no-console
@@ -13285,7 +13317,7 @@ mcpInternalRouter.post(
         reason: body.reason,
         checkAt: new Date(body.checkAt),
         authority,
-        ceiling: pickupCeilingOf(req),
+        ceiling: await ownWorkCeilingOf(req),
       });
       await recordAudit({
         companyId: co.id,
@@ -20018,6 +20050,12 @@ mcpInternalRouter.post(
       vaultTotpSelector: body.vaultTotpSelector,
       vaultPasskeyId: body.vaultPasskeyId,
     });
+    // On a Todo the session ends here and the decision starts it again, so its
+    // page has to outlast a person getting to the Approval.
+    if (req.mcpTodoPickupId) {
+      await waitOnThisPickupsTodo(req, "browser_approval", approval.id, body.summary);
+      holdPageForApproval(body.browserSessionId);
+    }
     res.json({ approvalId: approval.id, status: approval.status });
   },
 );
@@ -23018,6 +23056,35 @@ const sendMailSchema = z
   })
   .strict();
 
+/** Replies a Todo pickup may send on one thread in 24 hours, a person's among them. */
+const MAX_PICKUP_REPLIES_PER_THREAD = 3;
+
+/** Why a session an email started can't send this. It may only answer that email. */
+function pickupReplyRefusal(
+  body: z.infer<typeof sendMailSchema>,
+  mailThreadId: string | null | undefined,
+): string | null {
+  if (!mailThreadId || body.threadId !== mailThreadId) {
+    return "This work may only reply on the email thread it came from. Use request_mail_review for anything else.";
+  }
+  const extras = (["draftMessageId", "accountId", "to", "cc", "bcc", "subject"] as const).filter(
+    (field) => body[field] !== undefined,
+  );
+  if (extras.length > 0 || (body.attachments?.length ?? 0) > 0) {
+    return "This work replies with only threadId and bodyText: the reply goes to the thread's existing participants, without attachments. Use request_mail_review for anything else.";
+  }
+  return null;
+}
+
+async function repliesSentRecently(thread: MailThread): Promise<number> {
+  const since = new Date(Date.now() - 24 * 60 * 60_000);
+  const rows = await AppDataSource.getRepository(MailMessage).find({
+    where: { threadId: thread.id, companyId: thread.companyId, sentAt: MoreThanOrEqual(since) },
+    select: { id: true, labelIds: true },
+  });
+  return rows.filter((row) => columnHasLabel(row.labelIds, "SENT")).length;
+}
+
 mcpInternalRouter.post(
   "/tools/send_mail",
   validateBody(sendMailSchema),
@@ -23025,6 +23092,14 @@ mcpInternalRouter.post(
     const self = req.mcpEmployee!;
     const co = req.mcpCompany!;
     const body = req.body as z.infer<typeof sendMailSchema>;
+
+    // A session an email started answers that email and nothing else, however its
+    // Grants read. An owner opted in for this much (`services/todoIntake.ts`).
+    const pickupReply = Boolean(req.mcpTodoPickupId) && req.mcpMailDeliveryMode === "reply";
+    if (pickupReply) {
+      const refusal = pickupReplyRefusal(body, req.mcpMailThreadId);
+      if (refusal) return res.status(403).json({ error: refusal });
+    }
 
     // Sending an existing draft ships whatever is already attached to it; a
     // fresh `attachments` list here would be silently dropped, so reject it.
@@ -23085,12 +23160,26 @@ mcpInternalRouter.post(
           });
         }
       }
+      // The people already on the thread, worked out here rather than taken from
+      // the model, and only so many times, so a reply can't be talked into a flood.
+      let replyTo: { to: string; cc: string } | null = null;
+      if (pickupReply) {
+        if ((await repliesSentRecently(thread!)) >= MAX_PICKUP_REPLIES_PER_THREAD) {
+          return res.status(403).json({
+            error: `This thread has had ${MAX_PICKUP_REPLIES_PER_THREAD} replies in the last 24 hours, which is as many as this work may send. Use request_mail_review so a person can send this one.`,
+          });
+        }
+        replyTo = await replyAllRecipients(account, thread!);
+        if (!replyTo.to) {
+          return res.status(400).json({ error: "Nobody else is on this thread to reply to." });
+        }
+      }
       const attachments = await resolveMailAttachments(req, body.attachments);
       const sent = await sendMailMessage(
         account,
         {
-          to: body.to ?? "",
-          cc: body.cc,
+          to: replyTo?.to ?? body.to ?? "",
+          cc: replyTo?.cc ?? body.cc,
           bcc: body.bcc,
           subject: body.subject,
           bodyText: body.bodyText,

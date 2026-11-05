@@ -1418,6 +1418,15 @@ async function executeClaimedApproval(
     }
     throw new Error(`Approval ${approval.id} changed state while it was executing`);
   }
+  if (approval.kind === "browser_action") {
+    // Only now can `browser_resume` fire it. A problem here costs the Todo's
+    // waking, not the decision, and the Todo still says what it waits on.
+    const { wakeTodoForBrowserApproval } = await import("./todoWaits.js");
+    await wakeTodoForBrowserApproval(approval, "approved").catch((error) => {
+      // eslint-disable-next-line no-console
+      console.error(`[approvals] could not wake a Todo for ${approval.id}:`, error);
+    });
+  }
   return {
     outcome: "decided",
     approval: await repo.findOneByOrFail({ id: approval.id, companyId: approval.companyId }),
@@ -1752,6 +1761,8 @@ export async function recordApprovalRejection(approval: Approval): Promise<void>
           authorUserId: approval.decidedByUserId,
         }),
       );
+      const { wakeTodoForBrowserApproval } = await import("./todoWaits.js");
+      await wakeTodoForBrowserApproval(approval, "rejected");
       return;
     }
     case "mcp_tool": {

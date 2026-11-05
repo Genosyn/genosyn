@@ -51,6 +51,13 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
  * here so a forgotten session eventually lets go of the single-driver lease.
  */
 const REMOTE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+/**
+ * How long a Todo's page stays open while a person gets to the Approval it raised.
+ * The session has ended by then, so without this the approval would reach a closed
+ * page and have to be asked for again. Past this it does anyway, which is safe: a
+ * bound approval never fires at a page it wasn't raised on.
+ */
+const APPROVAL_HOLD_MS = 2 * 60 * 60 * 1000;
 
 /**
  * How long after a navigation settles before we snapshot cookies to disk.
@@ -191,6 +198,8 @@ type SessionRuntime = {
   page: unknown; // Playwright Page
   cdp: unknown; // Playwright CDPSession
   idleTimer: NodeJS.Timeout | null;
+  /** Don't call this page idle before then: an Approval is holding it. */
+  idleHoldUntil?: number;
   /** Counted by `markActivity`. When > 0 the idle watchdog is suspended. */
   activeHolders: number;
   /**
@@ -1312,8 +1321,19 @@ function resetIdleTimer(r: SessionRuntime): void {
     () => {
       void releasePage(r.id, "idle");
     },
-    r.memberBrowserId ? REMOTE_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS,
+    Math.max(
+      r.memberBrowserId ? REMOTE_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS,
+      (r.idleHoldUntil ?? 0) - Date.now(),
+    ),
   );
+}
+
+/** Keep this session's page open while a person gets to the Approval it raised. */
+export function holdPageForApproval(sessionId: string): void {
+  const r = runtimes.get(sessionId);
+  if (!r) return;
+  r.idleHoldUntil = Date.now() + APPROVAL_HOLD_MS;
+  resetIdleTimer(r);
 }
 
 /** Mark this session as recently active, deferring the idle teardown. */

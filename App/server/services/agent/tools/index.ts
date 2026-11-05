@@ -19,7 +19,10 @@ import type { PrivilegedToolCallAuthorizer } from "../../memberTurnAuthority.js"
 import { resolveMcpToken } from "../../mcpTokens.js";
 import { canReportRunFailure } from "../../runFailureReport.js";
 import { selfReviewToolScope } from "../../proactive/reviewPolicy.js";
-import { proactiveReviewToolScope } from "../../proactive/workReviewPolicy.js";
+import {
+  preparationMayReply,
+  proactiveReviewToolScope,
+} from "../../proactive/workReviewPolicy.js";
 import { collaborationToolScope } from "../../collaborationScope.js";
 
 /**
@@ -131,6 +134,10 @@ export async function gatherEmployeeTools(params: {
   nativeCoding?: boolean;
   /** Expose tool sources that do not have a Member-level ACL. */
   allowPrivilegedToolSources?: boolean;
+  /** The browser alone, when the privileged sources are otherwise closed. */
+  allowBrowser?: boolean;
+  /** Work that spans turns without a conversation, to come back to the same page. */
+  browserSessionKey?: string;
   /**
    * Live Member check for every call into an otherwise ambient-authority tool
    * source. Employee-owned automation omits this; administrative chat supplies
@@ -160,17 +167,18 @@ export async function gatherEmployeeTools(params: {
   const tokenInfo = resolveMcpToken(params.genosynToken);
   const reviewScope =
     selfReviewToolScope(tokenInfo?.selfReviewOnly) ??
-    proactiveReviewToolScope(tokenInfo?.proactiveReview) ??
+    proactiveReviewToolScope(tokenInfo?.proactiveReview, preparationMayReply(tokenInfo)) ??
     collaborationToolScope(tokenInfo?.collaboration);
   const scope = reviewScope ?? params.toolScope ?? null;
   const allowPrivileged = (params.allowPrivilegedToolSources ?? true) && !scope?.surfaceOnly;
   const [genosynAll, browser, userServers] = await Promise.all([
     loadGenosynTools(params.genosynToken, params.signal, params.onDeprecatedFamily),
-    allowPrivileged
+    allowPrivileged || (params.allowBrowser === true && !scope?.surfaceOnly)
       ? loadBrowserConfig(params.employeeId, {
           routineId: params.routineId,
           conversationId: params.conversationId,
           runId: params.runId,
+          sessionKey: params.browserSessionKey,
         })
       : Promise.resolve<BrowserConfig>({
           enabled: false,
@@ -298,6 +306,8 @@ export async function gatherEmployeeTools(params: {
     ...(tokenInfo?.proactiveReview
       ? ["request_mail_review", "request_work_review", "get_proactive_work", "list_workstreams"]
       : []),
+    // An owner let this session answer the email it came from, so it needn't go looking.
+    ...(preparationMayReply(tokenInfo) ? ["send_mail"] : []),
     ...(tokenInfo?.mailDeliveryMode === "review"
       ? ["request_mail_review", "revise_mail_review"]
       : []),

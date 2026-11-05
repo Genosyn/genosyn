@@ -1,4 +1,5 @@
 import { api } from "./api";
+import type { MailIntakeOutcome } from "../../shared/projectIntake";
 
 /**
  * Types + REST client for the Email section (M25). Kept out of `lib/api.ts`
@@ -528,9 +529,20 @@ export type MailAnalysis = {
   actions: MailAnalysisAction[];
   /** What the mailbox's instructions did to this email when it arrived. */
   automaticActions: MailAnalysisAutoAction[];
+  /** Whether a Project's email intake filed this as a Todo. Null when none was offered. */
+  intake?: MailIntakeOutcome | null;
   errorMessage: string;
   createdAt: string;
   finishedAt: string | null;
+};
+
+/** One Project with email intake on, as a mailbox's settings list it. */
+export type ProjectIntakeRow = {
+  projectId: string;
+  projectName: string;
+  projectSlug: string;
+  replyMode: "review" | "send";
+  trustedSenderCount: number;
 };
 
 /** Who would read the next email to arrive, once every fallback has applied. */
@@ -878,6 +890,18 @@ export const mailApi = {
   ) => api.post<{ handover: MailHandover }>(`${base(cid)}/threads/${tid}/handovers`, input),
   retryHandover: (cid: string, hid: string) =>
     api.post<{ ok: true }>(`${base(cid)}/handovers/${hid}/retry`, {}),
+
+  // ── Projects taking this mailbox's email as Todos ──
+  projectIntakes: (cid: string, accountId: string, cursor?: string) => {
+    const params = new URLSearchParams({ accountId });
+    if (cursor) params.set("cursor", cursor);
+    return api.get<{
+      total: number;
+      hasMore: boolean;
+      nextCursor: string | null;
+      projects: ProjectIntakeRow[];
+    }>(`/api/companies/${cid}/project-intakes?${params.toString()}`);
+  },
 
   // ── AI analysis of inbound mail ──
   analysisSettings: (cid: string, aid: string) =>

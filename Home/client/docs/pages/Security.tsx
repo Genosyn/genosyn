@@ -296,6 +296,19 @@ export function Security() {
         remain explicitly trusted employee automation.
       </P>
 
+      <P>
+        An email is a stranger&apos;s writing, and the <Code>From</Code> line is free text. So an
+        email never grants anything. A Project&apos;s{" "}
+        <DocLink to="/docs/tasks#email-intake">email intake</DocLink> moves the human gate ahead of
+        time instead: only an owner or admin can change it, from a signed-in browser, never an API
+        key or an AI Employee, and each change is in the audit log. A trusted sender counts only when
+        the verdict the mailbox&apos;s own receiving server wrote on the message, the topmost{" "}
+        <Code>Authentication-Results</Code>, shows DMARC or an aligned DKIM signature passing. A
+        forged header lower down isn&apos;t read, and an IMAP mailbox trusts nobody. Whatever it is
+        set to, the email reaches the session as data, Grants still decide, browser host lists and
+        submit approval still apply, and the session can&apos;t start standing automation.
+      </P>
+
       <H2 id="manage">Manage methods</H2>
       <UL>
         <LI>

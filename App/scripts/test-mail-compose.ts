@@ -165,6 +165,8 @@ function routes(s: Store): ApiRoute[] {
   const mail = `${API}/mail`;
   return [
     ["GET", `${mail}/accounts`, () => ({ accounts: [ACCOUNT] })],
+    // The thread asks what Todos it is linked to; this one has none.
+    ["GET", `${API}/todo-links`, () => ({ total: 0, hasMore: false, nextCursor: null, todos: [] })],
     [
       "GET",
       `${mail}/accounts/mailbox/labels`,

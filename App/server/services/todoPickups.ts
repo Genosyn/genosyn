@@ -121,6 +121,7 @@ const CONTINUATIONS: readonly TodoPickupTrigger[] = [
   "left_open",
   "wait_over",
   "email_reply",
+  "email_intake",
   "decision_answered",
   "review_outcome",
 ];
@@ -137,6 +138,12 @@ export type TodoPickupCeiling = {
   proactiveReview?: boolean;
   tainted?: boolean;
   mailThreadId?: string | null;
+  /**
+   * An owner named this email's sender on the Project's intake and the receiving
+   * server verified it. Trust isn't inherited: a colleague handed this Todo, or a
+   * stranger's reply on the same thread, doesn't have it.
+   */
+  trustedSender?: boolean;
 };
 
 export type TodoPickupRequest = {
@@ -217,6 +224,7 @@ function requestColumns(request: TodoPickupRequest) {
     proactiveReview: request.ceiling?.proactiveReview === true,
     tainted: request.ceiling?.tainted === true,
     mailThreadId: request.ceiling?.mailThreadId ?? null,
+    trustedSender: request.ceiling?.trustedSender === true,
   };
 }
 
@@ -242,6 +250,7 @@ function mergedIntoQueued(row: TodoPickup, request: TodoPickupRequest) {
     proactiveReview: row.proactiveReview || asked.proactiveReview,
     tainted: row.tainted || asked.tainted,
     mailThreadId: row.mailThreadId ?? asked.mailThreadId,
+    trustedSender: row.trustedSender && asked.trustedSender,
     note,
     notBeforeAt: soonest,
   };
@@ -388,6 +397,7 @@ function mergedRerun(held: StoredRerun | null, request: TodoPickupRequest): Stor
       proactiveReview: held.ceiling.proactiveReview || ceiling.proactiveReview,
       tainted: held.ceiling.tainted || ceiling.tainted,
       mailThreadId: held.ceiling.mailThreadId ?? ceiling.mailThreadId,
+      trustedSender: held.ceiling.trustedSender === true && ceiling.trustedSender === true,
     },
     byMember: held.byMember,
     note: appendNote(held.note, request.note),
@@ -857,6 +867,7 @@ export async function executeTodoPickup(
       pickup.requesterUserId = null;
       pickup.requesterSessionVersion = null;
       pickup.proactiveReview = true;
+      pickup.trustedSender = false;
       pickup.mailDeliveryMode = narrowestDelivery(pickup.mailDeliveryMode, "review");
       await repo().update(
         { id: pickup.id, status: "running", workerId },
@@ -865,6 +876,7 @@ export async function executeTodoPickup(
           requesterUserId: null,
           requesterSessionVersion: null,
           proactiveReview: true,
+          trustedSender: false,
           mailDeliveryMode: pickup.mailDeliveryMode,
         },
       );
@@ -945,6 +957,8 @@ export async function executeTodoPickup(
       reasoningSummaries: true,
       mailDeliveryMode: (pickup.mailDeliveryMode as MailDeliveryMode | null) ?? null,
       proactiveReview: pickup.proactiveReview,
+      browserUnderMailCeiling: pickup.trustedSender,
+      browserSessionKey: pickup.todoId,
       mailThreadId: pickup.mailThreadId,
       todoPickupId: pickup.id,
       extraToolset: ["get_todo", "add_todo_comment"],
@@ -1291,6 +1305,7 @@ function ceilingOfRow(pickup: TodoPickup): TodoPickupCeiling {
     proactiveReview: pickup.proactiveReview,
     tainted: pickup.tainted,
     mailThreadId: pickup.mailThreadId,
+    trustedSender: pickup.trustedSender,
   };
 }
 

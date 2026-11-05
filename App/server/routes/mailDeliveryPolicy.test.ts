@@ -5,7 +5,6 @@ import { after, afterEach, before, beforeEach, describe, mock, test } from "node
 import express from "express";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { EmployeeModel } from "../db/entities/EmployeeModel.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
@@ -15,6 +14,7 @@ import { MailMessage } from "../db/entities/MailMessage.js";
 import { MailThread } from "../db/entities/MailThread.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
+import { TodoPickup } from "../db/entities/TodoPickup.js";
 import { Project } from "../db/entities/Project.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Todo } from "../db/entities/Todo.js";
@@ -28,6 +28,8 @@ import {
   proactiveWorkReviewDetails,
 } from "../services/proactive/approvals.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import { insertEmployeeModel } from "../test/modelFixtures.js";
+import { setTodoPickupAutoStartForTests } from "../services/todoPickups.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
 
 let server: Server;
@@ -171,8 +173,9 @@ describe("server enforced mail delivery ceiling", () => {
       assert.equal(pipelineReads.mock.callCount(), mode === "reply" || mode === null ? 1 : 0);
     });
 
-    test(`${mode ?? "ordinary"} turns retain review status without starting an unauthorized reviewer`, async () => {
+    test(`${mode ?? "ordinary"} turns retain review status and hold the reviewer to the same limit`, async () => {
       setDeliveryMode(mode);
+      setTodoPickupAutoStartForTests(false);
       const project = await insert(Project, {
         companyId: company.id,
         name: "Customer follow-up",
@@ -186,6 +189,14 @@ describe("server enforced mail delivery ceiling", () => {
         role: "Review",
         soulBody: "",
       });
+      await insertEmployeeModel({
+        employeeId: reviewer.id,
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        authMode: "apikey",
+        configJson: "{}",
+        isActive: true,
+      });
       const todo = await insert(Todo, {
         projectId: project.id,
         number: 1,
@@ -193,22 +204,23 @@ describe("server enforced mail delivery ceiling", () => {
         assigneeEmployeeId: employee.id,
         reviewerEmployeeId: reviewer.id,
       });
-      // A real kickoff resolves the reviewer's model, starting from the models
-      // attached to it; returning none makes the permitted control path finish
-      // without an external call.
-      const modelReads = mock.method(
-        AppDataSource.getRepository(EmployeeModel),
-        "find",
-        async () => [],
-      );
       const result = await call("update_todo", { todoId: todo.id, status: "in_review" });
       assert.equal(result.status, 200, JSON.stringify(result.body));
       assert.equal(
         (await AppDataSource.getRepository(Todo).findOneByOrFail({ id: todo.id })).status,
         "in_review",
       );
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      assert.equal(modelReads.mock.callCount(), mode === "reply" || mode === null ? 1 : 0);
+      // The review starts after the response. A session can't shed its ceiling by
+      // handing work on, so the reviewer starts, held to what this turn was held to.
+      const pickups = AppDataSource.getRepository(TodoPickup);
+      for (let tries = 0; tries < 50 && !(await pickups.countBy({ todoId: todo.id })); tries += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const pickup = await pickups.findOneByOrFail({ todoId: todo.id });
+      setTodoPickupAutoStartForTests(true);
+      assert.equal(pickup.employeeId, reviewer.id);
+      assert.equal(pickup.trigger, "review");
+      assert.equal(pickup.mailDeliveryMode, mode);
     });
   }
 

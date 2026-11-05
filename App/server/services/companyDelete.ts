@@ -235,6 +235,7 @@ import { Todo } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
 import { TodoLink } from "../db/entities/TodoLink.js";
 import { TodoPickup } from "../db/entities/TodoPickup.js";
+import { ProjectIntake } from "../db/entities/ProjectIntake.js";
 import { Vendor } from "../db/entities/Vendor.js";
 import { VendorCredit } from "../db/entities/VendorCredit.js";
 import { VendorCreditApplication } from "../db/entities/VendorCreditApplication.js";
@@ -405,6 +406,7 @@ export async function deleteCompanyCascade(args: {
     }
     await m.delete(TodoLink, { companyId });
     await m.delete(TodoPickup, { companyId });
+    await m.delete(ProjectIntake, { companyId });
     if (todoIds.length) {
       await m.delete(TodoComment, { todoId: In(todoIds) });
       await m.delete(Todo, { id: In(todoIds) });
