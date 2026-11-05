@@ -29,7 +29,9 @@ export type TodoPickupTrigger =
   /** The Decision it was waiting on was answered or dismissed. */
   | "decision_answered"
   /** The email or work it proposed for review was discarded, declined, or finished. */
-  | "review_outcome";
+  | "review_outcome"
+  /** The Repository work session it was waiting on ended its turn. */
+  | "work_session_ended";
 
 /** What an `in_progress` Todo can be waiting on. */
 export type TodoWaitKind =
@@ -39,6 +41,7 @@ export type TodoWaitKind =
   | "mail_review"
   | "work_review"
   | "browser_approval"
+  | "work_session"
   | "date";
 
 export const TODO_WAIT_LABEL: Record<TodoWaitKind, string> = {
@@ -48,6 +51,7 @@ export const TODO_WAIT_LABEL: Record<TodoWaitKind, string> = {
   mail_review: "Waiting on email review",
   work_review: "Waiting on work review",
   browser_approval: "Waiting on browser approval",
+  work_session: "Waiting on a work session",
   date: "Waiting until a date",
 };
 
@@ -74,6 +78,7 @@ export const TODO_PICKUP_TRIGGER_LABEL: Record<TodoPickupTrigger, string> = {
   wait_stopped: "Told to carry on",
   decision_answered: "Decision answered",
   review_outcome: "Review came back",
+  work_session_ended: "Work session ended",
 };
 
 /** What a queued pickup is held by, in words for its Todo's panel. */

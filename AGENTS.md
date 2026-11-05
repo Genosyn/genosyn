@@ -382,6 +382,16 @@ action a Pickup queues for approval ends the session with its Todo waiting; the
 decision starts it again on the same page (`browserSessionKey`), held open for 2
 hours, because approving only lets the session fire it.
 
+**A Todo and its code are linked by the server.** A Work session started in a Pickup,
+or in a turn that has filed itself a Todo or moved one to in progress, links to that
+Todo with no argument naming the link (`workingTodoIdOf`, `linkToWorkingTodo`). The
+Todo can wait on it (`work_session`), and its turn ending wakes the Todo through
+`runRepositoryWorkSession`, with the report as data, under what the last session had. A
+check-back after a day is there for a session lost to a restart. A person's **Start
+work session** runs under that person and is refused for a Todo held to limits, since
+a Work session runs commands. Do not add another way to start a Work session from a
+Todo, or make the link grant anything.
+
 **"Connection" stays reserved** for one authenticated account inside an
 Integration. An app a Member approved through OAuth to use the Genosyn MCP
 server is a **Connected app** (`ConnectedApp`), and a Chrome someone connects

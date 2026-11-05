@@ -276,6 +276,21 @@ export function tokenOwnsAttachment(token: string, attachmentId: string): boolea
 }
 
 /** Mark this turn as having ingested untrusted web content. */
+/**
+ * The Todo this turn has taken on: one it filed for itself or moved to in progress.
+ * The server's to know rather than the model's to name, so what the turn starts next
+ * links back to the right work. A Pickup's own Todo wins over this (`mcpInternal`).
+ */
+const workingTodos = new Map<string, string>();
+
+export function noteWorkingTodo(token: string, todoId: string): void {
+  if (tokens.has(token)) workingTodos.set(turnStateToken(token), todoId);
+}
+
+export function workingTodoOf(token: string): string | null {
+  return tokens.has(token) ? (workingTodos.get(turnStateToken(token)) ?? null) : null;
+}
+
 export function markTokenTainted(token: string): void {
   if (!tokens.has(token)) return;
   token = turnStateToken(token);
@@ -359,6 +374,7 @@ export function revokeMcpToken(token: string): void {
   tokenAttachments.delete(token);
   stagedSidecars.delete(token);
   taintedTokens.delete(token);
+  workingTodos.delete(token);
   consultCounts.delete(token);
 }
 
@@ -382,6 +398,9 @@ function sweep(): void {
   }
   for (const k of taintedTokens) {
     if (!tokens.has(k)) taintedTokens.delete(k);
+  }
+  for (const k of workingTodos.keys()) {
+    if (!tokens.has(k)) workingTodos.delete(k);
   }
   for (const k of consultCounts.keys()) {
     if (!tokens.has(k)) consultCounts.delete(k);

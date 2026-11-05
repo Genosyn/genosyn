@@ -104,7 +104,13 @@ import {
 } from "../services/todoPickups.js";
 import { TodoPickup } from "../db/entities/TodoPickup.js";
 import { filedSince } from "../services/todoIntake.js";
-import { MAX_TODO_FOLLOW_UPS, TodoWaitError, waitOnTodo } from "../services/todoWaits.js";
+import {
+  MAX_TODO_FOLLOW_UPS,
+  TodoWaitError,
+  WORK_SESSION_CHECK_MS,
+  wakeTodoForWorkSession,
+  waitOnTodo,
+} from "../services/todoWaits.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import {
   getJournalEvidence,
@@ -183,6 +189,8 @@ import { CONSULT_LIMITS, askColleague } from "../services/colleagueConsult.js";
 import { kickoffTodoReview } from "../services/reviewKickoff.js";
 import {
   isTokenTainted,
+  noteWorkingTodo,
+  workingTodoOf,
   markTokenTainted,
   noteAttachmentForToken,
   resolveMcpToken,
@@ -494,6 +502,7 @@ import {
   type SigningAccessLevel,
 } from "../db/entities/EmployeeSigningGrant.js";
 import { Repository } from "../db/entities/Repository.js";
+import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import {
   archiveNoteTree,
@@ -12891,6 +12900,46 @@ async function ownWorkCeilingOf(req: McpRequest, todoId: string): Promise<TodoPi
   };
 }
 
+/**
+ * The Todo this turn is working, when the server knows: its Pickup's, or one it took on
+ * itself. Records this turn starts link back to it with no argument naming the link.
+ */
+async function workingTodoIdOf(req: McpRequest): Promise<string | null> {
+  if (req.mcpTodoPickupId) {
+    const pickup = await AppDataSource.getRepository(TodoPickup).findOne({
+      where: { id: req.mcpTodoPickupId, companyId: req.mcpCompany!.id },
+      select: { id: true, todoId: true },
+    });
+    if (pickup) return pickup.todoId;
+  }
+  return workingTodoOf(req.mcpToken!);
+}
+
+/** Link a record this turn just started to the Todo it's working. Never fails what started it. */
+async function linkToWorkingTodo(
+  req: McpRequest,
+  kind: TodoLinkKind,
+  targetId: string,
+): Promise<string | null> {
+  const todoId = await workingTodoIdOf(req);
+  if (!todoId) return null;
+  try {
+    await addTodoLink({
+      companyId: req.mcpCompany!.id,
+      todoId,
+      kind,
+      targetId,
+      createdByEmployeeId: req.mcpEmployee!.id,
+    });
+    return todoId;
+  } catch (error) {
+    if (!(error instanceof TodoLinkError)) {
+      console.error(`[todo-links] could not link ${kind} ${targetId} to ${todoId}:`, error);
+    }
+    return null;
+  }
+}
+
 /** How deep in a chain of AI hand-offs this turn's next Todo sits. */
 async function nextAiChainDepth(req: McpRequest): Promise<number> {
   if (!req.mcpTodoPickupId) return 0;
@@ -13127,6 +13176,8 @@ mcpInternalRouter.post(
       });
     }
 
+    if (assigneeId === self.id) noteWorkingTodo(req.mcpToken!, t.id);
+
     // A restricted turn's Todo keeps its limits, and fires nothing because of them.
     void dispatchTodoCreated(co.id, t.id).catch((err) => {
       console.error(`[pipelines] task event failed for ${t.id}:`, err);
@@ -13282,6 +13333,9 @@ mcpInternalRouter.post(
       t.assigneeEmployeeId && t.assigneeEmployeeId !== assigneeBefore && t.assigneeEmployeeId !== self.id;
     if (handedOver) t.aiChainDepth = Math.max(t.aiChainDepth, await nextAiChainDepth(req));
     await todoRepo.save(t);
+    if (body.status === "in_progress" && t.assigneeEmployeeId === self.id) {
+      noteWorkingTodo(req.mcpToken!, t.id);
+    }
 
     // Finishing a recurring Todo puts the next one on the list, whoever
     // finished it. A later occurrence stands on its own and starts no work.
@@ -13353,12 +13407,17 @@ mcpInternalRouter.post(
 const waitOnTodoSchema = z
   .object({
     todoId: z.string().uuid(),
-    on: z.enum(["customer", "member", "date"]),
+    on: z.enum(["customer", "member", "date", "work_session"]),
     threadId: z.string().uuid().optional(),
+    sessionId: z.string().uuid().optional(),
     reason: z.string().trim().min(1).max(2_000),
-    checkAt: z.string().datetime(),
+    checkAt: z.string().datetime().optional(),
   })
-  .strict();
+  .strict()
+  .refine((body) => body.on === "work_session" || body.checkAt !== undefined, {
+    message: "Say when to check back with checkAt.",
+    path: ["checkAt"],
+  });
 
 // The employee says what its Todo is waiting on, and when to check back. A reply
 // on the thread or a Member's comment ends it sooner.
@@ -13379,6 +13438,24 @@ mcpInternalRouter.post(
       if (!authority) return res.status(403).json({ error: "This turn can't start later work." });
 
       let refId: string | null = null;
+      if (body.on === "work_session") {
+        refId = body.sessionId ?? null;
+        if (!refId) return res.status(400).json({ error: "Name the work session with sessionId." });
+        const refused = await employeeLinkAccessError(
+          co.id,
+          { kind: "employee", employeeId: self.id },
+          "work_session",
+          refId,
+        );
+        if (refused) return res.status(403).json({ error: refused });
+        await addTodoLink({
+          companyId: co.id,
+          todoId: found.todo.id,
+          kind: "work_session",
+          targetId: refId,
+          createdByEmployeeId: self.id,
+        });
+      }
       if (body.on === "customer") {
         refId = body.threadId ?? req.mcpMailThreadId ?? null;
         if (!refId) {
@@ -13414,12 +13491,21 @@ mcpInternalRouter.post(
         on: body.on,
         refId,
         reason: body.reason,
-        checkAt: new Date(body.checkAt),
+        // A session reports by itself. This is for when one is lost to a restart.
+        checkAt: body.checkAt ? new Date(body.checkAt) : new Date(Date.now() + WORK_SESSION_CHECK_MS),
         authority,
         ceiling: await ownWorkCeilingOf(req, found.todo.id),
       });
+      // It may have ended before the wait was written, and nothing else would say so.
+      if (body.on === "work_session" && refId) {
+        const session = await AppDataSource.getRepository(RepositoryWorkSession).findOneBy({
+          id: refId,
+          companyId: co.id,
+        });
+        if (session) await wakeTodoForWorkSession(session);
+      }
       res.json({
-        waiting: { on: body.on, checkAt: body.checkAt },
+        waiting: { on: body.on, checkAt: body.checkAt ?? null },
         note: "Waiting. End this session now: this Todo wakes you when the answer arrives or the check-back comes.",
       });
     } catch (error) {
@@ -17865,6 +17951,9 @@ mcpInternalRouter.post(
         metadata: { employeeId: self.id, sessionId: prepared.session.id, startedBy: "tool" },
       });
 
+      // The Todo this is for gets the link before the session can finish.
+      const linkedTodoId = await linkToWorkingTodo(req, "work_session", prepared.session.id);
+
       runRepositoryWorkSession(prepared).catch((error) => {
         console.error("[repository-session] failed:", error);
       });
@@ -17889,8 +17978,11 @@ mcpInternalRouter.post(
         note: [
           "Started. It runs in its own working copy, separately from this conversation.",
           `Say you have started it and link them to the work with this exact markdown: [${repo.name} → AI work](${reviewUrl}) — it opens beside this conversation, where they review the diff, ask you for changes, and decide whether it is merged, pushed, or opened as a pull request.`,
+          linkedTodoId
+            ? `It's linked to the Todo you're working (${linkedTodoId}). To carry on when it finishes, call wait_on_todo with on "work_session" and this sessionId, then end your session.`
+            : "",
           "Save the sessionId in a Workstream and schedule a Wakeup to check get_repository_work_session later. Only report completion after checking the result. When authorized, push_repository_work_session delivers the ready branch using the Repository's stored SSH key or token server-side. open_repository_work_session_pull_request uses a stored HTTPS personal access token to open the PR without a separate Connection Grant; SSH and Connection-backed repositories need the exact granted forge Connection for the PR API. Never report the work as done, committed, merged, pushed, or opened as a pull request just because it started.",
-        ].join(" "),
+        ].filter(Boolean).join(" "),
       });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
