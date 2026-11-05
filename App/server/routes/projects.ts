@@ -1398,7 +1398,8 @@ projectsRouter.post(
         targetType: "todo",
         targetId: found.todo.id,
         targetLabel: todoLabel(found.project, found.todo),
-        metadata: { kind: link.kind, label: link.label },
+        // Not the label: History shows this to anyone who can open the Project.
+        metadata: { kind: link.kind, targetId: link.targetId },
       });
       const views = await presentTodoLinks(cid, [found.todo.id], memberLinkReader(req));
       res.json({ links: views.get(found.todo.id) ?? [] });

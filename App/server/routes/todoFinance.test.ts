@@ -8,6 +8,7 @@ import express from "express";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Bill } from "../db/entities/Bill.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
@@ -481,6 +482,20 @@ describe("reading a Finance link", () => {
       ).status,
       403,
     );
+  });
+
+  test("History doesn't name what a reader can't open", async () => {
+    const { estimate } = await records();
+    const todo = await todoFor();
+    await as(finance, "POST", `/todos/${todo.id}/links`, {
+      kind: "estimate",
+      targetId: estimate.id,
+    });
+    const audit = await AppDataSource.getRepository(AuditEvent).findOneByOrFail({
+      action: "todo.link",
+      targetId: todo.id,
+    });
+    assert.doesNotMatch(audit.metadataJson, /EST-0001/);
   });
 
   test("a form opened from a Todo links what it saved", async () => {

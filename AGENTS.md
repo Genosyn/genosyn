@@ -361,8 +361,9 @@ stays held when a trusted sender writes on its thread. A Member's comment, assig
 @-mention or Stop waiting isn't a grant, and stays within it too. The only way past it
 is **Use my access** on the Todo's panel (`overLimits`): one session, tainted, asked
 first (`TodoPickup.overLimits`). What a session may do is decided when it starts, because
-a row can sit queued for a month. New outside words end a lend that hasn't started,
-wake or no wake. A turn working a particular email holds any Todo it comments on or edits
+a row can sit queued for a month. New outside words end a lend for any session that
+hasn't started, wake or no wake, and that includes spam, a blocked sender and mail forging
+this mailbox's own address, because a session can read them all (`holdTodosForNewMail`). A turn working a particular email holds any Todo it comments on or edits
 (`holdTodoToTurn`), since its words replay there, and an unlimited session that reads a
 held Todo becomes tainted. A Routine that could only prepare doesn't hold a person's Todo
 by posting a status: its comment just replays as information (`fromLimitedTurn`). A
@@ -387,8 +388,9 @@ invoice, bill, Customer, Contact, Deal or ticket started in a Pickup, or in a tu
 has filed itself a Todo or moved one to in progress, links to that Todo with no argument
 naming the link (`workingTodoIdOf`, `linkToWorkingTodo`, one call in each creator). The
 model doesn't get a way to say which Todo. Reading a Finance link takes Finance access,
-for a Member and an AI Employee alike (`FINANCE_KINDS`). The Todo can wait on a Work
-session (`work_session`), and its turn ending wakes the Todo through
+for a Member and an AI Employee alike (`FINANCE_KINDS`). An employee links and waits on its own Work sessions only, as `get_repository_work_session`
+reads them, and a tainted turn can't start or revise one without an Approval. The Todo can
+wait on a Work session (`work_session`), and its turn ending wakes the Todo through
 `runRepositoryWorkSession`, with the report as data, under what the last session had. A
 check-back after a day is there for a session lost to a restart. A person's **Start
 work session** runs under that person and is refused for a Todo with outside words on it, since

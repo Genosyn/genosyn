@@ -1019,11 +1019,47 @@ describe("reading a Todo held to limits", () => {
     assert.equal(isTokenTainted(token), true);
   });
 
-  test("so does finding one on its list", async () => {
+  test("its list doesn't show those words, and doesn't taint it to say what's on its plate", async () => {
     const token = tokenWith({ authority: "employee" });
-    const list = await tool(token, "list_my_todos", {});
+    const list = await tool<{ todos: Array<{ todoId: string; title: string; heldToLimits: boolean }> }>(
+      token,
+      "list_my_todos",
+      {},
+    );
     assert.equal(list.status, 200, JSON.stringify(list.body));
-    assert.equal(isTokenTainted(token), true);
+    const [row] = list.body.todos;
+    assert.equal(row.todoId, held.id);
+    assert.equal(row.heldToLimits, true);
+    assert.doesNotMatch(row.title, /From a stranger/);
+    assert.equal(isTokenTainted(token), false);
+  });
+
+  test("a turn answering the very thread those words came from isn't tainted by them", async () => {
+    await AppDataSource.getRepository(Todo).update(
+      { id: held.id },
+      {
+        ceilingJson: JSON.stringify({
+          proactiveReview: false,
+          mailDeliveryMode: "reply",
+          mailThreadId: thread.id,
+        }),
+      },
+    );
+    const token = tokenWith({
+      authority: "employee",
+      mailDeliveryMode: "reply",
+      mailThreadId: thread.id,
+    });
+    assert.equal((await tool(token, "get_todo", { todoId: held.id })).status, 200);
+    assert.equal(isTokenTainted(token), false);
+
+    const elsewhere = tokenWith({
+      authority: "employee",
+      mailDeliveryMode: "reply",
+      mailThreadId: "another-thread",
+    });
+    await tool(elsewhere, "get_todo", { todoId: held.id });
+    assert.equal(isTokenTainted(elsewhere), true);
   });
 
   test("leaves its own session able to send the reply it was allowed", async () => {
