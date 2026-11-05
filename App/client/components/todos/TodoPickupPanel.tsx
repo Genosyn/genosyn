@@ -14,13 +14,18 @@ import { useDialog } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
 import { api, type Todo } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
+import { todoStanding } from "../../../shared/todoStanding";
 import {
   TODO_WAIT_LABEL,
   todoPickupHoldLabel,
   type TodoPickupView,
 } from "../../../shared/todoPickups";
 
-type Pickups = { active: TodoPickupView | null; recent: TodoPickupView[] };
+type Pickups = {
+  active: TodoPickupView | null;
+  recent: TodoPickupView[];
+  viewerIsReviewer?: boolean;
+};
 
 function shortWhen(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -61,6 +66,8 @@ export function TodoPickupPanel({
     | "waitingSince"
     | "waitingCheckAt"
     | "heldToLimits"
+    | "assignee"
+    | "reviewer"
   >;
   companyId: string;
   companySlug: string;
@@ -139,13 +146,30 @@ export function TodoPickupPanel({
   const workable = ["backlog", "todo", "in_progress"].includes(todo.status);
   const canStart = canEdit && Boolean(todo.assigneeEmployeeId) && workable && !active && !waiting;
   if (!pickups && !error) return null;
-  if (!shownActive && !canStart && !waiting && !error) return null;
+  const standing = pickups
+    ? todoStanding({
+        status: todo.status,
+        assignee: todo.assignee
+          ? { kind: todo.assignee.kind, name: todo.assignee.name || "Someone" }
+          : null,
+        reviewerName: todo.reviewer?.name ?? null,
+        viewerIsReviewer: pickups.viewerIsReviewer === true,
+        waitingOn: waiting,
+        waitingSince: todo.waitingSince ?? null,
+        waitingCheckAt: todo.waitingCheckAt ?? null,
+        workingSince: active?.status === "running" ? active.startedAt : null,
+        queued: active?.status === "queued" && !waiting,
+      })
+    : null;
   const held = todo.heldToLimits === true;
   const access = held ? "within its limits" : "with your access";
 
   return (
     <div className="mt-4 space-y-2" aria-label="AI work on this task">
       <FormError message={error} />
+      {standing && (
+        <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{standing}</p>
+      )}
       {waiting && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-500/30 dark:bg-amber-500/10">
           <Hourglass

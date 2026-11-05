@@ -140,7 +140,7 @@ function contract(input: TodoPickupBriefInput): string[] {
         ]),
     `- If you need an answer before you can finish, ask for it (an email to the customer, or a question on this thread), then call \`wait_on_todo\` with todoId "${todo.id}" saying what you're waiting on and when to check back. This Todo wakes you when the reply arrives; don't stay in this session waiting.`,
     `- If you're blocked with nobody to ask, or the brief is too vague to act on, move the status back to "todo" via \`update_todo\` (todoId "${todo.id}") and say exactly what you need.`,
-    "- Your reply is posted as a comment on the todo's thread for the team to read. Make it a crisp report: what you did, where the output lives, anything that needs a decision.",
+    "- Your reply is posted as a comment on the todo's thread for the team to read. Make it a crisp report: what you did, where the output lives, anything that needs a decision. If there is nothing to report, say that in a sentence.",
   ];
 }
 

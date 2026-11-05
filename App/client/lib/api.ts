@@ -2587,6 +2587,8 @@ export type Todo = {
    * asks. Only a person choosing to lend a session their access goes past them.
    */
   heldToLimits?: boolean;
+  /** What AI is doing on it now. A wait says itself, in `waitingOn`. */
+  aiState?: "working" | "queued" | null;
   waitingOn?: TodoWaitKind | null;
   waitingReason?: string;
   waitingSince?: string | null;

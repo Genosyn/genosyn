@@ -253,7 +253,12 @@ export function TodoDetailBody({
         wide ? "" : "mt-6",
       )}
     >
-      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Status</span>
+      <span
+        className="text-xs font-medium text-slate-500 dark:text-slate-400"
+        title="Moving this to In review asks its reviewer to look. An AI reviewer starts by itself."
+      >
+        Status
+      </span>
       <div>
         <StatusPicker
           value={todo.status}
