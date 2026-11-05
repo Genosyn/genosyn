@@ -200,6 +200,7 @@ import DataRoomsIndex from "@/pages/DataRoomsIndex";
 import DataRoomDetail from "@/pages/DataRoomDetail";
 import DataRoomsAiAccess from "@/pages/DataRoomsAiAccess";
 import PublicDataRoom from "@/pages/PublicDataRoom";
+import PublicSupportChatConfirm from "@/pages/PublicSupportChatConfirm";
 import PublicSupportFeedback from "@/pages/PublicSupportFeedback";
 import {
   PublicHelpCenter,
@@ -271,7 +272,7 @@ function isAnonymousPage(pathname: string): boolean {
 }
 
 function isPublicSurfacePage(pathname: string): boolean {
-  return /^\/(?:sign|forms|room|feedback|help)(?:\/|$)/i.test(pathname);
+  return /^\/(?:sign|forms|room|feedback|help|support-chat)(?:\/|$)/i.test(pathname);
 }
 
 function FullPageRedirect({ to }: { to: string }) {
@@ -325,6 +326,7 @@ export default function App() {
             <Route path="/forms/:token" element={<PublicForm />} />
             <Route path="/room/:token" element={<PublicDataRoom />} />
             <Route path="/feedback/:token" element={<PublicSupportFeedback />} />
+            <Route path="/support-chat/confirm/:token" element={<PublicSupportChatConfirm />} />
             <Route path="/help/:companySlug" element={<PublicHelpCenter />} />
             <Route
               path="/help/:companySlug/articles/:articleId"

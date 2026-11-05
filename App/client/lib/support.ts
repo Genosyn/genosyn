@@ -16,10 +16,15 @@ import type {
   SupportSettableStatus,
   SupportSlaTargets,
   SupportSort,
+  SupportTicketSource,
   SupportTicketStatus,
   SupportTopic,
   SupportView,
 } from "../../shared/support";
+import {
+  SUPPORT_CHAT_VISITOR_LABEL,
+  type ChatEmailConfirmation,
+} from "../../shared/supportChat";
 
 /**
  * Support in the App: the shapes the server returns
@@ -71,7 +76,7 @@ export type SupportTicket = {
   spamReason: string;
   messageCount: number;
   reopenCount: number;
-  source: "email" | "import" | "manual";
+  source: SupportTicketSource;
   mergedIntoId: string | null;
   lastActivityAt: string;
   lastCustomerMessageAt: string | null;
@@ -107,6 +112,8 @@ export type SupportMessage = {
   authorEmployee: SupportPersonEmployee | null;
   sentByAi: boolean;
   draftId: string | null;
+  /** Written in the Chat widget rather than by email. */
+  viaChat: boolean;
   sentAt: string;
   bodyText: string;
   bodyHtml: string;
@@ -159,6 +166,16 @@ export type SupportTicketDetail = {
     status: "active" | "paused";
   } | null;
   mailbox: { id: string; address: string } | null;
+  /** The visitor behind a ticket from the Chat widget. */
+  chat: {
+    widgetEnabled: boolean;
+    reachable: boolean;
+    ended: boolean;
+    email: string;
+    /** Typed and not confirmed: anyone can type anyone's address. */
+    unconfirmedEmail: string;
+    lastSeenAt: string;
+  } | null;
   work: {
     status: SupportJobStatus;
     error: string;
@@ -231,6 +248,17 @@ export type SupportInbox = {
   createdAt: string;
   openTickets: number;
   autoRepliesToday: number;
+  chatWidget: SupportChatWidgetView;
+};
+
+export type SupportChatWidgetView = {
+  enabled: boolean;
+  allowedOrigins: string[];
+  title: string;
+  greeting: string;
+  defaultGreeting: string;
+  publicKey: string | null;
+  snippet: string | null;
 };
 
 export type SupportInboxInput = {
@@ -268,6 +296,10 @@ export type SupportSettings = {
   helpCenterUrl: string;
   autoCloseDays: number;
   autoSolveDays: number;
+  chatMessagesPerHour: number;
+  chatAiTurnsPerDay: number;
+  /** Counted by the server from the company's budget, for the current day's window. */
+  chatAiTurnsUsed: number;
   insights: SupportInsights | null;
   insightsAt: string | null;
 };
@@ -356,6 +388,7 @@ export type TicketFilters = {
   priority?: SupportPriority;
   topicKey?: string;
   inboxId?: string;
+  source?: SupportTicketSource;
   q?: string;
   sort?: SupportSort;
   requesterEmail?: string;
@@ -453,6 +486,11 @@ export function supportApi(companyId: string) {
     importInbox: (id: string, days: number) =>
       api.post<{ inbox: SupportInbox }>(`${base}/inboxes/${id}/import`, { days }),
     deleteInbox: (id: string) => api.del<{ ok: boolean }>(`${base}/inboxes/${id}`),
+    saveChatWidget: (
+      inboxId: string,
+      body: { enabled?: boolean; allowedOrigins?: string[]; title?: string; greeting?: string },
+    ) =>
+      api.put<{ widget: SupportChatWidgetView }>(`${base}/inboxes/${inboxId}/chat-widget`, body),
 
     settings: () => api.get<{ settings: SupportSettings }>(`${base}/settings`),
     updateSettings: (body: Record<string, unknown>) =>
@@ -518,6 +556,13 @@ export const feedbackApi = {
       score,
       ...(comment.trim() ? { comment: comment.trim() } : {}),
     }),
+};
+
+export const chatConfirmApi = {
+  get: (token: string) =>
+    api.get<ChatEmailConfirmation>(`/api/support-chat/confirm/${encodeURIComponent(token)}`),
+  confirm: (token: string) =>
+    api.post<ChatEmailConfirmation>(`/api/support-chat/confirm/${encodeURIComponent(token)}`, {}),
 };
 
 // ── The public help center ──────────────────────────────────────────────────
@@ -600,16 +645,22 @@ export function slaState(
 
 /** "Ada Lovelace", falling back to the address for a sender who gave no name. */
 export function requesterLabel(
-  ticket: Pick<SupportTicket, "requesterName" | "requesterEmail">,
+  ticket: Pick<SupportTicket, "requesterName" | "requesterEmail" | "source">,
 ): string {
-  return ticket.requesterName || ticket.requesterEmail || "Unknown customer";
+  return (
+    ticket.requesterName ||
+    ticket.requesterEmail ||
+    (ticket.source === "chat" ? SUPPORT_CHAT_VISITOR_LABEL : "Unknown customer")
+  );
 }
 
 /** Who a message came from, for the line above it. */
 export function messageAuthor(message: SupportMessage): string {
   if (message.authorEmployee) return message.authorEmployee.name;
   if (message.authorUser) return message.authorUser.name;
-  return message.fromName || message.fromEmail || "Someone";
+  return (
+    message.fromName || message.fromEmail || (message.viaChat ? SUPPORT_CHAT_VISITOR_LABEL : "Someone")
+  );
 }
 
 /** Commas, spaces and new lines between addresses all work. */

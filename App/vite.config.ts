@@ -41,10 +41,12 @@ function readCommit(): string {
 }
 
 /**
- * Two pages: the App, and the careers site's own small bundle, which the
- * server fills with each careers page's head and data. Only when building the
- * App's own root: a browser-test fixture builds this config with a root and
- * page of its own, and must build that page alone.
+ * Three pages: the App; the careers site's own small bundle, which the server
+ * fills with each careers page's head and data; and the Chat widget's frame. Plus
+ * the widget's loader, a script a company's own page runs, under a stable name
+ * because it is the address in their embed snippet. Only when building the App's
+ * own root: a browser-test fixture builds this config with a root and page of its
+ * own, and must build that page alone.
  */
 function appPages(): Plugin {
   const clientRoot = path.resolve(__dirname, "client");
@@ -58,6 +60,14 @@ function appPages(): Plugin {
             input: {
               main: path.join(clientRoot, "index.html"),
               careers: path.join(clientRoot, "careers.html"),
+              "chat-widget": path.join(clientRoot, "chat-widget.html"),
+              "support-chat-loader": path.join(clientRoot, "chat-widget", "loader.ts"),
+            },
+            output: {
+              entryFileNames: (chunk) =>
+                chunk.name === "support-chat-loader"
+                  ? "support-chat-loader.js"
+                  : "assets/[name]-[hash].js",
             },
           },
         },

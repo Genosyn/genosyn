@@ -71,6 +71,9 @@ self.addEventListener("fetch", (event) => {
   // The public careers site is its own page, not the App: never serve it the
   // App shell, and never cache it as one.
   if (url.pathname === "/careers" || url.pathname.startsWith("/careers/")) return;
+  // So is the Chat widget, framed on a company's own site. Its headers decide who
+  // may open it, which only holds if the server is the one answering.
+  if (url.pathname.startsWith("/support-chat/")) return;
   // A help center page's answer is its own: never store it as the App shell.
   if (url.pathname === "/help" || url.pathname.startsWith("/help/")) return;
   // OAuth for the MCP server: server answers, never the App shell, and a

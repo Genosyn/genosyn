@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Inbox,
+  MessageCircle,
   Plus,
   Search,
   ShieldOff,
@@ -35,10 +36,13 @@ import {
   SUPPORT_PRIORITY_LABELS,
   SUPPORT_SORTS,
   SUPPORT_SORT_LABELS,
+  SUPPORT_SOURCE_LABELS,
+  SUPPORT_TICKET_SOURCES,
   SUPPORT_VIEWS,
   SUPPORT_VIEW_LABELS,
   type SupportPriority,
   type SupportSort,
+  type SupportTicketSource,
   type SupportView,
 } from "../../shared/support";
 import type { SupportOutletContext } from "./SupportLayout";
@@ -62,7 +66,8 @@ const PRIORITY_DOT: Record<SupportPriority, string> = {
 const EMPTY_COPY: Partial<Record<SupportView, { title: string; description: string }>> = {
   inbox: {
     title: "Nothing is waiting",
-    description: "Every customer has an answer. New email to your Support inboxes lands here.",
+    description:
+      "Every customer has an answer. New email and chats to your Support inboxes land here.",
   },
   mine: {
     title: "Nothing assigned to you",
@@ -163,6 +168,11 @@ function TicketRow({
           <span className="truncate">{requesterLabel(ticket)}</span>
           <span aria-hidden="true">·</span>
           <span className="shrink-0 tabular-nums">#{ticket.number}</span>
+          {ticket.source === "chat" && (
+            <Badge tone="info" icon={<MessageCircle />}>
+              Chat
+            </Badge>
+          )}
           {topicName && (
             <>
               <span aria-hidden="true">·</span>
@@ -252,11 +262,12 @@ export default function SupportQueue() {
   const inboxId = params.get("inbox") ?? undefined;
   const priority = (params.get("priority") ?? undefined) as SupportPriority | undefined;
   const topicKey = params.get("topic") ?? undefined;
+  const source = (params.get("source") ?? undefined) as SupportTicketSource | undefined;
   const sort = (params.get("sort") ?? undefined) as SupportSort | undefined;
   const q = params.get("q") ?? undefined;
   const filters = React.useMemo(
-    () => ({ view: inboxId ? undefined : view, inboxId, priority, topicKey, sort, q }),
-    [inboxId, view, priority, topicKey, sort, q],
+    () => ({ view: inboxId ? undefined : view, inboxId, priority, topicKey, source, sort, q }),
+    [inboxId, view, priority, topicKey, source, sort, q],
   );
 
   const [rows, setRows] = React.useState<SupportTicket[] | null>(null);
@@ -384,7 +395,7 @@ export default function SupportQueue() {
   const inbox = inboxes?.find((item) => item.id === inboxId) ?? null;
   const noInboxes = inboxes !== null && inboxes.length === 0;
   const title = inbox ? inbox.name : SUPPORT_VIEW_LABELS[view];
-  const filtered = Boolean(priority || topicKey || q);
+  const filtered = Boolean(priority || topicKey || source || q);
   const empty = EMPTY_COPY[view] ?? {
     title: "Nothing here",
     description: "Tickets in this state show here.",
@@ -466,6 +477,20 @@ export default function SupportQueue() {
             ))}
           </Select>
         </div>
+        <div className="w-40">
+          <Select
+            aria-label="Filter by where it came from"
+            value={source ?? ""}
+            onChange={(event) => setParam("source", event.target.value || undefined)}
+          >
+            <option value="">Any source</option>
+            {SUPPORT_TICKET_SOURCES.map((value) => (
+              <option key={value} value={value}>
+                {SUPPORT_SOURCE_LABELS[value]}
+              </option>
+            ))}
+          </Select>
+        </div>
         {view !== "at_risk" && (
           <div className="w-40">
             <Select
@@ -491,6 +516,7 @@ export default function SupportQueue() {
               const next = new URLSearchParams(params);
               next.delete("priority");
               next.delete("topic");
+              next.delete("source");
               next.delete("q");
               setParams(next, { replace: true });
             }}
