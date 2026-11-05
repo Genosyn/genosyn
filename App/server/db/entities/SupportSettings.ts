@@ -66,6 +66,17 @@ export class SupportSettings {
   @Column({ type: dateTimeColumnType, nullable: true })
   insightsAt!: Date | null;
 
+  /** Messages the company's Chat widgets take in an hour, across all of them. */
+  @Column({ type: "int", default: 600 })
+  chatMessagesPerHour!: number;
+
+  /**
+   * Model turns the company's Chat widgets may start in a day, on any setting,
+   * because triage and drafts cost one as much as a sent reply does. 0 is none.
+   */
+  @Column({ type: "int", default: 200 })
+  chatAiTurnsPerDay!: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 

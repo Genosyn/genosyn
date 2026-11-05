@@ -639,6 +639,8 @@ const SECTION_PAGE_DEFS: Partial<Record<SectionKey, readonly SubpageDef[]>> = {
       keywords: [
         "public help center",
         "connect support email",
+        "chat widget",
+        "website chat",
         "support inboxes",
         "support address",
         "topics",

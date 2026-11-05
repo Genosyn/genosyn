@@ -12,6 +12,7 @@ import type { SupportJob } from "../../db/entities/SupportJob.js";
 import { SupportMessage } from "../../db/entities/SupportMessage.js";
 import { SupportTicket } from "../../db/entities/SupportTicket.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
+import { SUPPORT_CHAT_EMAIL_DELAY_MS } from "../../../shared/supportChat.js";
 import {
   DEFAULT_SUPPORT_ACKNOWLEDGEMENT,
   SUPPORT_LIMITS,
@@ -31,23 +32,28 @@ import {
   parseJsonArray,
   patchTicket,
   recordTicketEvent,
+  requesterDisplay,
   requireTicket,
   type SupportActor,
 } from "./access.js";
+import { appendChatRow, chatFactsFor, visitorReachable } from "./chatVisitors.js";
+import { chatSenderName } from "./chatWidgets.js";
 import { SupportConflictError, SupportNotFoundError, SupportValidationError } from "./errors.js";
 import { takeTicketNumber } from "./intake.js";
-import { ownAddressesFor } from "./inboxes.js";
+import { ownAddressesFor, watchedAddresses } from "./inboxes.js";
 import { bareSubject, isNoReplyAddress, plainTextToHtml, untaggedAddress } from "./mailSignals.js";
-import type { SupportJobOutcome } from "./queue.js";
+import { enqueueSupportJob, type SupportJobOutcome } from "./queue.js";
 import { disclosureOf, getSupportSettings } from "./settings.js";
 import { linkRequester, nextSlaDue, statusFields, targetsFrom } from "./tickets.js";
 
 /**
- * Everything Support says to a customer goes through here, and from here through
+ * Everything Support says to a customer goes through here. An email goes on through
  * the mailbox's own send path (`sendMailMessage`), which is where the do-not-email
  * list and the company's Policies are checked. So there is no way to reach a
- * customer that skips them, and the sent copy sits in the mailbox's Sent folder
- * like any other email.
+ * customer by mail that skips them, and the sent copy sits in the mailbox's Sent
+ * folder like any other email. A reply on a Chat widget ticket is written to the
+ * conversation that visitor's token reads, and reaches a mailbox only as the email
+ * of what they did not read, once they confirmed an address (`chatEmail.ts`).
  */
 
 let mailboxForTests: ((account: MailAccount) => Promise<Mailbox>) | null = null;
@@ -69,8 +75,17 @@ const AUTOMATIC_HEADERS = {
   "X-Auto-Response-Suppress": "All",
 };
 
+/** The same, for mail that answers nobody's message: confirming an address. */
+const GENERATED_HEADERS = {
+  "Auto-Submitted": "auto-generated",
+  "X-Auto-Response-Suppress": "All",
+};
+
 /** The mailbox a reply on this ticket goes through. */
-async function mailboxFor(ticket: SupportTicket, inbox: SupportInbox | null): Promise<MailAccount> {
+async function mailboxFor(
+  ticket: Pick<SupportTicket, "accountId" | "companyId">,
+  inbox: SupportInbox | null,
+): Promise<MailAccount> {
   const repo = AppDataSource.getRepository(MailAccount);
   const account =
     (ticket.accountId
@@ -105,6 +120,14 @@ export function replyFrom(
   const name = inbox?.fromName || account.senderName;
   if (!chosen && !inbox?.fromName) return undefined;
   return { address: chosen || account.address, name };
+}
+
+/**
+ * A chat was written to no address, so email about it goes out under the first one the
+ * inbox watches, and not as the person whose mailbox happens to hold that inbox.
+ */
+function chatSender(inbox: SupportInbox | null): { matchedAddress: string } {
+  return { matchedAddress: inbox ? (watchedAddresses(inbox)[0] ?? "") : "" };
 }
 
 /** Plain words with the inbox's signature, and the AI's line when it sent this alone. */
@@ -158,6 +181,10 @@ async function recordSentMessage(args: {
   const repo = AppDataSource.getRepository(SupportMessage);
   const authored = {
     kind: args.kind,
+    // A sync pass that saw this first may have written it for a visitor's widget,
+    // not knowing the server was emailing them what the widget already shows.
+    chatVisitorId: null,
+    chatSeq: null,
     authorUserId: args.actor.kind === "user" ? args.actor.userId : null,
     authorEmployeeId: args.actor.kind === "ai" ? args.actor.employeeId : null,
     sentByAi: args.sentByAi ?? false,
@@ -285,15 +312,12 @@ export async function sendTicketReply(
   if (ticket.status === "spam") {
     throw new SupportConflictError("Mark this ticket as not spam before replying.", "spam");
   }
-  if (!ticket.requesterEmail) {
-    throw new SupportConflictError("This ticket has no customer address to reply to.");
-  }
   if (input.basedOnMessageId && !input.force) {
     const newer = await newerMessageThan(ticket.id, input.basedOnMessageId);
     if (newer) {
       throw new SupportConflictError(
         newer.kind === "customer"
-          ? `${ticket.requesterName || ticket.requesterEmail} wrote again while you were replying. Read it before sending.`
+          ? `${requesterDisplay(ticket)} wrote again while you were replying. Read it before sending.`
           : "Someone else replied while you were writing. Read it before sending.",
         "stale",
       );
@@ -302,6 +326,14 @@ export async function sendTicketReply(
   const inbox = ticket.inboxId
     ? await AppDataSource.getRepository(SupportInbox).findOneBy({ id: ticket.inboxId })
     : null;
+  const settings = await getSupportSettings(ticket.companyId);
+  const { draft, citations } = await draftBehind(ticket, input);
+  if (ticket.chatVisitorId) {
+    return sendChatReply({ input, ticket, inbox, settings, body, draft, citations });
+  }
+  if (!ticket.requesterEmail) {
+    throw new SupportConflictError("This ticket has no customer address to reply to.");
+  }
   const account = await mailboxFor(ticket, inbox);
   const thread = ticket.gmailThreadId
     ? await AppDataSource.getRepository(MailThread).findOneBy({
@@ -309,7 +341,6 @@ export async function sendTicketReply(
         gmailThreadId: ticket.gmailThreadId,
       })
     : null;
-  const settings = await getSupportSettings(ticket.companyId);
   const ownAddresses = await ownAddressesFor(account);
   const cc = recipientsCc(ticket, ownAddresses, input.cc);
   const text = composeBody({
@@ -349,15 +380,6 @@ export async function sendTicketReply(
     },
   );
 
-  let citations: SupportCitation[] = [];
-  let draft: SupportDraft | null = null;
-  if (input.draftId) {
-    draft = await AppDataSource.getRepository(SupportDraft).findOneBy({
-      id: input.draftId,
-      ticketId: ticket.id,
-    });
-    citations = draft ? parseJsonArray<SupportCitation>(draft.citationsJson) : [];
-  }
   const message = await recordSentMessage({
     ticket,
     account,
@@ -369,7 +391,120 @@ export async function sendTicketReply(
     draftId: draft?.id ?? null,
     citations,
   });
+  return settleReply({
+    input,
+    ticket,
+    settings,
+    body,
+    draft,
+    citations,
+    message,
+    mail: { gmailThreadId: sent.gmailThreadId, accountId: account.id },
+  });
+}
 
+/** The AI draft a reply began as, and what it quoted. */
+async function draftBehind(
+  ticket: SupportTicket,
+  input: TicketReplyInput,
+): Promise<{ draft: SupportDraft | null; citations: SupportCitation[] }> {
+  if (!input.draftId) return { draft: null, citations: [] };
+  const draft = await AppDataSource.getRepository(SupportDraft).findOneBy({
+    id: input.draftId,
+    ticketId: ticket.id,
+  });
+  return { draft, citations: draft ? parseJsonArray<SupportCitation>(draft.citationsJson) : [] };
+}
+
+/**
+ * Write a reply into a Chat widget conversation. No mailbox: this works with the
+ * mailbox disconnected, and what goes to the visitor is only their conversation. The
+ * AI's disclosure line is part of what is stored and shown, as it is part of what an
+ * email says, so no client can leave it out. The signature stays with the emails: a
+ * signature under every chat line is not what the owners wrote it for.
+ */
+async function sendChatReply(args: {
+  input: TicketReplyInput;
+  ticket: SupportTicket;
+  inbox: SupportInbox | null;
+  settings: Awaited<ReturnType<typeof getSupportSettings>>;
+  body: string;
+  draft: SupportDraft | null;
+  citations: SupportCitation[];
+}): Promise<{ ticket: SupportTicket; message: SupportMessage }> {
+  const { input, ticket, inbox, settings, body, draft, citations } = args;
+  if (input.attachmentIds && input.attachmentIds.length > 0) {
+    throw new SupportValidationError("A chat reply cannot carry files. Remove them to send it.");
+  }
+  if (input.cc && input.cc.length > 0) {
+    throw new SupportValidationError("A chat reply reaches only the visitor. Remove the cc.");
+  }
+  const facts = await chatFactsFor(ticket);
+  if (!visitorReachable(facts)) {
+    throw new SupportConflictError(
+      "This visitor can no longer be reached: the chat ended or the widget is off, and they confirmed no email address.",
+      "unreachable",
+    );
+  }
+  const text = composeBody({
+    body,
+    inbox: null,
+    disclosure: input.automatic ? disclosureOf(settings) : undefined,
+  });
+  const message = await appendChatRow({
+    visitorId: ticket.chatVisitorId as string,
+    fields: {
+      companyId: ticket.companyId,
+      ticketId: ticket.id,
+      kind: "reply",
+      fromName: await chatSenderName(ticket.companyId, inbox),
+      subject: ticket.subject,
+      authorUserId: input.actor.kind === "user" ? input.actor.userId : null,
+      authorEmployeeId: input.actor.kind === "ai" ? input.actor.employeeId : null,
+      sentByAi: Boolean(input.automatic),
+      draftId: draft?.id ?? null,
+      citationsJson: JSON.stringify(citations),
+      sentAt: new Date(),
+      bodyText: text,
+      cleanText: body,
+    },
+  });
+  const settled = await settleReply({
+    input,
+    ticket,
+    settings,
+    body,
+    draft,
+    citations,
+    message,
+    mail: null,
+  });
+  // If they have left by then, this is how the answer reaches them.
+  if (facts.visitor?.email) {
+    await enqueueSupportJob({
+      companyId: ticket.companyId,
+      kind: "chat_email",
+      targetId: ticket.id,
+      ticketId: ticket.id,
+      delayMs: SUPPORT_CHAT_EMAIL_DELAY_MS,
+    });
+  }
+  return settled;
+}
+
+/** Bring a ticket up to date with the reply it just sent, whichever way it went. */
+async function settleReply(args: {
+  input: TicketReplyInput;
+  ticket: SupportTicket;
+  settings: Awaited<ReturnType<typeof getSupportSettings>>;
+  body: string;
+  draft: SupportDraft | null;
+  citations: SupportCitation[];
+  message: SupportMessage;
+  /** The email conversation it went on. Null for a reply in the Chat widget. */
+  mail: { gmailThreadId: string; accountId: string } | null;
+}): Promise<{ ticket: SupportTicket; message: SupportMessage }> {
+  const { input, ticket, settings, body, draft, citations, message, mail } = args;
   const now = new Date();
   const current = await requireTicket(ticket.companyId, ticket.id);
   const nextStatus = input.status ?? "waiting";
@@ -390,8 +525,7 @@ export async function sendTicketReply(
     aiHandoffReason: "",
     aiHandled: Boolean(input.automatic),
     aiReplyCount: current.aiReplyCount + (input.automatic ? 1 : 0),
-    gmailThreadId: sent.gmailThreadId,
-    accountId: account.id,
+    ...(mail ?? {}),
   };
   await patchTicket(ticket, fields);
 
@@ -723,6 +857,8 @@ export async function sendAutomatedMessage(args: {
   body: string;
   /** What to keep on the ticket, when the email holds something it should not. */
   storedBody?: string;
+  /** The subject, where "Re:" the ticket's would repeat words a stranger chose. */
+  subject?: string;
 }): Promise<boolean> {
   const { ticket } = args;
   if (!ticket.requesterEmail || isNoReplyAddress(ticket.requesterEmail)) return false;
@@ -742,10 +878,10 @@ export async function sendAutomatedMessage(args: {
     account,
     {
       to: ticket.requesterEmail,
-      subject: thread ? undefined : `Re: ${bareSubject(ticket.subject)}`,
+      subject: thread ? undefined : (args.subject ?? `Re: ${bareSubject(ticket.subject)}`),
       bodyText: text,
       bodyHtml: plainTextToHtml(text),
-      from: replyFrom(ticket, inbox, account),
+      from: replyFrom(ticket.chatVisitorId ? chatSender(inbox) : ticket, inbox, account),
       extraHeaders: AUTOMATIC_HEADERS,
     },
     thread,
@@ -771,6 +907,62 @@ export async function sendAutomatedMessage(args: {
   return true;
 }
 
+/**
+ * The same note, in the widget instead of a mailbox. No cooldown: that stops two
+ * mail systems acknowledging each other, and a person typed this. It joins the
+ * visitor's conversation as an automatic line, which no AI turn reads.
+ */
+async function acknowledgeInChat(ticket: SupportTicket): Promise<SupportJobOutcome> {
+  const inbox = ticket.inboxId
+    ? await AppDataSource.getRepository(SupportInbox).findOneBy({ id: ticket.inboxId })
+    : null;
+  if (!inbox?.acknowledge || !ticket.chatVisitorId) return { outcome: "done" };
+  await recordTicketEvent({ ticket, kind: "acknowledged", actor: { kind: "system" } });
+  const text = (inbox.acknowledgementBody ?? DEFAULT_SUPPORT_ACKNOWLEDGEMENT).trim();
+  await appendChatRow({
+    visitorId: ticket.chatVisitorId,
+    fields: {
+      companyId: ticket.companyId,
+      ticketId: ticket.id,
+      kind: "automated",
+      fromName: await chatSenderName(ticket.companyId, inbox),
+      subject: ticket.subject,
+      sentAt: new Date(),
+      bodyText: text,
+      cleanText: text,
+    },
+  });
+  return { outcome: "done" };
+}
+
+/**
+ * One email in fixed words, from an inbox's mailbox, on no ticket: asking someone to
+ * confirm their address. It goes through the mailbox's own send path like every
+ * other email, so the do-not-email list and Policies apply.
+ */
+export async function sendFixedEmail(args: {
+  inbox: SupportInbox;
+  to: string;
+  subject: string;
+  body: string;
+}): Promise<void> {
+  const { inbox } = args;
+  const account = await mailboxFor({ accountId: null, companyId: inbox.companyId }, inbox);
+  await sendMailMessage(
+    account,
+    {
+      to: args.to,
+      subject: args.subject,
+      bodyText: args.body,
+      bodyHtml: plainTextToHtml(args.body),
+      from: replyFrom(chatSender(inbox), inbox, account),
+      extraHeaders: GENERATED_HEADERS,
+    },
+    null,
+    dependencies(),
+  );
+}
+
 /** How soon the same address may be acknowledged again: what ends an acknowledgement loop. */
 const ACKNOWLEDGE_COOLDOWN_MS = 60 * 60_000;
 
@@ -788,6 +980,7 @@ export async function runAcknowledgeJob(
   }
   // Someone has already answered, so a "we got your email" would read strangely.
   if (ticket.firstRespondedAt) return { outcome: "done" };
+  if (ticket.chatVisitorId) return acknowledgeInChat(ticket);
   // Tickets rather than a join: ids and the column pointing at them are different
   // types on Postgres.
   const theirs = await AppDataSource.getRepository(SupportTicket).find({

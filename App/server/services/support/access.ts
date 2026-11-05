@@ -5,6 +5,7 @@ import { SupportTicket } from "../../db/entities/SupportTicket.js";
 import { User } from "../../db/entities/User.js";
 import type { SupportEventKind } from "../../../shared/support.js";
 import { ticketReference } from "../../../shared/support.js";
+import { SUPPORT_CHAT_VISITOR_LABEL } from "../../../shared/supportChat.js";
 import { recordAudit } from "../audit.js";
 import { emitResourceChange } from "../resourceEvents.js";
 import { SupportNotFoundError } from "./errors.js";
@@ -20,6 +21,13 @@ export type SupportActor =
   | { kind: "ai"; employeeId: string }
   | { kind: "system" }
   | { kind: "customer"; name: string };
+
+/** What to call a ticket's customer: a visitor on the Chat widget may have left neither. */
+export function requesterDisplay(
+  ticket: Pick<SupportTicket, "requesterName" | "requesterEmail">,
+): string {
+  return ticket.requesterName || ticket.requesterEmail || SUPPORT_CHAT_VISITOR_LABEL;
+}
 
 export function parseJsonArray<T = unknown>(raw: string | null | undefined): T[] {
   if (!raw) return [];

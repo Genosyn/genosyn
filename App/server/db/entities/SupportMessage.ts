@@ -13,12 +13,20 @@ import { dateTimeColumnType } from "./columnTypes.js";
  * back to the mailbox.
  *
  * `(accountId, gmailMessageId)` is the replay guard: a message is captured once
- * however many sync passes or retries see it. A note has neither.
+ * however many sync passes or retries see it. A note has neither, and neither does
+ * a chat message: it leaves both null, which never collide, and has a replay guard
+ * of its own in `(chatVisitorId, chatClientId)`.
+ *
+ * `chatVisitorId` is the whole boundary of the Chat widget. A visitor's token reads
+ * rows stamped with their own id and nothing else, so a note, a draft, or another
+ * person's words can't reach a browser by any route that follows a ticket.
  */
 @Entity("support_messages")
 @Index(["ticketId", "sentAt", "id"])
 @Index(["accountId", "gmailMessageId"], { unique: true })
 @Index(["companyId", "messageIdHeader"])
+@Index(["chatVisitorId", "chatSeq"], { unique: true })
+@Index(["chatVisitorId", "chatClientId"], { unique: true })
 export class SupportMessage {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -37,6 +45,18 @@ export class SupportMessage {
 
   @Column({ type: "varchar", nullable: true })
   gmailMessageId!: string | null;
+
+  /** The Chat widget visitor who may read this row. See the class doc. */
+  @Column({ type: "varchar", nullable: true })
+  chatVisitorId!: string | null;
+
+  /** Its place in that visitor's conversation: the widget's cursor. */
+  @Column({ type: "int", nullable: true })
+  chatSeq!: number | null;
+
+  /** The id the widget gave its own message, so a retry can't post it twice. */
+  @Column({ type: "varchar", nullable: true })
+  chatClientId!: string | null;
 
   /** "bounce", "auto_reply" or "bulk" when software wrote this rather than a person. */
   @Column({ type: "varchar", default: "" })

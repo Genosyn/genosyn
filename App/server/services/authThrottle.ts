@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { Request } from "express";
+import { LessThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AuthRateLimit } from "../db/entities/AuthRateLimit.js";
 import { config } from "../../config.js";
@@ -13,6 +14,11 @@ export class AuthRateLimitError extends Error {
 
 function idFor(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+/** A bucket for one identity alone: a company, or a visitor a token already proved. */
+export function throttleKeyFor(scope: string, identity: string): string {
+  return idFor(`${scope}:identity:${identity.trim().toLowerCase()}`);
 }
 
 export function authThrottleKeys(req: Request, scope: string, identity?: string): string[] {
@@ -166,6 +172,18 @@ export async function recordAuthFailure(keys: string[]): Promise<void> {
 export async function clearAuthFailures(keys: string[]): Promise<void> {
   if (keys.length === 0) return;
   await AppDataSource.getRepository(AuthRateLimit).delete(keys);
+}
+
+/** How many attempts a bucket has admitted in its window, without counting another. */
+export async function peekAuthAttempts(id: string, windowMinutes: number): Promise<number> {
+  const row = await AppDataSource.getRepository(AuthRateLimit).findOneBy({ id });
+  if (!row) return 0;
+  return Date.now() - row.windowStartedAt.getTime() >= windowMinutes * 60_000 ? 0 : row.attempts;
+}
+
+/** Forget buckets nobody has touched since `before`. Their windows are long over. */
+export async function pruneAuthRateLimits(before: Date): Promise<void> {
+  await AppDataSource.getRepository(AuthRateLimit).delete({ updatedAt: LessThan(before) });
 }
 
 /**

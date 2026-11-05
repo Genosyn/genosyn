@@ -323,13 +323,17 @@ const REGISTRY: Record<string, Mapping> = {
   // Routine: the replies, notes and updates a Routine's own work makes do not,
   // so a Trigger on "support_ticket" means "a customer wrote in". Ticket writes
   // are targeted updates and announce themselves (`services/support/access.ts`),
-  // as do drafts, the timeline and the job queue.
+  // as do drafts, the timeline and the job queue. A Chat widget message wakes
+  // nothing here: anyone can post one, so its own path wakes a Routine only when a
+  // ticket goes from answered to owed (`services/support/chatIntake.ts`). Mail that
+  // joins a chat ticket is still mail, with a mail id, and wakes as mail does.
   SupportTicket: { kind: "support_ticket", company: "direct", scopeFk: "id", wakes: () => false },
   SupportMessage: {
     kind: "support_ticket",
     company: "direct",
     scopeFk: "ticketId",
-    wakes: (entity) => entity.kind === "customer",
+    wakes: (entity) =>
+      entity.kind === "customer" && (!entity.chatVisitorId || Boolean(entity.gmailMessageId)),
   },
   SupportDraft: { kind: "support_ticket", company: "direct", scopeFk: "ticketId", wakes: () => false },
   SupportEvent: { kind: "support_ticket", company: "direct", scopeFk: "ticketId", wakes: () => false },
@@ -337,6 +341,7 @@ const REGISTRY: Record<string, Mapping> = {
   SupportSavedReply: { kind: "support_saved_reply", company: "direct", wakes: () => false },
   SupportInbox: { kind: "support_inbox", company: "direct", scopeFk: "id", wakes: () => false },
   SupportSettings: { kind: "support_settings", company: "direct", wakes: () => false },
+  SupportChatWidget: { kind: "support_inbox", company: "direct", scopeFk: "inboxId", wakes: () => false },
   EmployeeSupportGrant: { kind: "grant", company: "direct", scopeFk: "employeeId" },
 
   // ── Phone numbers ────────────────────────────────────────────────────────

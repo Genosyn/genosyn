@@ -1,9 +1,11 @@
 import { In, IsNull, LessThanOrEqual, Not } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
+import { SupportChatVisitor } from "../../db/entities/SupportChatVisitor.js";
 import { SupportSettings } from "../../db/entities/SupportSettings.js";
 import { SupportTicket } from "../../db/entities/SupportTicket.js";
 import { ticketReference } from "../../../shared/support.js";
+import { pruneAuthRateLimits } from "../authThrottle.js";
 import { createNotifications } from "../notifications.js";
 import { patchTicket, recordTicketEvent } from "./access.js";
 import { enqueueSupportJob } from "./queue.js";
@@ -22,6 +24,10 @@ const BATCH = 200;
 const INSIGHTS_EVERY_MS = 7 * 24 * 60 * 60_000;
 /** New tickets since the last reading that make a new one worth a model call. */
 const INSIGHTS_MIN_TICKETS = 5;
+/** A Chat widget visitor who never wrote after this long was nobody. */
+const SILENT_VISITOR_MS = 24 * 60 * 60_000;
+/** Longer than any throttle's window, so a bucket this old has nothing left to say. */
+const THROTTLE_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
 export async function runSupportSweep(now = new Date()): Promise<void> {
   await wakeSnoozed(now);
@@ -30,6 +36,25 @@ export async function runSupportSweep(now = new Date()): Promise<void> {
   await solveSilent(now);
   await closeSolved(now);
   await queueInsights(now);
+  await clearChatLeftovers(now);
+}
+
+/**
+ * What an open endpoint leaves behind: visitors who got a token and never wrote
+ * anything, and throttle buckets whose windows ended long ago.
+ */
+async function clearChatLeftovers(now: Date): Promise<void> {
+  const silent = await AppDataSource.getRepository(SupportChatVisitor).find({
+    where: { lastSeq: 0, createdAt: LessThanOrEqual(new Date(now.getTime() - SILENT_VISITOR_MS)) },
+    select: { id: true },
+    take: BATCH,
+  });
+  if (silent.length > 0) {
+    await AppDataSource.getRepository(SupportChatVisitor).delete({
+      id: In(silent.map((visitor) => visitor.id)),
+    });
+  }
+  await pruneAuthRateLimits(new Date(now.getTime() - THROTTLE_RETENTION_MS));
 }
 
 async function wakeSnoozed(now: Date): Promise<void> {

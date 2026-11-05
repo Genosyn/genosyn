@@ -21,7 +21,14 @@ import type { GmailHeader } from "../mail/gmailClient.js";
 import { mailboxForAccount } from "../mail/mailbox/index.js";
 import { columnHasLabel } from "../mail/store.js";
 import { createNotifications } from "../notifications.js";
-import { announceTicket, parseJsonArray, patchTicket, recordTicketEvent } from "./access.js";
+import {
+  announceTicket,
+  parseJsonArray,
+  patchTicket,
+  recordTicketEvent,
+  requesterDisplay,
+} from "./access.js";
+import { appendChatRow } from "./chatVisitors.js";
 import { activeInboxesFor, matchInbox, ownAddressesFor } from "./inboxes.js";
 import {
   bareSubject,
@@ -244,11 +251,17 @@ function colleaguesOn(
   ];
 }
 
+type MessageFields = Partial<SupportMessage> &
+  Pick<SupportMessage, "companyId" | "ticketId" | "kind" | "sentAt">;
+
+/** Keep one email. `chatVisitorId` also lets that visitor's widget show it. */
 async function insertMessage(
-  fields: Partial<SupportMessage> & { companyId: string; ticketId: string },
+  fields: MessageFields,
+  chatVisitorId: string | null = null,
 ): Promise<SupportMessage | null> {
   const repo = AppDataSource.getRepository(SupportMessage);
   try {
+    if (chatVisitorId) return await appendChatRow({ visitorId: chatVisitorId, fields });
     return await repo.save(repo.create(fields));
   } catch (error) {
     // Lost a race to capture the same email: the unique index did its job.
@@ -269,7 +282,7 @@ function messageFieldsFrom(
   ticketId: string,
   kind: SupportMessage["kind"],
   automatedKind: string,
-): Partial<SupportMessage> & { companyId: string; ticketId: string } {
+): MessageFields {
   return {
     companyId: account.companyId,
     ticketId,
@@ -399,7 +412,7 @@ async function openTicket(args: {
   }
 }
 
-async function afterOpened(
+export async function afterOpened(
   ticket: SupportTicket,
   inbox: SupportInbox,
   verdict: AutomatedVerdict,
@@ -427,6 +440,12 @@ async function appendCustomerMessage(args: {
 }): Promise<CaptureResult> {
   const { account, ticket, message, verdict, options } = args;
   const noPerson = verdict?.kind === "bounce" || verdict?.kind === "auto_reply";
+  // A visitor who confirmed this address reads their own emails in the widget too.
+  // Only theirs: From is spoofable, and nobody else's words belong in front of them.
+  const forVisitor =
+    !noPerson && message.fromEmail.toLowerCase() === ticket.requesterEmail
+      ? ticket.chatVisitorId
+      : null;
   const row = await insertMessage(
     messageFieldsFrom(
       account,
@@ -435,6 +454,7 @@ async function appendCustomerMessage(args: {
       noPerson ? "automated" : "customer",
       verdict?.kind ?? "",
     ),
+    forVisitor,
   );
   if (!row) return { outcome: "existing", ticketId: ticket.id };
   const now = options.now ?? new Date();
@@ -462,11 +482,38 @@ async function appendCustomerMessage(args: {
     return { outcome: "appended", ticketId: ticket.id, kind: "automated" };
   }
 
+  await noteCustomerWrote({
+    ticket,
+    sentAt,
+    now,
+    cc: colleaguesOn(message, args.ownAddresses, ticket.requesterEmail),
+    verdict,
+    quiet: options.quiet,
+  });
+  return { outcome: "appended", ticketId: ticket.id, kind: "customer" };
+}
+
+/**
+ * What a customer writing again means for a ticket, however it reached us: its
+ * clocks and status, whoever holds it, and the AI Employee's next read. Their words
+ * are already on the conversation by now.
+ */
+export async function noteCustomerWrote(args: {
+  ticket: SupportTicket;
+  sentAt: Date;
+  now: Date;
+  cc?: readonly string[];
+  verdict?: AutomatedVerdict;
+  /** Importing history: no AI and no notifications from here. */
+  quiet?: boolean;
+  /** Tell whoever holds it. A burst of chat lines is one thing to hear about. */
+  notify?: boolean;
+}): Promise<void> {
+  const { ticket, sentAt, now, verdict } = args;
+  const activityAt = sentAt > now ? now : sentAt;
   const settings = await getSupportSettings(ticket.companyId);
   const cc = new Set(parseJsonArray<string>(ticket.ccJson));
-  for (const address of colleaguesOn(message, args.ownAddresses, ticket.requesterEmail)) {
-    cc.add(address);
-  }
+  for (const address of args.cc ?? []) cc.add(address);
   const fields: Partial<SupportTicket> = {
     messageCount: ticket.messageCount + 1,
     lastCustomerMessageAt: sentAt,
@@ -509,18 +556,18 @@ async function appendCustomerMessage(args: {
     await recordTicketEvent({
       ticket,
       kind: "reopened",
-      actor: { kind: "customer", name: ticket.requesterName || ticket.requesterEmail },
+      actor: { kind: "customer", name: requesterDisplay(ticket) },
       data: { from: ticket.status },
     });
   }
-  if (options.quiet) return { outcome: "appended", ticketId: ticket.id, kind: "customer" };
-  if (ticket.assigneeUserId) {
+  if (args.quiet) return;
+  if (ticket.assigneeUserId && args.notify !== false) {
     await createNotifications([
       {
         companyId: ticket.companyId,
         userId: ticket.assigneeUserId,
         kind: "support_customer_replied",
-        title: `${ticket.requesterName || ticket.requesterEmail} replied on ${ticketReference(ticket.number)}`,
+        title: `${requesterDisplay(ticket)} replied on ${ticketReference(ticket.number)}`,
         body: ticket.subject,
         link: `/support/tickets/${ticket.id}`,
         actorKind: "system",
@@ -535,7 +582,6 @@ async function appendCustomerMessage(args: {
       { delayMs: WORK_DELAY_MS },
     );
   }
-  return { outcome: "appended", ticketId: ticket.id, kind: "customer" };
 }
 
 /** The company wrote on a ticket from outside Genosyn: from Gmail, or an AI Employee's send_mail. */
@@ -546,7 +592,10 @@ async function appendOutsideReply(args: {
   options: CaptureOptions;
 }): Promise<CaptureResult> {
   const { account, ticket, message, options } = args;
-  const row = await insertMessage(messageFieldsFrom(account, message, ticket.id, "reply", ""));
+  const row = await insertMessage(
+    messageFieldsFrom(account, message, ticket.id, "reply", ""),
+    ticket.chatVisitorId,
+  );
   if (!row) return { outcome: "existing", ticketId: ticket.id };
   const now = options.now ?? new Date();
   const sentAt = sentAtOf(message);

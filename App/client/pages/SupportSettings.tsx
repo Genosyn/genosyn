@@ -43,6 +43,7 @@ import {
   type SupportTopic,
 } from "../../shared/support";
 import type { SupportOutletContext } from "./SupportLayout";
+import { ChatWidgetSection } from "./support/ChatWidgetSection";
 import { InboxForm } from "./support/InboxForm";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -124,7 +125,7 @@ function SettingsBody() {
       <PageHeader
         breadcrumbs={crumbs}
         title="Settings"
-        description="Which mail becomes tickets, how far your AI Employee goes, what your team promises customers, and what the public can read."
+        description="Which mail and chats become tickets, how far your AI Employee goes, what your team promises customers, and what the public can read."
       />
       <div className="max-w-3xl space-y-8">
         <InboxesSection
@@ -132,6 +133,13 @@ function SettingsBody() {
           employees={employees}
           settings={settings}
           onChanged={reload}
+        />
+        <ChatWidgetSection
+          companyId={company.id}
+          inboxes={inboxes ?? []}
+          settings={settings}
+          onInboxesChanged={reload}
+          onSettingsSaved={setSettings}
         />
         <AiSection settings={settings} employees={employees} onSaved={setSettings} />
         <TopicsSection

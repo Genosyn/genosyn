@@ -14,6 +14,7 @@ import {
   FileText,
   GitMerge,
   Languages,
+  MessageCircle,
   MessageSquare,
   MoreHorizontal,
   RefreshCw,
@@ -69,6 +70,7 @@ import {
   SUPPORT_PRIORITY_LABELS,
   SUPPORT_SENTIMENT_LABELS,
   SUPPORT_SETTABLE_STATUSES,
+  SUPPORT_SOURCE_LABELS,
   SUPPORT_STATUS_LABELS,
   firstNameOf,
   renderSavedReply,
@@ -101,6 +103,7 @@ function eventText(event: SupportEvent, topicName: (key: string | null) => strin
   const who = event.actorName;
   switch (event.kind) {
     case "created":
+      if (data.source === "chat") return "Started in the chat widget";
       return data.source === "import" ? "Imported from the mailbox" : null;
     case "status_changed": {
       const to =
@@ -150,9 +153,20 @@ function eventText(event: SupportEvent, topicName: (key: string | null) => strin
       return "The customer was sent an acknowledgement";
     case "rating_requested":
       return "The customer was asked for a rating";
+    case "chat_email_confirmed":
+      return `${who} confirmed ${String(data.address ?? "their address")}, so replies they miss go there`;
+    case "chat_ended":
+      return `${who} ended the chat`;
     default:
       return null;
   }
+}
+
+/** Where a reply on a chat ticket goes, in the composer's few words. */
+function chatReplyHint(chat: NonNullable<SupportTicketDetail["chat"]>): string {
+  if (!chat.reachable) return "Nothing can reach this visitor now";
+  if (chat.email) return `In the chat, then ${chat.email} if they miss it`;
+  return "In the chat, if they come back";
 }
 
 function PersonAvatar({ companyId, message }: { companyId: string; message: SupportMessage }) {
@@ -231,9 +245,11 @@ function MessageCard({
       <div className="rounded-lg border border-dashed border-slate-200 px-3 py-2 dark:border-slate-700">
         <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
           <span>
-            {message.fromEmail && message.authorUser === null && message.authorEmployee === null
-              ? `Automatic email · ${message.fromName || message.fromEmail}`
-              : "Automatic email"}
+            {message.viaChat
+              ? "Automatic message in the chat"
+              : message.fromEmail && message.authorUser === null && message.authorEmployee === null
+                ? `Automatic email · ${message.fromName || message.fromEmail}`
+                : "Automatic email"}
           </span>
           <span className="tabular-nums">{agoText(message.sentAt)}</span>
         </div>
@@ -273,8 +289,13 @@ function MessageCard({
               {!message.sentByAi && message.authorEmployee && !isNote && (
                 <Badge tone="ai">AI Employee</Badge>
               )}
+              {message.viaChat && (
+                <Badge tone="info" icon={<MessageCircle />}>
+                  Chat
+                </Badge>
+              )}
             </div>
-            {!isNote && (
+            {!isNote && !message.viaChat && (
               <div className="truncate text-xs text-slate-500 dark:text-slate-400">
                 {message.fromEmail}
                 {message.ccEmails ? ` · cc ${message.ccEmails}` : ""}
@@ -805,13 +826,18 @@ export default function SupportTicketPage() {
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
             <span>
               {requesterLabel(ticket)}
-              {ticket.requesterName ? ` <${ticket.requesterEmail}>` : ""}
+              {ticket.requesterName && ticket.requesterEmail ? ` <${ticket.requesterEmail}>` : ""}
             </span>
             <Badge
               tone={ticket.status === "new" || ticket.status === "open" ? "accent" : "neutral"}
             >
               {SUPPORT_STATUS_LABELS[ticket.status]}
             </Badge>
+            {ticket.source === "chat" && (
+              <Badge tone="info" icon={<MessageCircle />}>
+                Chat widget
+              </Badge>
+            )}
             {ticket.priority !== "normal" && (
               <Badge tone={PRIORITY_TONE[ticket.priority]}>
                 {SUPPORT_PRIORITY_LABELS[ticket.priority]}
@@ -899,15 +925,17 @@ export default function SupportTicketPage() {
                     void askAi();
                   }}
                 />
-                <MenuItem
-                  icon={<Bot size={14} />}
-                  label="Hand to an AI Employee"
-                  hint="With its Skills and tools"
-                  onSelect={() => {
-                    close();
-                    setHandingOver(true);
-                  }}
-                />
+                {(ticket.source !== "chat" || detail.mailbox) && (
+                  <MenuItem
+                    icon={<Bot size={14} />}
+                    label="Hand to an AI Employee"
+                    hint="With its Skills and tools"
+                    onSelect={() => {
+                      close();
+                      setHandingOver(true);
+                    }}
+                  />
+                )}
                 <MenuItem
                   icon={<FileText size={14} />}
                   label="Write an Article from this"
@@ -1091,7 +1119,11 @@ export default function SupportTicketPage() {
                   <StickyNote size={14} /> Note
                 </button>
                 <span className="ml-auto truncate px-2 text-xs text-slate-500 dark:text-slate-400">
-                  {mode === "note" ? "Only your team sees this" : `To ${ticket.requesterEmail}`}
+                  {mode === "note"
+                    ? "Only your team sees this"
+                    : detail.chat
+                      ? chatReplyHint(detail.chat)
+                      : `To ${ticket.requesterEmail}`}
                 </span>
               </div>
               {mode === "reply" && ticket.cc.length + (ccText === null ? 0 : 1) > 0 && (
@@ -1111,7 +1143,7 @@ export default function SupportTicketPage() {
                 placeholder={
                   mode === "note"
                     ? "Write a note for your team"
-                    : `Write to ${firstNameOf(ticket.requesterName) || ticket.requesterEmail}`
+                    : `Write to ${firstNameOf(ticket.requesterName) || requesterLabel(ticket)}`
                 }
                 rows={5}
                 value={body}
@@ -1125,7 +1157,7 @@ export default function SupportTicketPage() {
                 }}
               />
               <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2 dark:border-slate-800">
-                {mode === "reply" && detail.mailbox && (
+                {mode === "reply" && detail.mailbox && !detail.chat && (
                   <AttachmentBar
                     items={attachments.items}
                     uploading={attachments.uploading}
@@ -1337,6 +1369,22 @@ export default function SupportTicketPage() {
               <div className="truncate text-xs text-slate-500 dark:text-slate-400">
                 {ticket.requesterEmail}
               </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                From: {SUPPORT_SOURCE_LABELS[ticket.source]}
+                {detail.inbox ? ` · ${detail.inbox.name}` : ""}
+              </div>
+              {detail.chat?.unconfirmedEmail && (
+                <div className="break-words text-xs text-amber-700 dark:text-amber-400">
+                  Typed {detail.chat.unconfirmedEmail}, not confirmed. Anyone can type any address.
+                </div>
+              )}
+              {detail.chat && !detail.chat.reachable && (
+                <div className="flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  Nothing can reach this visitor now: the chat ended or the widget is off, and they
+                  confirmed no email address.
+                </div>
+              )}
               {detail.customer && (
                 <Link
                   to={`/c/${company.slug}/revenue/accounts/${detail.customer.id}`}

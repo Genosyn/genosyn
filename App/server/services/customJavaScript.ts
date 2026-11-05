@@ -21,6 +21,7 @@ const SENSITIVE_PATH_PREFIXES = [
   "/verify-email/",
   "/invite/",
   "/link-chat/",
+  "/support-chat/",
 ];
 const SENSITIVE_PATHS = new Set([
   "/api",

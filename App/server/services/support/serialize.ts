@@ -11,6 +11,7 @@ import type { SupportTicket } from "../../db/entities/SupportTicket.js";
 import { User } from "../../db/entities/User.js";
 import type { SupportCitation } from "../../../shared/support.js";
 import { parseJsonArray, parseJsonObject } from "./access.js";
+import { isChatRow } from "./chatVisitors.js";
 
 /** The shapes Support's routes answer with. Never a token, never a mailbox credential. */
 
@@ -157,6 +158,7 @@ export function serializeMessage(message: SupportMessage, people: SupportPeople)
       : null,
     sentByAi: message.sentByAi,
     draftId: message.draftId,
+    viaChat: isChatRow(message),
     sentAt: message.sentAt.toISOString(),
     bodyText: message.bodyText,
     bodyHtml: message.bodyHtml,

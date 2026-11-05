@@ -35,7 +35,14 @@ import { Company } from "../db/entities/Company.js";
 export type CareersTemplateLoader = (url: string) => Promise<string>;
 
 /** App files that must never answer on a careers domain. */
-const APP_ONLY_FILES = new Set(["/index.html", "/sw.js", "/manifest.webmanifest", "/careers.html"]);
+const APP_ONLY_FILES = new Set([
+  "/index.html",
+  "/sw.js",
+  "/manifest.webmanifest",
+  "/careers.html",
+  "/chat-widget.html",
+  "/support-chat-loader.js",
+]);
 
 /** Where the guard sends a path a careers domain has no page for: the careers "not found". */
 export const CAREERS_MISSING_PATH = "/__careers/missing";

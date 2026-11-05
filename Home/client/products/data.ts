@@ -1246,14 +1246,15 @@ export const PRODUCTS: ProductDef[] = [
     taglineAccent:
       "Every quote is checked word for word, and what it cannot answer waits for a person, with the reason on the draft.",
     summary:
-      "Email to support@ becomes Tickets an AI Employee triages and answers from your published Articles, quoting them. The rest waits for a Member.",
+      "Email to support@ and chats on your site become Tickets an AI Employee triages and answers from your published Articles, quoting them. The rest waits for a Member.",
     seoTitle: "Support: AI ticketing on your own mailbox · Genosyn",
     description:
-      "Turn email to support@ into Tickets. An AI Employee triages each one and drafts a reply from your Articles, with every quote checked. You decide what it sends.",
+      "Turn email to support@ and chats on your site into Tickets. An AI Employee triages each one and drafts a reply from your Articles, with every quote checked. You decide what it sends.",
     intro:
       "Connect the mailbox your customers already write to and say which addresses count: support@, help@, an alias, a Google Group, or the whole mailbox. Every email to them becomes a Ticket. An AI Employee summarizes it, sets its Topic and priority, and drafts a reply from your published Articles, in a restricted turn that reads that Ticket and those Articles and nothing else. A Member sends the reply. Turn on Reply on its own and the AI Employee sends the ones that pass every check, on the Topics you allow.",
     checks: [
       "Watches support@ or any address you name",
+      "A chat widget on your own site, off until you turn it on",
       "Off, Triage only, Draft replies, or Reply on its own",
       "Every quote checked against an Article",
       "Response targets, ratings and Insights",
@@ -1263,6 +1264,11 @@ export const PRODUCTS: ProductDef[] = [
         icon: "inbox",
         title: "Watch support@ and leave the rest of the mailbox alone",
         body: "Connect a mailbox and name the addresses that count, as many as you need, including aliases, Google Groups and forwarding addresses, or take everything sent to it. Mail to anything else stays in Email. Bring in the last 7, 30 or 90 days when you set it up, and nothing imported goes out on its own.",
+      },
+      {
+        icon: "messageSquare",
+        title: "A chat widget on your own site, on the sites you name",
+        body: "Add one line to your site and visitors can write without signing in. Their messages open and continue a Ticket under the same checks as email, and the visitor sees only their own conversation. A daily limit on AI turns means an open page cannot run up a bill. Someone who leaves can get the answer by email, once they confirm the address is theirs.",
       },
       {
         icon: "shieldCheck",
@@ -1326,8 +1332,12 @@ export const PRODUCTS: ProductDef[] = [
         a: "Only on an inbox set to Reply on its own, on a Topic you allow, when every check holds. To start with, How-to question and Feedback or feature request may reply on their own, and Billing, Account access, Bug or problem and Something else wait for a person. It stops at two replies on a Ticket, five a day to one customer, and 100 a day from an inbox unless you change that. Every such reply says an AI Employee wrote it.",
       },
       {
-        q: "Is there a public help center or a chat widget?",
-        a: "A help center, once you turn it on. An owner or admin switches it on under Support → Settings, and anyone with the link can then read and search your published Articles at /help/your-company, with no sign-in. Drafts, Tickets and who wrote what stay private, and search engines are asked not to list it. There is no chat widget: Support works email today.",
+        q: "Is there a chat widget?",
+        a: "Yes, and it is off until you turn it on. Each Support inbox can have one, on the sites you name and no others. A visitor's messages open and continue a Ticket under the same checks as email, and a daily limit on AI turns means an open page cannot run up your AI Model's bill. A visitor who leaves can get the answer by email, once they confirm the address is theirs.",
+      },
+      {
+        q: "Is there a public help center?",
+        a: "Yes, once you turn it on. An owner or admin switches it on under Support → Settings, and anyone with the link can then read and search your published Articles at /help/your-company, with no sign-in. Drafts, Tickets and who wrote what stay private, and search engines are asked not to list it.",
       },
       {
         q: "What happens when the AI Model is down?",

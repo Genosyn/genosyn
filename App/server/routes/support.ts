@@ -10,9 +10,15 @@ import {
   SUPPORT_PRIORITIES,
   SUPPORT_SETTABLE_STATUSES,
   SUPPORT_SORTS,
+  SUPPORT_TICKET_SOURCES,
   SUPPORT_TICKET_STATUSES,
   SUPPORT_VIEWS,
 } from "../../shared/support.js";
+import {
+  SUPPORT_CHAT_LIMITS,
+  SUPPORT_CHAT_MAX_AI_TURNS_PER_DAY,
+  SUPPORT_CHAT_MAX_MESSAGES_PER_HOUR,
+} from "../../shared/supportChat.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
@@ -33,6 +39,8 @@ import { createMailHandover, handoverGrantError } from "../services/mail/handove
 import { type SupportActor, recordTicketEvent, requireTicket } from "../services/support/access.js";
 import { SUPPORT_ASSIST_ACTIONS, assistReply } from "../services/support/ai.js";
 import { supportAnalytics } from "../services/support/analytics.js";
+import { chatAiTurnsUsed } from "../services/support/chatThrottle.js";
+import { saveChatWidget, serializeChatWidget } from "../services/support/chatWidgets.js";
 import {
   isSupportError,
   SupportConflictError,
@@ -46,10 +54,10 @@ import {
 import {
   createInbox,
   deleteInbox,
+  inboxWithWidget,
   listInboxes,
   requestInboxImport,
   requireInbox,
-  serializeInbox,
   updateInbox,
 } from "../services/support/inboxes.js";
 import {
@@ -179,6 +187,7 @@ const listTicketsQuery = z
     assigneeEmployeeId: uuid.optional(),
     requesterEmail: z.string().max(SUPPORT_LIMITS.addressChars).optional(),
     customerId: uuid.optional(),
+    source: z.enum(SUPPORT_TICKET_SOURCES).optional(),
     tag: z.string().max(SUPPORT_LIMITS.tagChars).optional(),
     q: z.string().max(200).optional(),
     sort: z.enum(SUPPORT_SORTS).optional(),
@@ -656,9 +665,7 @@ const importBody = z
   .strict();
 
 async function inboxView(companyId: string, inboxId: string) {
-  const inbox = await requireInbox(companyId, inboxId);
-  const account = await AppDataSource.getRepository(MailAccount).findOneBy({ id: inbox.accountId });
-  return serializeInbox(inbox, account);
+  return inboxWithWidget(await requireInbox(companyId, inboxId));
 }
 
 supportRouter.get(
@@ -722,6 +729,37 @@ supportRouter.delete(
   }),
 );
 
+// ── Chat widget ─────────────────────────────────────────────────────────────
+
+const chatWidgetBody = z
+  .object({
+    enabled: z.boolean().optional(),
+    allowedOrigins: z
+      .array(z.string().trim().max(SUPPORT_CHAT_LIMITS.originChars))
+      .max(SUPPORT_CHAT_LIMITS.originsPerWidget * 2)
+      .optional(),
+    title: z.string().max(SUPPORT_CHAT_LIMITS.titleChars).optional(),
+    greeting: z.string().max(SUPPORT_CHAT_LIMITS.greetingChars).optional(),
+  })
+  .strict();
+
+/** Turning a widget on opens a public door, so this sits behind the inbox routes' admin gate. */
+supportRouter.put(
+  "/support/inboxes/:inboxId/chat-widget",
+  validateParams(inboxParams),
+  validateBody(chatWidgetBody),
+  route(async (req, res) => {
+    const inbox = await requireInbox(cid(req), param(req, "inboxId"));
+    const widget = await saveChatWidget({
+      companyId: cid(req),
+      inbox,
+      patch: req.body as z.infer<typeof chatWidgetBody>,
+      actor: actor(req),
+    });
+    res.json({ widget: serializeChatWidget(widget) });
+  }),
+);
+
 // ── Settings ────────────────────────────────────────────────────────────────
 
 const topicInput = z
@@ -749,19 +787,24 @@ const settingsBody = z
     helpCenterEnabled: z.boolean().optional(),
     autoCloseDays: z.number().int().min(0).max(365).optional(),
     autoSolveDays: z.number().int().min(0).max(365).optional(),
+    chatMessagesPerHour: z.number().int().min(1).max(SUPPORT_CHAT_MAX_MESSAGES_PER_HOUR).optional(),
+    chatAiTurnsPerDay: z.number().int().min(0).max(SUPPORT_CHAT_MAX_AI_TURNS_PER_DAY).optional(),
   })
   .strict();
+
+async function settingsView(settings: Awaited<ReturnType<typeof getSupportSettings>>) {
+  return {
+    ...serializeSupportSettings(settings),
+    helpCenterUrl: await helpCenterUrl(settings.companyId),
+    chatAiTurnsUsed: await chatAiTurnsUsed(settings),
+  };
+}
 
 supportRouter.get(
   "/support/settings",
   validateParams(companyParams),
   route(async (req, res) => {
-    res.json({
-      settings: {
-        ...serializeSupportSettings(await getSupportSettings(cid(req))),
-        helpCenterUrl: await helpCenterUrl(cid(req)),
-      },
-    });
+    res.json({ settings: await settingsView(await getSupportSettings(cid(req))) });
   }),
 );
 
@@ -775,12 +818,7 @@ supportRouter.patch(
       req.body as z.infer<typeof settingsBody>,
       actor(req),
     );
-    res.json({
-      settings: {
-        ...serializeSupportSettings(settings),
-        helpCenterUrl: await helpCenterUrl(cid(req)),
-      },
-    });
+    res.json({ settings: await settingsView(settings) });
   }),
 );
 

@@ -9,12 +9,13 @@ import {
 import type {
   SupportPriority,
   SupportSentiment,
+  SupportTicketSource,
   SupportTicketStatus,
 } from "../../../shared/support.js";
 import { dateTimeColumnType } from "./columnTypes.js";
 
 export type SupportFieldSource = "default" | "ai" | "member";
-export type SupportTicketSource = "email" | "import" | "manual";
+export type { SupportTicketSource };
 
 /**
  * One customer's request.
@@ -29,7 +30,8 @@ export type SupportTicketSource = "email" | "import" | "manual";
  * one conversation from opening two tickets however they race. `gmailThreadId`
  * holds the mailbox's handle for the conversation, like the mirror's column of
  * the same name, and stays null on a ticket that has not gone out by email yet;
- * null never collides.
+ * null never collides. A ticket opened from the Chat widget starts that way, with
+ * `requesterEmail` empty until the visitor confirms an address.
  */
 @Entity("support_tickets")
 @Index(["companyId", "number"], { unique: true })
@@ -42,8 +44,10 @@ export type SupportTicketSource = "email" | "import" | "manual";
 @Index(["companyId", "aiHandled", "lastActivityAt", "id"])
 @Index(["companyId", "priorityRank", "lastActivityAt", "id"])
 @Index(["companyId", "slaDueAt", "id"])
+@Index(["companyId", "source", "lastActivityAt", "id"])
 @Index(["companyId", "requesterEmail", "createdAt"])
 @Index(["companyId", "createdAt"])
+@Index(["chatVisitorId", "createdAt"])
 @Index(["inboxId", "lastActivityAt", "id"])
 @Index(["slaDueAt"])
 @Index(["status", "snoozedUntil"])
@@ -216,6 +220,10 @@ export class SupportTicket {
 
   @Column({ type: "varchar", default: "email" })
   source!: SupportTicketSource;
+
+  /** The Chat widget visitor this is the conversation of. Replies are written for them. */
+  @Column({ type: "varchar", nullable: true })
+  chatVisitorId!: string | null;
 
   @Column({ type: "varchar", nullable: true })
   createdByUserId!: string | null;

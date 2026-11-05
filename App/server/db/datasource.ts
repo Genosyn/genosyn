@@ -260,6 +260,8 @@ import { DataRoomQuestion } from "./entities/DataRoomQuestion.js";
 import { DataRoomJob } from "./entities/DataRoomJob.js";
 import { EmployeeDataRoomGrant } from "./entities/EmployeeDataRoomGrant.js";
 import { SupportSettings } from "./entities/SupportSettings.js";
+import { SupportChatVisitor } from "./entities/SupportChatVisitor.js";
+import { SupportChatWidget } from "./entities/SupportChatWidget.js";
 import { SupportInbox } from "./entities/SupportInbox.js";
 import { SupportTicket } from "./entities/SupportTicket.js";
 import { SupportMessage } from "./entities/SupportMessage.js";
@@ -544,6 +546,8 @@ const entities = [
   DataRoomJob,
   EmployeeDataRoomGrant,
   SupportSettings,
+  SupportChatWidget,
+  SupportChatVisitor,
   SupportInbox,
   SupportTicket,
   SupportMessage,

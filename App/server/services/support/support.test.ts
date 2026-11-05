@@ -1217,6 +1217,8 @@ describe("replying on its own", () => {
 
 describe("the checks on an automatic reply", () => {
   const passing: AutoReplyFacts = {
+    delivery: "mail",
+    visitorUnreachable: false,
     answerable: true,
     citationCount: 1,
     droppedQuotes: 0,
@@ -1302,6 +1304,43 @@ describe("the checks on an automatic reply", () => {
       );
     });
   }
+
+  describe("on the Chat widget", () => {
+    const onChat: AutoReplyFacts = {
+      ...passing,
+      delivery: "chat",
+      fromEmail: "",
+      ticket: { ...passing.ticket, requesterEmail: "", source: "chat" },
+    };
+    /** About an address a chat reply does not go to. Dropped on purpose. */
+    const aboutTheAddress = [
+      "a long copy list",
+      "a no-reply customer",
+      "suppressed",
+      "a reply address elsewhere",
+    ];
+
+    test("all holding is still the only yes", () => {
+      assert.deepEqual(autoReplyHolds(onChat), []);
+    });
+
+    for (const [name, change, expected] of failures) {
+      const dropped = aboutTheAddress.includes(name);
+      test(`${name} ${dropped ? "has no bearing on it" : "still holds it"}`, () => {
+        const holds = autoReplyHolds({ ...onChat, ...change });
+        assert.equal(holds.some((reason) => expected.test(reason)), !dropped, holds.join(" | "));
+      });
+    }
+
+    test("nobody at the other end holds it, which only a chat can have", () => {
+      assert.ok(
+        autoReplyHolds({ ...onChat, visitorUnreachable: true }).some((reason) =>
+          /no longer be reached/.test(reason),
+        ),
+      );
+      assert.deepEqual(autoReplyHolds({ ...passing, visitorUnreachable: true }), []);
+    });
+  });
 });
 
 describe("importing history again", () => {

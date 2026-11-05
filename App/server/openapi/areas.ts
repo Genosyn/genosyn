@@ -14,6 +14,7 @@ import { browserSessionsRouter } from "../routes/browserSessions.js";
 import { budgetsRouter } from "../routes/budgets.js";
 import { cardExpensesRouter } from "../routes/cardExpenses.js";
 import { careersRouter } from "../routes/careers.js";
+import { publicSupportChatRouter } from "../routes/publicSupportChat.js";
 import { chatSurfaceBindRouter, chatSurfacesRouter } from "../routes/chatSurfaces.js";
 import { customerChannelsRouter } from "../routes/customerChannels.js";
 import { companiesRouter } from "../routes/companies.js";
@@ -299,6 +300,11 @@ export const AREAS: readonly Area[] = [
     description: "The page a customer rates a ticket on, authenticated by the link they were sent.",
   },
   {
+    name: "Customer chat",
+    description:
+      "The Chat widget a company embeds on its own site, authenticated by the visitor's own token.",
+  },
+  {
     name: "Help center",
     description:
       "A company's published Articles, readable by anyone once its owners turn the help center on.",
@@ -436,6 +442,7 @@ function areaRules(): AreaRule[] {
     { router: publicFormsRouter, area: "Public forms" },
     { router: publicDataRoomsRouter, area: "Guest data rooms" },
     { router: publicSupportRouter, area: "Customer feedback" },
+    { router: publicSupportChatRouter, area: "Customer chat" },
     { router: publicHelpCenterRouter, area: "Help center" },
     { router: careersRouter, area: "Careers site" },
     { router: webhooksRouter, area: "Inbound webhooks" },

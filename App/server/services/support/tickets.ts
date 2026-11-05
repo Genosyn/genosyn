@@ -24,6 +24,7 @@ import {
   type SupportPriority,
   type SupportSettableStatus,
   type SupportSort,
+  type SupportTicketSource,
   type SupportTicketStatus,
   type SupportView,
 } from "../../../shared/support.js";
@@ -46,9 +47,11 @@ import {
   parseJsonArray,
   patchTicket,
   recordTicketEvent,
+  requesterDisplay,
   requireTicket,
   type SupportActor,
 } from "./access.js";
+import { chatFactsFor, chatTicketView } from "./chatVisitors.js";
 import { SupportConflictError, SupportValidationError } from "./errors.js";
 import {
   assertEmployeeInCompany,
@@ -184,6 +187,7 @@ export type TicketListFilters = {
   assigneeEmployeeId?: string;
   requesterEmail?: string;
   customerId?: string;
+  source?: SupportTicketSource;
   tag?: string;
   q?: string;
   sort?: SupportSort;
@@ -293,6 +297,7 @@ function ticketQuery(companyId: string, viewerUserId: string | null, filters: Ti
   if (filters.customerId) {
     qb.andWhere("t.customerId = :customerId", { customerId: filters.customerId });
   }
+  if (filters.source) qb.andWhere("t.source = :source", { source: filters.source });
   if (filters.tag) {
     qb.andWhere("t.tagsJson LIKE :tag", { tag: `%${JSON.stringify(filters.tag)}%` });
   }
@@ -494,7 +499,7 @@ export async function ticketDetail(companyId: string, ticketId: string) {
       : Promise.resolve([] as SupportTicket[]),
     similarTickets(ticket),
   ]);
-  const [customer, contact, account, employee] = await Promise.all([
+  const [customer, contact, account, employee, chatFacts] = await Promise.all([
     ticket.customerId
       ? AppDataSource.getRepository(Customer).findOneBy({ id: ticket.customerId, companyId })
       : Promise.resolve(null),
@@ -507,6 +512,7 @@ export async function ticketDetail(companyId: string, ticketId: string) {
     inbox?.aiEmployeeId
       ? AppDataSource.getRepository(AIEmployee).findOneBy({ id: inbox.aiEmployeeId, companyId })
       : Promise.resolve(null),
+    chatFactsFor(ticket),
   ]);
   const people = await peopleFor([ticket], { messages, drafts });
   const latestWork = jobs.find((job) => job.kind === "work") ?? null;
@@ -526,6 +532,7 @@ export async function ticketDetail(companyId: string, ticketId: string) {
         }
       : null,
     mailbox: account ? { id: account.id, address: account.address } : null,
+    chat: chatTicketView(chatFacts),
     work: latestWork
       ? {
           status: latestWork.status,
@@ -672,7 +679,7 @@ async function notifyAssigned(ticket: SupportTicket, userId: string, actor: Supp
       userId,
       kind: "support_ticket_assigned",
       title: `${ticketReference(ticket.number)} assigned to you: ${ticket.subject || "(no subject)"}`,
-      body: ticket.requesterName || ticket.requesterEmail,
+      body: requesterDisplay(ticket),
       link: `/support/tickets/${ticket.id}`,
       actorKind: actor.kind === "user" ? "user" : actor.kind === "ai" ? "ai" : "system",
       actorId: actor.kind === "user" ? actor.userId : actor.kind === "ai" ? actor.employeeId : null,
@@ -880,6 +887,14 @@ export async function mergeTickets(args: {
   if (source.mergedIntoId) throw new SupportConflictError("That ticket was already merged.");
   if (target.mergedIntoId)
     throw new SupportConflictError("Merge into the ticket it was merged into.");
+  // A chat conversation is read by whoever holds its token. Folded into anyone
+  // else's ticket, each would have to be answered in front of the other.
+  if (source.chatVisitorId !== target.chatVisitorId) {
+    throw new SupportConflictError(
+      "A chat conversation can only be merged with another from the same visitor.",
+      "chat_merge",
+    );
+  }
   const cc = new Set(parseJsonArray<string>(target.ccJson));
   for (const address of parseJsonArray<string>(source.ccJson)) cc.add(address);
   if (source.requesterEmail && source.requesterEmail !== target.requesterEmail) {
