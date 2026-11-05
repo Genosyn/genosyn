@@ -508,6 +508,7 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
       {peekTodo && (
         <TodoDetailPanel
           key={peekTodo.id}
+          canCreateFinance={company.financeAccess === "full"}
           todo={peekTodo}
           allTodos={todos}
           project={project}

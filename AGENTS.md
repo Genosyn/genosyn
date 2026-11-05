@@ -375,10 +375,13 @@ action a Pickup queues for approval ends the session with its Todo waiting; the
 decision starts it again on the same page (`browserSessionKey`), held open for 2
 hours, because approving only lets the session fire it.
 
-**A Todo and its code are linked by the server.** A Work session started in a Pickup,
-or in a turn that has filed itself a Todo or moved one to in progress, links to that
-Todo with no argument naming the link (`workingTodoIdOf`, `linkToWorkingTodo`). The
-Todo can wait on it (`work_session`), and its turn ending wakes the Todo through
+**What a Todo's work creates is linked by the server.** A Work session, estimate,
+invoice, bill, Customer, Contact, Deal or ticket started in a Pickup, or in a turn that
+has filed itself a Todo or moved one to in progress, links to that Todo with no argument
+naming the link (`workingTodoIdOf`, `linkToWorkingTodo`, one call in each creator). The
+model doesn't get a way to say which Todo. Reading a Finance link takes Finance access,
+for a Member and an AI Employee alike (`FINANCE_KINDS`). The Todo can wait on a Work
+session (`work_session`), and its turn ending wakes the Todo through
 `runRepositoryWorkSession`, with the report as data, under what the last session had. A
 check-back after a day is there for a session lost to a restart. A person's **Start
 work session** runs under that person and is refused for a Todo held to limits, since

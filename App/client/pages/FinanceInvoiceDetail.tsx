@@ -1,3 +1,4 @@
+import { RecordTasks } from "@/components/todos/RecordTasks";
 import React from "react";
 import { Link, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
@@ -671,6 +672,16 @@ export default function FinanceInvoiceDetail() {
           )}
         </div>
       )}
+
+      <RecordTasks
+        className="mb-6"
+        companyId={company.id}
+        companySlug={company.slug}
+        kind="invoice"
+        targetId={invoice.id}
+        what="this invoice"
+        suggestedTitle={`Follow up on invoice ${invoice.number || ""}`.trim()}
+      />
 
       <div className="space-y-6">
         <div>

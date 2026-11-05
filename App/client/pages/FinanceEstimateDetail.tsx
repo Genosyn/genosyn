@@ -1,3 +1,4 @@
+import { RecordTasks } from "@/components/todos/RecordTasks";
 import React from "react";
 import { Link, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
@@ -620,6 +621,16 @@ export default function FinanceEstimateDetail() {
           </div>
         </div>
       )}
+
+      <RecordTasks
+        className="mb-6"
+        companyId={company.id}
+        companySlug={company.slug}
+        kind="estimate"
+        targetId={estimate.id}
+        what="this estimate"
+        suggestedTitle={`Follow up on estimate ${estimate.number || ""}`.trim()}
+      />
 
       <div className="space-y-6">
         <div>
