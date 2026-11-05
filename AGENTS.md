@@ -1203,13 +1203,18 @@ in a Work session instead of leaving them stranded as local commits.
   its stream has been (`client/lib/chatLiveness.ts`); a reader on another replica
   has no pulses and says only how long since the last step. Do not put back a
   client timer that calls a working turn inactive, and do not stretch
-  `REASONING_FLUSH_MS` back into a debounce: thinking is written as it arrives,
-  up to a break far enough back that a Secret or credential still arriving is
-  scrubbed whole, and its partial writes have a budget of their own so a long
-  thought never costs the turn its steps. What a running native command has
-  printed reaches a reader the same live-only way (`recorder.toolOutput`), but it
-  is a result as it forms: scrubbed like one, whole lines only, withheld with
-  payloads, and shown only to a reader with `full` access (`showToolOutput`).
+  `REASONING_FLUSH_MS` back into a debounce: thinking is written as it arrives.
+  The recorder holds a block's raw words and scrubs them whole on every write, so
+  a credential arriving across two writes still matches; never scrub a piece and
+  keep the result, since what arrives next lands after the marker and matches
+  nothing. It writes only up to a break in the words and short of the start of any
+  Secret, and those writes have a budget of their own so a long thought never
+  costs the turn its steps. What a running native command has printed reaches a
+  reader the same live-only way (`recorder.toolOutput`), but it is a result as it
+  forms: scrubbed like one, whole lines only, withheld with payloads, and shown
+  only to a reader with `full` access (`showToolOutput`). Rendered markdown gets
+  its code bars from DOM calls (`client/lib/chatMarkdown.ts`): do not edit
+  DOMPurify's output as a string, which cannot tell a tag from an attribute's text.
 - **A Workspace AI turn is watched by its room.** Every AI Employee turn in a
   channel, DM or group chat — the reply to an @mention or a DM, a group
   discussion speaker's turn, a share of the work an outcome started — is a

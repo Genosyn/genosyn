@@ -303,17 +303,75 @@ describe("watching a thought form", () => {
     context.mock.timers.reset();
   });
 
-  test("a credential is not cut in two between writes", async (context) => {
+  // A write landing in the middle of any of these must not leave its other half
+  // to be written as ordinary words. Scrubbing a piece and keeping the result did:
+  // what arrived next landed after the marker, where no pattern could match it.
+  for (const [what, head, tail, leaks] of [
+    ["a labelled token", "the token=abc", "def123456789XYZ is what it used, ", /def123456789/],
+    ["an API key", "the key sk-proj-abcdef", "GHIJKLMNOPQRSTUVWXYZ0123456789 is it, ", /GHIJKL/],
+    ["a GitHub token", "the pat ghp_abcdef", "GHIJKLMNOPQRSTUVWXYZ0123456789 is it, ", /GHIJKL/],
+    ["a JSON password", '{"password": "hunter', '2hunter2hunter2", "x": 1} and on, ', /2hunter2/],
+    ["a bearer token", "Authorization: Bearer abc", "def123456789XYZ and on, ", /def123456789/],
+    ["a cookie", "Cookie: session=abc", "def123456789XYZ and on\n", /def123456789/],
+    ["a URL's token", "https://x.test/cb?token=abc", "def123456789XYZ and on, ", /def123456789/],
+  ] as const) {
+    test(`${what} arriving across a write is scrubbed whole`, async (context) => {
+      const { rec, pass, said } = thinking(context);
+      rec.reasoning("word ".repeat(120), "r1");
+      pass(700);
+      rec.reasoning(head, "r1");
+      pass(800); // The write comes due here, mid-credential.
+      rec.reasoning(tail, "r1");
+      rec.reasoning("word ".repeat(120), "r1");
+      pass(1_500);
+      rec.reasoningEnd("r1");
+      assert.ok(!leaks.test(said()), said().replace(/(word )+/g, "… "));
+      assert.match(said(), /word word/, "and the thought around it is all there");
+      await rec.flush();
+      context.mock.timers.reset();
+    });
+  }
+
+  test("a model that stalls in the middle of a Secret writes neither half", async (context) => {
     const { rec, pass, said } = thinking(context);
-    rec.reasoning("word ".repeat(120), "r1");
-    pass(700);
-    rec.reasoning("the token=abc", "r1");
-    pass(800);
-    rec.reasoning("def123456789 is what it used, ", "r1");
+    rec.setSensitiveValues(["correct-horse-battery-staple-very-long"]);
+    rec.reasoning(`${"word ".repeat(120)}correct-horse-`, "r1");
     pass(1_500);
+    pass(1_500);
+    assert.ok(!said().includes("correct-horse"), said());
+    rec.reasoning("battery-staple-very-long and on, ", "r1");
     rec.reasoningEnd("r1");
-    assert.ok(!/abcdef123456789/.test(said()), said());
-    assert.ok(!/token=abc/.test(said()), said());
+    assert.ok(!said().includes("correct-horse"), said());
+    assert.ok(!said().includes("battery-staple"), said());
+    assert.match(said(), /\[redacted secret\] and on/);
+    await rec.flush();
+    context.mock.timers.reset();
+  });
+
+  test("a Secret with spaces in it is held from its first word", async (context) => {
+    const { rec, pass, said } = thinking(context);
+    rec.setSensitiveValues(["correct horse battery staple"]);
+    rec.reasoning(`${"word ".repeat(120)}correct horse `, "r1");
+    pass(1_500);
+    pass(1_500);
+    assert.ok(!said().includes("correct"), said());
+    assert.match(said(), /word word/, "the words before it are not held up");
+    rec.reasoning("battery staple then more ", "r1");
+    rec.reasoningEnd("r1");
+    assert.ok(!said().includes("horse"), said());
+    await rec.flush();
+    context.mock.timers.reset();
+  });
+
+  test("a notice in the middle of a thought does not split what is still arriving", async (context) => {
+    const { rec, said } = thinking(context);
+    rec.setSensitiveValues(["correct-horse-battery-staple"]);
+    rec.reasoning("thinking about correct-horse-", "r1");
+    rec.notice("compact", "Compacted");
+    rec.reasoning("battery-staple and on", "r1");
+    rec.reasoningEnd("r1");
+    assert.ok(!said().includes("correct-horse"), said());
+    assert.equal(said(), "thinking about [redacted secret] and on");
     await rec.flush();
     context.mock.timers.reset();
   });
@@ -334,11 +392,32 @@ describe("watching a thought form", () => {
     context.mock.timers.reset();
   });
 
-  test("a thought that pauses is written whole, however short", async (context) => {
-    const { rec, pass, said } = thinking(context);
+  test("a thought that pauses is written up to its last word, and the end of it at the end", async (context) => {
+    const { rec, pass, said, emitted } = thinking(context);
     rec.reasoning("A short thought.", "r1");
     pass(1_500);
+    assert.equal(said(), "A short ", "the last word may be a credential still arriving");
+    pass(30_000);
+    assert.equal(
+      emitted.filter((event) => event.kind === "reasoning").length,
+      1,
+      "and it writes nothing more while nothing more arrives",
+    );
+    rec.reasoningEnd("r1");
     assert.equal(said(), "A short thought.");
+    await rec.flush();
+    context.mock.timers.reset();
+  });
+
+  test("the words reach the feed exactly as they came, however the writes fall", async (context) => {
+    const { rec, pass, said } = thinking(context);
+    const words = Array.from({ length: 300 }, (_, i) => `word${i}${i % 9 ? " " : "\n\n"}`);
+    for (const [index, word] of words.entries()) {
+      rec.reasoning(word, "r1");
+      pass(index % 40 === 0 ? 1_600 : 200);
+    }
+    rec.reasoningEnd("r1");
+    assert.equal(said(), words.join(""));
     await rec.flush();
     context.mock.timers.reset();
   });
@@ -422,7 +501,50 @@ describe("what a running command prints", () => {
       "done\n-----BEGIN PRIVATE KEY-----\nQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\n",
       "c1",
     );
-    assert.equal(heard[1][1], "done\n");
+    assert.ok(!heard[1][1].includes("QUJD"), heard[1][1]);
+  });
+
+  test("a key whose start is off the top of the window shows no part of itself", () => {
+    const { rec, heard } = watched();
+    const body = Array.from({ length: 51 }, (_, i) => `KEYBODY${i}${"A".repeat(55)}\n`).join("");
+    const key = `-----BEGIN PRIVATE KEY-----\n${body}-----END PRIVATE KEY-----\n`;
+    rec.toolUse("bash", {}, "c1");
+    rec.toolOutput("bash", `$ cat id_rsa\n${key}${"next line of output\n".repeat(60)}`, "c1");
+    assert.ok(!heard[0][1].includes("KEYBODY"), heard[0][1]);
+    assert.ok(!heard[0][1].includes("-----END"), heard[0][1]);
+    assert.match(heard[0][1], /next line of output/);
+
+    const far = watched();
+    far.rec.toolUse("bash", {}, "c1");
+    far.rec.toolOutput(
+      "bash",
+      `${"x".repeat(14_000)}\n${key.slice(-2_500)}${"later\n".repeat(50)}`,
+      "c1",
+    );
+    assert.ok(!far.heard[0][1].includes("KEYBODY"), far.heard[0][1]);
+  });
+
+  test("a many-line Secret longer than the view is still matched whole", () => {
+    const { rec, heard } = watched();
+    const secret = Array.from({ length: 40 }, (_, i) => `"field${i}": "value-${i}-${"s".repeat(50)}",`).join(
+      "\n",
+    );
+    rec.setSensitiveValues([secret]);
+    rec.toolUse("bash", {}, "c1");
+    rec.toolOutput("bash", `${secret}\n${"next line of output\n".repeat(60)}`, "c1");
+    assert.ok(!/value-\d+/.test(heard[0][1]), heard[0][1]);
+  });
+
+  test("a many-line Secret still arriving shows none of its lines", () => {
+    const { rec, heard, now } = watched();
+    const secret = "first line of it\nsecond line of it\nthird line of it";
+    rec.setSensitiveValues([secret]);
+    rec.toolUse("bash", {}, "c1");
+    rec.toolOutput("bash", "before\nfirst line of it\nsecond line of it\n", "c1");
+    assert.deepEqual(heard, [["c1", "before\n"]]);
+    now.ms += 1_000;
+    rec.toolOutput("bash", `before\n${secret}\nafter\n`, "c1");
+    assert.equal(heard[1][1], "before\n[redacted secret]\nafter\n");
   });
 
   test("a line of nothing but output too long for the window shows nothing rather than a part", () => {

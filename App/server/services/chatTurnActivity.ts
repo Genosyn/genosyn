@@ -82,16 +82,18 @@ const COMMAND_OUTPUT_CHARS = 8_000;
 const REASONING_BLOCK_CHARS = 12_000;
 /** Thinking in progress is written at this pace, so a long thought is watched as it forms. */
 const REASONING_FLUSH_MS = 1_500;
-/**
- * The tail of the thinking in progress held back until more has arrived. What is
- * written is scrubbed first, and a credential cut in two by a write would match
- * nothing on either side of it.
- */
+/** The end of the thinking in progress held back while more is arriving, so it settles first. */
 const REASONING_HOLD_BACK_CHARS = 256;
 /** Writes of thinking still in progress, per turn. Past it a block is written when it ends. */
 const MAX_PARTIAL_REASONING_ROWS = 400;
 /** What is kept in view of what a running command has printed. */
 const LIVE_OUTPUT_CHARS = 2_000;
+/**
+ * How much of its output is read to find that: the same 16,000 characters a
+ * command's result is scrubbed in, so a key or a Secret that ends in view starts
+ * inside what was scrubbed.
+ */
+const LIVE_OUTPUT_WINDOW_CHARS = 16_000;
 /** A running command's output goes out at most this often. */
 const LIVE_OUTPUT_INTERVAL_MS = 1_000;
 const SUMMARY_CHARS = 300;
@@ -130,7 +132,10 @@ export class ChatTurnActivityRecorder {
   private readonly anonymousCalls: OpenCall[] = [];
   private readonly openWaits = new Map<string, number>();
   private reasoningBlock: string | null = null;
-  private reasoningText = "";
+  /** The block's words as they arrived. Scrubbed whole each time, never piece by piece. */
+  private reasoningRaw = "";
+  /** How much of the block's scrubbed text has been written. */
+  private reasoningWritten = 0;
   private reasoningTimer: ReturnType<typeof setTimeout> | null = null;
   private reasoningAt = 0;
   private partialReasoningRows = 0;
@@ -306,13 +311,13 @@ export class ChatTurnActivityRecorder {
     const piece = delta.length > room ? delta.slice(0, room) : delta;
     this.reasoningKept.set(block, kept + piece.length);
     this.reasoningBlock = block;
-    this.reasoningText += piece;
+    this.reasoningRaw += piece;
     this.reasoningAt = this.now();
     this.stats.reasoning = true;
     // Never reset by the next delta: a model that thinks without pausing would
     // otherwise write nothing until it stopped, and a reader would see a turn
     // with nothing happening for as long as it thought hardest.
-    this.armReasoningFlush();
+    this.armReasoningWrite();
   }
 
   /** A reasoning block ended; whatever is buffered for it is written now. */
@@ -501,7 +506,8 @@ export class ChatTurnActivityRecorder {
   }
 
   notice(code: string, label: string): void {
-    this.flushReasoning();
+    // A notice can land mid-thought; the rest of that thought is still to come.
+    this.writeReasoningSoFar(0);
     const safe = this.scrub(label).slice(0, SUMMARY_CHARS);
     this.record({ kind: "notice", name: code, summary: safe, detail: { code, label: safe } });
   }
@@ -590,38 +596,37 @@ export class ChatTurnActivityRecorder {
     this.stats.waitedMs += Math.max(0, this.now() - startedAt);
   }
 
-  private armReasoningFlush(): void {
+  private armReasoningWrite(): void {
     if (this.reasoningTimer) return;
     this.reasoningTimer = setTimeout(() => {
       this.reasoningTimer = null;
-      if (this.now() - this.reasoningAt >= REASONING_FLUSH_MS) this.flushReasoning(true);
-      else {
-        this.flushReasoningInProgress();
-        if (this.reasoningText) this.armReasoningFlush();
-      }
+      const paused = this.now() - this.reasoningAt >= REASONING_FLUSH_MS;
+      this.writeReasoningSoFar(paused ? 0 : REASONING_HOLD_BACK_CHARS);
+      // A pause waits for the next words, or the block's end, to go on.
+      if (!paused && this.reasoningBlock !== null) this.armReasoningWrite();
     }, REASONING_FLUSH_MS);
     this.reasoningTimer.unref?.();
   }
 
   /**
-   * Write the thinking in progress, as far as it can be scrubbed: up to a break
-   * in the words, far enough back that a Secret or a credential still arriving
-   * is written whole or not at all. What is held back goes out on a later write.
+   * Write what has arrived of the thought in progress, as far as is safe.
+   *
+   * The block's raw words are scrubbed whole every time, and only what is new
+   * after that goes out, so a credential arriving across two writes is matched
+   * whole on the second. That leaves what must not go out at all yet: a word
+   * still arriving, which may be a credential's start and match nothing until it
+   * is whole, and the start of a Secret, whatever shape it has.
    */
-  private flushReasoningInProgress(): void {
+  private writeReasoningSoFar(holdBack: number): void {
     const block = this.reasoningBlock;
     if (block === null || this.partialReasoningRows >= MAX_PARTIAL_REASONING_ROWS) return;
-    const safe = this.scrub(this.reasoningText);
-    const holdBack = Math.max(REASONING_HOLD_BACK_CHARS, this.sensitive[0]?.length ?? 0);
-    const cut = lastBreakBefore(safe, safe.length - holdBack);
-    if (cut <= 0) {
-      // Scrubbed text is still the text, should the next write hold it again.
-      this.reasoningText = safe;
-      return;
-    }
-    const chunk = safe.slice(0, cut);
-    this.reasoningText = safe.slice(cut);
+    const safe = this.scrub(this.reasoningRaw);
+    const held = Math.max(holdBack, partialSecretAtEnd(safe, this.sensitive));
+    const cut = lastBreakBefore(safe, safe.length - held);
+    if (cut <= this.reasoningWritten) return;
+    const chunk = safe.slice(this.reasoningWritten, cut);
     if (!chunk.trim()) return;
+    this.reasoningWritten = cut;
     this.partialReasoningRows += 1;
     this.record(
       {
@@ -635,29 +640,27 @@ export class ChatTurnActivityRecorder {
     );
   }
 
-  /** Write all the thinking held; `paused` when the model only paused, still mid-thought. */
-  private flushReasoning(paused = false): void {
+  /** The thought is over: write all of it that is still unwritten. */
+  private flushReasoning(): void {
     if (this.reasoningTimer) {
       clearTimeout(this.reasoningTimer);
       this.reasoningTimer = null;
     }
     const block = this.reasoningBlock;
-    const text = this.reasoningText;
+    const raw = this.reasoningRaw;
+    const written = this.reasoningWritten;
     this.reasoningBlock = null;
-    this.reasoningText = "";
-    if (block === null || !text.trim()) return;
+    this.reasoningRaw = "";
+    this.reasoningWritten = 0;
+    if (block === null) return;
     const truncated = (this.reasoningKept.get(block) ?? 0) >= REASONING_BLOCK_CHARS;
-    const safe = this.scrub(text);
-    const uncounted = paused && this.partialReasoningRows < MAX_PARTIAL_REASONING_ROWS;
-    if (uncounted) this.partialReasoningRows += 1;
-    this.record(
-      {
-        kind: "reasoning",
-        summary: firstLine(safe).slice(0, 160),
-        detail: { text: safe, block, ...(truncated ? { truncated: true } : {}) },
-      },
-      { uncounted },
-    );
+    const chunk = this.scrub(raw).slice(written);
+    if (!chunk.trim() && !truncated) return;
+    this.record({
+      kind: "reasoning",
+      summary: firstLine(chunk).slice(0, 160),
+      detail: { text: chunk, block, ...(truncated ? { truncated: true } : {}) },
+    });
   }
 
   private record(
@@ -794,18 +797,17 @@ export class ChatTurnActivityRecorder {
    * credential still arriving, or cut off by the window, shows whole or not at all.
    */
   private scrubbedOutputTail(content: string): string {
-    const windowed = content.length > LIVE_OUTPUT_CHARS * 2;
-    let text = this.scrub(windowed ? content.slice(-LIVE_OUTPUT_CHARS * 2) : content);
-    const opened = text.lastIndexOf("-----BEGIN");
-    if (opened >= 0 && !text.includes("-----END", opened)) text = text.slice(0, opened);
-    // The last line may still be arriving.
-    const end = text.lastIndexOf("\n");
+    const longest = this.sensitive[0]?.length ?? 0;
+    const size = Math.max(LIVE_OUTPUT_WINDOW_CHARS, LIVE_OUTPUT_CHARS + longest);
+    const safe = this.scrub(content.length > size ? content.slice(-size) : content);
+    // The last line may still be arriving, and the last lines may be a Secret.
+    const end = safe.lastIndexOf("\n", safe.length - 1 - partialSecretAtEnd(safe, this.sensitive));
     if (end < 0) return "";
-    text = text.slice(0, end + 1);
-    if (!windowed && text.length <= LIVE_OUTPUT_CHARS) return text;
-    // The window may have cut the first line in two.
-    const start = text.indexOf("\n", Math.max(0, text.length - LIVE_OUTPUT_CHARS));
-    return start < 0 ? "" : text.slice(start + 1);
+    const whole = safe.slice(0, end + 1);
+    if (content.length <= size && whole.length <= LIVE_OUTPUT_CHARS) return whole;
+    // Wherever the window or the view starts, it may have cut a line in two.
+    const start = whole.indexOf("\n", Math.max(0, whole.length - LIVE_OUTPUT_CHARS));
+    return start < 0 ? "" : whole.slice(start + 1);
   }
 
   /**
@@ -859,13 +861,26 @@ function senderOf(value: unknown): string | null {
 
 /** Where to cut `text` at or before `limit`: just after a space or a line break, or 0. */
 function lastBreakBefore(text: string, limit: number): number {
-  // Keep a private key block whole, however many lines it runs to.
-  const opened = text.lastIndexOf("-----BEGIN");
-  const bound = opened >= 0 && !text.includes("-----END", opened) ? Math.min(limit, opened) : limit;
-  for (let at = bound; at > 0; at -= 1) {
+  for (let at = limit; at > 0; at -= 1) {
     if (/\s/.test(text[at - 1])) return at;
   }
   return 0;
+}
+
+/** How much of the end of `text` could be the start of one of these Secrets. */
+function partialSecretAtEnd(text: string, secrets: readonly string[]): number {
+  if (!text) return 0;
+  const last = text[text.length - 1];
+  let longest = 0;
+  for (const secret of secrets) {
+    for (let size = Math.min(secret.length - 1, text.length); size > longest; size -= 1) {
+      if (secret[size - 1] === last && text.endsWith(secret.slice(0, size))) {
+        longest = size;
+        break;
+      }
+    }
+  }
+  return longest;
 }
 
 function firstLine(text: string): string {
