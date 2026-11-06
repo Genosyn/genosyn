@@ -233,7 +233,7 @@ export function InputRequestCard({
 
   /** Give the session its moment to take the code, so "sent" means the page has it. */
   async function sendCode(code: string): Promise<InputRequestView> {
-    let next = await inputRequestsApi.answer(companyId, view.id, code);
+    let next = await inputRequestsApi.answer(companyId, view.id, code, view.pageOrigin);
     for (let tries = 0; next.answerPending && tries < CODE_TAKEN_TRIES; tries += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, CODE_TAKEN_POLL_MS));
       next = await inputRequestsApi.get(companyId, view.id);

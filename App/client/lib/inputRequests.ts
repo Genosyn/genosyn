@@ -25,11 +25,16 @@ export const inputRequestsApi = {
   ready(companyId: string, id: string): Promise<InputRequestView> {
     return api.post<InputRequestView>(`${base(companyId)}/${id}/ready`, {});
   },
-  answer(companyId: string, id: string, value?: string): Promise<InputRequestView> {
-    return api.post<InputRequestView>(
-      `${base(companyId)}/${id}/answer`,
-      value === undefined ? {} : { value },
-    );
+  answer(
+    companyId: string,
+    id: string,
+    value?: string,
+    pageOrigin?: string,
+  ): Promise<InputRequestView> {
+    return api.post<InputRequestView>(`${base(companyId)}/${id}/answer`, {
+      ...(value === undefined ? {} : { value }),
+      ...(pageOrigin === undefined ? {} : { pageOrigin }),
+    });
   },
   decline(companyId: string, id: string, note?: string): Promise<InputRequestView> {
     return api.post<InputRequestView>(`${base(companyId)}/${id}/decline`, note ? { note } : {});

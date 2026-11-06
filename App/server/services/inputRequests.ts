@@ -720,6 +720,8 @@ export async function answerInputRequest(args: {
   id: string;
   actor: InputRequestActor;
   value?: string;
+  /** The address the person was looking at when they typed. */
+  pageOrigin?: string;
   now?: Date;
 }): Promise<InputRequest> {
   const now = args.now ?? new Date();
@@ -765,6 +767,14 @@ export async function answerInputRequest(args: {
     if (!code) throw new InputRequestError("Type the code first.", 400);
     if (code.length > INPUT_REQUEST_CODE_CHARS || /[\r\n]/.test(code)) {
       throw new InputRequestError("That doesn't look like a one-time code.", 400);
+    }
+    // The work can ask again from somewhere else while their card still holds what they
+    // typed for the last address, and a code is only ever for the one they read.
+    if (args.pageOrigin !== undefined && args.pageOrigin !== row.pageOrigin) {
+      throw new InputRequestError(
+        `The page has moved to ${row.pageOrigin}, so your code wasn't sent. Check that's where you meant, then send it again.`,
+        409,
+      );
     }
     const moved = await repo().update(
       { id: row.id, status: "asking", encryptedAnswer: IsNull() },
