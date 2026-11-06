@@ -12,7 +12,10 @@ import {
   useSidePanelWidth,
   useWideViewport,
 } from "./ui/SidePanel";
-import { SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT } from "./ui/sidePanelWidth";
+import {
+  SIDE_PANEL_BESIDE_RAIL_MAX_WIDTH,
+  SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT,
+} from "./ui/sidePanelWidth";
 import { Spinner } from "./ui/Spinner";
 import { useDialog } from "./ui/Dialog";
 
@@ -55,7 +58,7 @@ const PANEL_WIDTH_STORAGE_KEY = "genosyn.repositoryWorkPanel.width";
  * panel do not all fit, so the panel takes the screen instead of turning the
  * conversation into a sliver. Chat reads it too: taking the screen is fine
  * when someone asked for it and rude when work merely started. The number
- * comes from the same arithmetic the width clamp uses, so the two cannot
+ * comes from the same minimums the panel's width limit uses, so the two cannot
  * disagree about what fits.
  */
 export const WORK_PANEL_MIN_SIDE_BY_SIDE = SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT;
@@ -70,8 +73,10 @@ export function RepositoryWorkPanel({
   onCollapsedChange,
   onClose,
 }: Props) {
-  const { width, resizing, startResize, onResizeKeyDown } =
-    useSidePanelWidth(PANEL_WIDTH_STORAGE_KEY);
+  const { style, resizing, startResize, onResizeKeyDown } = useSidePanelWidth(
+    PANEL_WIDTH_STORAGE_KEY,
+    { maxWidth: SIDE_PANEL_BESIDE_RAIL_MAX_WIDTH },
+  );
   const wide = useWideViewport(WORK_PANEL_MIN_SIDE_BY_SIDE);
   const [repositories, setRepositories] = React.useState<Repository[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -163,7 +168,7 @@ export function RepositoryWorkPanel({
             // squeezing both into a pair of slivers.
             "absolute inset-0 z-30 flex min-h-0 flex-col bg-white dark:bg-slate-900"
       }
-      style={wide ? { width } : undefined}
+      style={wide ? style : undefined}
       aria-label="Repository work"
     >
       {wide && (

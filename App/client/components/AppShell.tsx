@@ -24,6 +24,7 @@ import { useDialog } from "./ui/Dialog";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
 import { Breadcrumbs, type Crumb } from "./ui/Breadcrumbs";
 import { PageHeader } from "./ui/PageHeader";
+import { ResizableRail } from "./ui/SidePanel";
 import { ButtonSpinner } from "./ui/Spinner";
 import { CommandPaletteProvider, PALETTE_SHORTCUT, useCommandPalette } from "./CommandPalette";
 import { CommandRegistryProvider } from "./CommandRegistry";
@@ -602,11 +603,19 @@ export function ContextualLayout({
     <>
       {hasSidebar && (
         <>
-          {/* Desktop: static sidebar. Hidden on mobile, where it would crush
-              the main pane — reachable there via the top-nav drawer below. */}
-          <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white md:flex dark:border-slate-800 dark:bg-slate-950">
-            {sidebarContents}
-          </aside>
+          {/* Desktop: a sidebar you can drag wider or narrower. Hidden on mobile,
+              where it would crush the main pane — reachable there via the top-nav
+              drawer below. One width for every section, so moving between them
+              doesn't move the page. */}
+          <ResizableRail
+            storageKey="genosyn.sidebar.width"
+            label="Resize the sidebar"
+            className="hidden md:flex"
+          >
+            <aside className="flex w-full flex-col overflow-y-auto border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+              {sidebarContents}
+            </aside>
+          </ResizableRail>
           {/* Mobile: off-canvas drawer + scrim. */}
           {open && (
             <div className="fixed inset-0 z-40 md:hidden">

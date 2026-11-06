@@ -1587,6 +1587,12 @@ holds every text role to WCAG AA on every surface.
   `max-w-3xl`; a grid that names columns only from a breakpoint is given a
   shrinkable single column below it (`styles/index.css`), and wide tables sit
   in `TableCard`, which scrolls sideways instead of cutting columns off.
+- **Columns.** A rail down the left of a page is a `ResizableRail`, and a panel
+  docked on its right takes `useSidePanelWidth` and `SidePanelResizeHandle`
+  (`components/ui/SidePanel.tsx`), so each can be dragged, moved from the keyboard
+  and remembered. What a column may take is a `max-width` against its own flex row
+  (`sidePanelWidth.ts`), never arithmetic over the window and the rails, which is
+  wrong as soon as a rail moves. `npm run test:panel-widths` drags them in Chrome.
 - **Primitives.** Reach for `PageHeader`, `SectionHeader`, `Card`, `Badge`,
   `TableCard`/`THead`/`TH`/`TR`/`TD`, `EmptyState` (with an icon), `Skeleton`,
   `SectionRailHeader` and `sidebarLinkClassName()` before writing classes.

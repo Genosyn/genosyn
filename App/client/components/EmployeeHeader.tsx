@@ -48,7 +48,7 @@ export function EmployeeHeader({
     ) : undefined;
 
   return (
-    <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 bg-white px-4 py-3 sm:flex-nowrap sm:px-6 dark:border-slate-800 dark:bg-slate-950">
+    <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 bg-white px-4 py-3 sm:px-6 dark:border-slate-800 dark:bg-slate-950">
       <Link
         to={`/c/${company.slug}/employees`}
         title="All employees"

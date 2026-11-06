@@ -65,7 +65,10 @@ import {
   useSidePanelWidth,
   useWideViewport,
 } from "@/components/ui/SidePanel";
-import { SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT } from "@/components/ui/sidePanelWidth";
+import {
+  APP_PANEL_MAX_WIDTH,
+  SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT,
+} from "@/components/ui/sidePanelWidth";
 import { Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
 import {
@@ -127,10 +130,10 @@ export function AskAiPanel({ company }: { company: Company }) {
   const askAi = useAskAi();
   const location = useLocation();
   const dialog = useDialog();
-  const { width, resizing, startResize, onResizeKeyDown } = useSidePanelWidth(
-    WIDTH_STORAGE_KEY,
-    440,
-  );
+  const { style, resizing, startResize, onResizeKeyDown } = useSidePanelWidth(WIDTH_STORAGE_KEY, {
+    defaultWidth: 440,
+    maxWidth: APP_PANEL_MAX_WIDTH,
+  });
   const wide = useWideViewport(SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT);
   const [conversations, setConversations] = React.useState<AskAiConversation[] | null>(null);
   const [roster, setRoster] = React.useState<AskAiRosterEntry[]>([]);
@@ -319,7 +322,7 @@ export function AskAiPanel({ company }: { company: Company }) {
             (resizing ? "" : " transition-[width] duration-200")
           : "fixed inset-x-0 bottom-0 top-14 z-40 flex min-h-0 flex-col bg-white dark:bg-slate-950"
       }
-      style={wide ? { width } : undefined}
+      style={wide ? style : undefined}
       aria-label="Ask AI"
     >
       {wide && (

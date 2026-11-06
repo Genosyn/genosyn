@@ -79,7 +79,7 @@ import {
   RepositoryWorkPanel,
   WORK_PANEL_MIN_SIDE_BY_SIDE,
 } from "../components/RepositoryWorkPanel";
-import { useWideViewport } from "../components/ui/SidePanel";
+import { ResizableRail, useWideViewport } from "../components/ui/SidePanel";
 import {
   collectTranscriptWorkTargets,
   parseRepositoryWorkHref,
@@ -796,29 +796,35 @@ export default function EmployeeChat() {
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden bg-white dark:bg-slate-950">
-      <ConversationList
-        convs={convs}
-        archivedConvs={session.archivedConvs}
-        archivedLoaded={session.archivedLoaded}
-        archivedError={archivedError}
-        activeId={activeConvId}
-        workingIds={workingConvIds}
-        onSelect={(id) => actions.update(emp.id, { activeConvId: id })}
-        onDelete={handleDelete}
-        onArchive={handleArchive}
-        onUnarchive={handleUnarchive}
-        deletingId={deletingConvId}
-        archivingId={archivingConvId}
-        unarchivingId={unarchivingConvId}
-        onLoadArchived={() => {
-          setArchivedError(null);
-          actions.loadArchived(company.id, emp.id).catch((err: unknown) => {
-            setArchivedError(errorMessage(err, "Could not load archived conversations"));
-          });
-        }}
-        onNew={handleNewClick}
-        creating={creatingConversation}
-      />
+      <ResizableRail
+        storageKey="genosyn.chatRail.width"
+        label="Resize the conversation list"
+        className="hidden md:flex"
+      >
+        <ConversationList
+          convs={convs}
+          archivedConvs={session.archivedConvs}
+          archivedLoaded={session.archivedLoaded}
+          archivedError={archivedError}
+          activeId={activeConvId}
+          workingIds={workingConvIds}
+          onSelect={(id) => actions.update(emp.id, { activeConvId: id })}
+          onDelete={handleDelete}
+          onArchive={handleArchive}
+          onUnarchive={handleUnarchive}
+          deletingId={deletingConvId}
+          archivingId={archivingConvId}
+          unarchivingId={unarchivingConvId}
+          onLoadArchived={() => {
+            setArchivedError(null);
+            actions.loadArchived(company.id, emp.id).catch((err: unknown) => {
+              setArchivedError(errorMessage(err, "Could not load archived conversations"));
+            });
+          }}
+          onNew={handleNewClick}
+          creating={creatingConversation}
+        />
+      </ResizableRail>
 
       <section className="flex min-w-0 flex-1 flex-col">
         <ChatHeader
@@ -1065,7 +1071,7 @@ function ConversationList({
   }
 
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-950 md:flex">
+    <aside className="flex w-full flex-col border-r border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-950">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 pl-3 pr-2 dark:border-slate-800">
         <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Conversations</div>
         <button

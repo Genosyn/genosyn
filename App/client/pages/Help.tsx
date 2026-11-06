@@ -21,6 +21,7 @@ import {
   TurnWorkSummary,
 } from "@/components/chat/TurnActivity";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
+import { ResizableRail } from "@/components/ui/SidePanel";
 import { ButtonSpinner, Spinner } from "@/components/ui/Spinner";
 import { EMPTY_LIVE_TURN, reduceLiveTurn, type LiveTurnState } from "@/lib/chatActivity";
 import { useDialog } from "@/components/ui/Dialog";
@@ -468,112 +469,119 @@ export default function Help({ company }: { company: Company }) {
   return (
     <ContextualLayout>
       <div className="flex h-full min-h-0 bg-white dark:bg-slate-950">
-        <aside className="hidden w-72 shrink-0 flex-col border-r border-slate-200 bg-slate-50/60 lg:flex dark:border-slate-800 dark:bg-slate-950">
-          <div className="border-b border-slate-200 p-4 dark:border-slate-800">
-            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Ask an AI Employee
-            </div>
-            <div className="mt-3 flex flex-col gap-1">
-              {employees?.map((employee) => (
-                <button
-                  key={employee.id}
-                  type="button"
-                  disabled={sending || claimingLegacy}
-                  onClick={() => setSelectedId(employee.id)}
-                  className={
-                    "flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition " +
-                    (employee.id === selectedId
-                      ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
-                      : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800")
-                  }
-                >
-                  <Avatar
-                    name={employee.name}
-                    kind="ai"
-                    size="md"
-                    src={employeeAvatarUrl(company.id, employee.id, employee.avatarKey)}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{employee.name}</span>
-                    <span className="block truncate text-[11px] text-slate-400">
-                      {employee.role}
-                    </span>
-                  </span>
-                  <span
-                    className={
-                      "h-2 w-2 shrink-0 rounded-full " +
-                      (employee.model?.status === "connected"
-                        ? "bg-emerald-500"
-                        : "bg-slate-300 dark:bg-slate-600")
-                    }
-                    title={
-                      employee.model?.status === "connected"
-                        ? "AI Model connected"
-                        : "AI Model required"
-                    }
-                  />
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex items-center justify-between px-4 py-3">
+        <ResizableRail
+          storageKey="genosyn.helpRail.width"
+          label="Resize the Help sidebar"
+          defaultWidth={288}
+          className="hidden lg:flex"
+        >
+          <aside className="flex w-full flex-col border-r border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-950">
+            <div className="border-b border-slate-200 p-4 dark:border-slate-800">
               <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Help conversations
+                Ask an AI Employee
               </div>
-              <button
-                type="button"
-                onClick={() => void startNewConversation()}
-                disabled={!selected || sending || claimingLegacy || startingConversation}
-                aria-busy={startingConversation || undefined}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/70 hover:text-slate-900 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                aria-label="New Help conversation"
-                title="New Help conversation"
-              >
-                {startingConversation ? (
-                  <ButtonSpinner size={15} />
-                ) : (
-                  <MessageSquarePlus size={15} />
-                )}
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-              {conversationsError ? (
-                <FormError message={conversationsError} className="mt-2" />
-              ) : loadingConversations ? (
-                <div className="flex justify-center py-6">
-                  <Spinner />
-                </div>
-              ) : conversations.length === 0 ? (
-                <p className="px-2 py-4 text-xs text-slate-400 dark:text-slate-500">
-                  Your Help questions with this AI Employee will appear here.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-0.5">
-                  {conversations.map((conversation) => (
-                    <button
-                      key={conversation.id}
-                      type="button"
-                      disabled={sending || claimingLegacy}
-                      onClick={() => selectConversation(conversation.id)}
-                      className={
-                        "rounded-md px-3 py-2 text-left text-[13px] transition " +
-                        (conversation.id === activeId
-                          ? "bg-white font-medium text-slate-900 shadow-sm ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
-                          : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800")
-                      }
-                    >
-                      <span className="block truncate">
-                        {conversation.title ?? "New Help conversation"}
+              <div className="mt-3 flex flex-col gap-1">
+                {employees?.map((employee) => (
+                  <button
+                    key={employee.id}
+                    type="button"
+                    disabled={sending || claimingLegacy}
+                    onClick={() => setSelectedId(employee.id)}
+                    className={
+                      "flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition " +
+                      (employee.id === selectedId
+                        ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
+                        : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800")
+                    }
+                  >
+                    <Avatar
+                      name={employee.name}
+                      kind="ai"
+                      size="md"
+                      src={employeeAvatarUrl(company.id, employee.id, employee.avatarKey)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{employee.name}</span>
+                      <span className="block truncate text-[11px] text-slate-400">
+                        {employee.role}
                       </span>
-                    </button>
-                  ))}
-                </div>
-              )}
+                    </span>
+                    <span
+                      className={
+                        "h-2 w-2 shrink-0 rounded-full " +
+                        (employee.model?.status === "connected"
+                          ? "bg-emerald-500"
+                          : "bg-slate-300 dark:bg-slate-600")
+                      }
+                      title={
+                        employee.model?.status === "connected"
+                          ? "AI Model connected"
+                          : "AI Model required"
+                      }
+                    />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        </aside>
+
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  Help conversations
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void startNewConversation()}
+                  disabled={!selected || sending || claimingLegacy || startingConversation}
+                  aria-busy={startingConversation || undefined}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/70 hover:text-slate-900 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                  aria-label="New Help conversation"
+                  title="New Help conversation"
+                >
+                  {startingConversation ? (
+                    <ButtonSpinner size={15} />
+                  ) : (
+                    <MessageSquarePlus size={15} />
+                  )}
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+                {conversationsError ? (
+                  <FormError message={conversationsError} className="mt-2" />
+                ) : loadingConversations ? (
+                  <div className="flex justify-center py-6">
+                    <Spinner />
+                  </div>
+                ) : conversations.length === 0 ? (
+                  <p className="px-2 py-4 text-xs text-slate-400 dark:text-slate-500">
+                    Your Help questions with this AI Employee will appear here.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-0.5">
+                    {conversations.map((conversation) => (
+                      <button
+                        key={conversation.id}
+                        type="button"
+                        disabled={sending || claimingLegacy}
+                        onClick={() => selectConversation(conversation.id)}
+                        className={
+                          "rounded-md px-3 py-2 text-left text-[13px] transition " +
+                          (conversation.id === activeId
+                            ? "bg-white font-medium text-slate-900 shadow-sm ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
+                            : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800")
+                        }
+                      >
+                        <span className="block truncate">
+                          {conversation.title ?? "New Help conversation"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </aside>
+        </ResizableRail>
 
         <section className="flex min-w-0 flex-1 flex-col">
           <header className="border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6">

@@ -50,7 +50,7 @@ import {
   DiscussionNote,
   DiscussionOutcomeCard,
 } from "../components/workspace/GroupDiscussion";
-import { useWideViewport } from "../components/ui/SidePanel";
+import { ResizableRail, useWideViewport } from "../components/ui/SidePanel";
 import { copyToClipboard } from "../lib/clipboard";
 import { errorMessage } from "../lib/errors";
 import { useCompanySocket, useCompanySocketSubscription } from "../components/CompanySocket";
@@ -498,22 +498,36 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   // A phone shows the list, or the conversation — never both squeezed side by side.
   const showListOnly = !wide && !activeChannelId;
 
+  const sidebar = (
+    <WorkspaceSidebar
+      companySlug={company.slug}
+      me={me}
+      channels={channels}
+      activeChannelId={activeChannelId}
+      onlineUsers={onlineUsers}
+      discussingChannelIds={discussingChannelIds}
+      onSelect={selectChannel}
+      onNewChannel={() => setShowNewChannel(true)}
+      onNewDM={() => setShowNewDM(true)}
+      onNewGroupChat={() => setShowNewGroupChat(true)}
+      onArchive={archiveWorkspaceChannel}
+      visible={wide || showListOnly}
+    />
+  );
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <WorkspaceSidebar
-        companySlug={company.slug}
-        me={me}
-        channels={channels}
-        activeChannelId={activeChannelId}
-        onlineUsers={onlineUsers}
-        discussingChannelIds={discussingChannelIds}
-        onSelect={selectChannel}
-        onNewChannel={() => setShowNewChannel(true)}
-        onNewDM={() => setShowNewDM(true)}
-        onNewGroupChat={() => setShowNewGroupChat(true)}
-        onArchive={archiveWorkspaceChannel}
-        layout={wide ? "side" : showListOnly ? "full" : "hidden"}
-      />
+      {wide ? (
+        <ResizableRail
+          storageKey="genosyn.workspaceRail.width"
+          label="Resize the conversation list"
+          className="flex"
+        >
+          {sidebar}
+        </ResizableRail>
+      ) : (
+        sidebar
+      )}
       <main
         className={
           (showListOnly ? "hidden " : "flex ") +
@@ -624,7 +638,7 @@ function WorkspaceSidebar({
   onNewDM,
   onNewGroupChat,
   onArchive,
-  layout,
+  visible,
 }: {
   companySlug: string;
   me: Me;
@@ -637,11 +651,8 @@ function WorkspaceSidebar({
   onNewDM: () => void;
   onNewGroupChat: () => void;
   onArchive: (id: string) => Promise<void>;
-  /**
-   * `side` beside the conversation on a wide screen; on a phone, `full` while
-   * choosing and `hidden` while a conversation is open.
-   */
-  layout: "side" | "full" | "hidden";
+  /** A phone shows the list while choosing, and only the conversation once one is open. */
+  visible: boolean;
 }) {
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const publicChannels = (channels ?? []).filter((c) => c.kind === "public");
@@ -669,8 +680,8 @@ function WorkspaceSidebar({
   return (
     <aside
       className={
-        "shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 " +
-        (layout === "hidden" ? "hidden" : layout === "full" ? "flex w-full" : "flex w-64")
+        "w-full shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 " +
+        (visible ? "flex" : "hidden")
       }
       aria-label="Workspace conversations"
     >
