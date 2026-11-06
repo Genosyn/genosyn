@@ -67,6 +67,7 @@ import {
   humanHover,
   humanPress,
   humanThinkPause,
+  humanTypeGuarded,
 } from "../services/humanInput.js";
 import { MAX_CODES_PER_INPUT_REQUEST, inputRequestPageOrigin } from "../../shared/inputRequests.js";
 import { InputRequest } from "../db/entities/InputRequest.js";
@@ -243,6 +244,9 @@ type Page = {
     locator: (sel: string) => PageLocator;
     evaluate: <T>(fn: (() => T) | string) => Promise<T>;
   }>;
+  mainFrame: () => {
+    evaluate: <T, Arg>(fn: (arg: Arg) => T, arg: Arg | ElementHandle) => Promise<T>;
+  };
   keyboard: { press: (key: string) => Promise<void> };
   mouse: { wheel: (dx: number, dy: number) => Promise<void> };
   waitForLoadState: (state: string, opts: unknown) => Promise<void>;
@@ -1911,21 +1915,64 @@ const personDescribeSchema = z
   })
   .strict();
 
-function assertCodeTarget(args: {
+/**
+ * A person is shown one address, so the code goes to that address and no other, even if
+ * a page hosts its box in a frame from somewhere else. The browser is what's asked: it
+ * lets the top of the page reach an element only on the same origin, whatever a frame's
+ * script does. Reading it off the element can't be trusted, since `ownerDocument` is the
+ * page's to redefine, and Playwright's `ownerFrame()` reads the same property.
+ */
+async function assertCodeTarget(args: {
   employee: AIEmployee;
+  page: Page;
   pageOrigin: string;
-  pageUrl: string;
-  target: VaultTargetDescriptor;
-}): void {
-  // A person is shown one address, so the code goes to that address and no other,
-  // even if a page hosts its box in a frame from somewhere else.
-  if (inputRequestPageOrigin(args.target.frameUrl) !== args.pageOrigin) {
+  handle: ElementHandle;
+}): Promise<void> {
+  const target = await args.page
+    .mainFrame()
+    .evaluate((_element: unknown) => true, args.handle)
+    .then(
+      () => describeVaultTarget(args.handle),
+      () => null,
+    );
+  if (!target || inputRequestPageOrigin(target.frameUrl) !== args.pageOrigin) {
     throw new VaultError("That input is in a frame from a different site than the page.", 403);
   }
-  if (!ALLOWED_CODE_INPUT_TYPES.includes((args.target.inputType ?? "text").toLowerCase())) {
+  if (!ALLOWED_CODE_INPUT_TYPES.includes((target.inputType ?? "text").toLowerCase())) {
     throw new VaultError("A code can only go into a text, telephone, number, or password input.", 400);
   }
-  assertVaultBrowserPolicy(args.employee, args.pageUrl, args.target.frameUrl);
+  assertVaultBrowserPolicy(args.employee, args.page.url(), target.frameUrl);
+}
+
+/**
+ * Whether the next key lands where a code may go: the box, or another field on this
+ * address, as a form with a box per digit moves along. Walked down from the top of the
+ * page, which can see into a frame only on its own origin, so a frame from another site
+ * holding the keyboard reads as no. So does a custom element keeping its frame in a
+ * closed shadow root, because the element itself isn't a field.
+ */
+function keyboardIsOnThePage(page: Page, handle: ElementHandle): Promise<boolean> {
+  return page
+    .mainFrame()
+    .evaluate((target: Element) => {
+      let active: Element | null = document.activeElement;
+      while (active) {
+        if (active === target) return true;
+        const inShadow: Element | null = active.shadowRoot?.activeElement ?? null;
+        if (inShadow) {
+          active = inShadow;
+        } else if (["IFRAME", "FRAME", "OBJECT", "EMBED"].includes(active.tagName)) {
+          active = (active as HTMLIFrameElement).contentDocument?.activeElement ?? null;
+        } else {
+          return (
+            ["INPUT", "TEXTAREA"].includes(active.tagName) ||
+            (active as HTMLElement).isContentEditable
+          );
+        }
+      }
+      return false;
+    }, handle)
+    .catch(() => false);
 }
 
 /**
@@ -1956,12 +2003,7 @@ browserRpcRouter.post(
       if (body.needs === "code") {
         if (!body.selector) throw new VaultError("Say which input the code goes into.", 400);
         const handle = await resolveVaultTarget(await locate(page, session.id, body.selector));
-        assertCodeTarget({
-          employee,
-          pageOrigin,
-          pageUrl,
-          target: await describeVaultTarget(handle),
-        });
+        await assertCodeTarget({ employee, page, pageOrigin, handle });
       }
       if (body.itemId) {
         const login = await getVaultItemPayloadForEmployee({
@@ -2100,13 +2142,21 @@ browserRpcRouter.post(
       }
       if (!body.selector) throw new VaultError("Say which input the code goes into.", 400);
       const handle = await resolveVaultTarget(await locate(page, session.id, body.selector));
-      assertCodeTarget({
-        employee,
-        pageOrigin,
-        pageUrl: page.url(),
-        target: await describeVaultTarget(handle),
-      });
-      await humanFill(page, handle, answer.code, { timeout: ACTION_TIMEOUT_MS });
+      await assertCodeTarget({ employee, page, pageOrigin, handle });
+      const typed = await humanTypeGuarded(
+        page,
+        handle,
+        answer.code,
+        () => keyboardIsOnThePage(page, handle),
+        { timeout: ACTION_TIMEOUT_MS },
+      );
+      if (!typed) {
+        await handle.fill("", { timeout: ACTION_TIMEOUT_MS }).catch(() => undefined);
+        throw new VaultError(
+          "Something on this page took the keyboard while the code was going in, so typing stopped and nothing was submitted. It may be a popup, or a frame from another site trying to read the code. Take a snapshot. If you can close what took it, ask again. If you can't, stop and say plainly what happened.",
+          409,
+        );
+      }
       if (body.submitSelector) {
         const submit = await locate(page, session.id, body.submitSelector);
         await humanClick(page, submit, { timeout: ACTION_TIMEOUT_MS });

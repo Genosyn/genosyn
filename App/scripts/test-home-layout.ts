@@ -856,6 +856,8 @@ async function open(options: FixtureOptions = {}) {
       url.pathname === "/api/companies/company/employees/employee-1/avatar"
     )
       return route.fulfill({ status: 404, body: "" });
+    // A Run's own Input requests: none of these is waiting on anyone.
+    if (url.pathname === "/api/companies/company/input-requests") return route.fulfill({ json: [] });
     unexpectedRequests.push(`${request.method()} ${url.pathname}`);
     return route.fulfill({ status: 500, json: { error: "Unexpected fixture request" } });
   });

@@ -174,6 +174,30 @@ async function everythingStored(id: string): Promise<string> {
 }
 
 describe("while the page is waiting", () => {
+  test("a code typed for one address doesn't go to another", async () => {
+    const f = await fixture();
+    const asked = await f.askInRun();
+    await assert.rejects(
+      answerInputRequest({
+        companyId: f.company.id,
+        id: asked.id,
+        actor: f.memberActor,
+        value: "481516",
+        pageOrigin: "https://login.another.test",
+      }),
+      /The page has moved to https:\/\/login\.freeagent\.test/,
+    );
+    assert.equal((await requests().findOneByOrFail({ id: asked.id })).encryptedAnswer, null);
+    await answerInputRequest({
+      companyId: f.company.id,
+      id: asked.id,
+      actor: f.memberActor,
+      value: "481516",
+      pageOrigin: "https://login.freeagent.test",
+    });
+    assert.ok((await requests().findOneByOrFail({ id: asked.id })).encryptedAnswer);
+  });
+
   test("a person's code reaches the session once, and is never stored in the clear", async () => {
     const f = await fixture();
     const asked = await f.askInRun();

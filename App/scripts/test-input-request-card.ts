@@ -215,7 +215,9 @@ try {
     await codeBox(page).fill("481516");
     await page.getByRole("button", { name: /Send to login\.freeagent\.com/ }).click();
     for (let i = 0; i < 100 && store.writes.length === 0; i += 1) await page.waitForTimeout(50);
-    assert.deepEqual(store.writes, [{ path: "answer", body: { value: "481516" } }]);
+    assert.deepEqual(store.writes, [
+      { path: "answer", body: { value: "481516", pageOrigin: "https://login.freeagent.com" } },
+    ]);
     // The session takes it a moment later, and nothing says "sent" until it has.
     assert.equal(await page.getByText(/Sent to login\.freeagent\.com/).count(), 0);
     Object.assign(store.rows[0], { status: "submitted", answerPending: false, askingUntil: null });

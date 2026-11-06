@@ -54,6 +54,8 @@ const answerSchema = z
       .string()
       .max(INPUT_REQUEST_ANSWER_CHARS + 1)
       .optional(),
+    /** The address the card showed when a code was typed. It only goes there. */
+    pageOrigin: z.string().max(2_048).optional(),
   })
   .strict();
 
@@ -121,10 +123,10 @@ inputRequestsRouter.post(
   validateBody(answerSchema),
   async (req, res) => {
     const { cid, id } = req.params as Record<string, string>;
-    const { value } = req.body as z.infer<typeof answerSchema>;
+    const { value, pageOrigin } = req.body as z.infer<typeof answerSchema>;
     const actor = actorOf(req);
     return respond(res, async () => {
-      const row = await answerInputRequest({ companyId: cid, id, actor, value });
+      const row = await answerInputRequest({ companyId: cid, id, actor, value, pageOrigin });
       return (await viewsOf([row], cid, actor))[0];
     });
   },

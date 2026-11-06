@@ -154,6 +154,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** The pause after a typed character. */
+async function keyGap(): Promise<void> {
+  await sleep(randInt(KEY_DELAY_MIN_MS, KEY_DELAY_MAX_MS));
+  if (Math.random() < KEY_HESITATION_CHANCE) {
+    await sleep(randInt(KEY_HESITATION_MIN_MS, KEY_HESITATION_MAX_MS));
+  }
+}
+
 /**
  * Enter `value` into `target` the way a person would: focus, clear, then type
  * character by character with jittered gaps. Falls back to the exact original
@@ -182,10 +190,7 @@ export async function humanFill(
     if (keyboard?.type) {
       for (const char of value) {
         await keyboard.type(char);
-        await sleep(randInt(KEY_DELAY_MIN_MS, KEY_DELAY_MAX_MS));
-        if (Math.random() < KEY_HESITATION_CHANCE) {
-          await sleep(randInt(KEY_HESITATION_MIN_MS, KEY_HESITATION_MAX_MS));
-        }
+        await keyGap();
       }
       return;
     }
@@ -207,6 +212,38 @@ export async function humanFill(
     // behaviour this helper stands in for.
     await target.fill(value, opts);
   }
+}
+
+/**
+ * Type a one-time code into `target`, asking before every key whether the keyboard
+ * is still somewhere the code may go. A key goes to whatever holds focus, not to the
+ * element that was checked, and a frame from another site can take focus whenever it
+ * likes, so a check made once at the start says nothing about the last digit.
+ *
+ * Returns false the moment the answer is no, typing nothing further: at worst the one
+ * key that raced the check went astray, and one digit of a code is no use to anyone.
+ *
+ * Unlike {@link humanFill} this never falls back to `fill()`, which would put the whole
+ * value wherever focus happens to be in one go, and it always sends real keys, even with
+ * humanising off, since a form with a box per digit moves along on them.
+ */
+export async function humanTypeGuarded(
+  page: HumanPage,
+  target: HumanInputTarget,
+  value: string,
+  keyboardIsHere: () => Promise<boolean>,
+  opts?: unknown,
+): Promise<boolean> {
+  const keyboard = page.keyboard;
+  if (!keyboard?.type) return false;
+  if (target.focus) await target.focus();
+  await target.fill("", opts);
+  for (const char of value) {
+    if (!(await keyboardIsHere())) return false;
+    await keyboard.type(char);
+    if (humanInputEnabled()) await keyGap();
+  }
+  return true;
 }
 
 /**

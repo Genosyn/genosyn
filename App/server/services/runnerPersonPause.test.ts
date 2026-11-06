@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, test } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test, type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { AppDataSource } from "../db/datasource.js";
@@ -14,7 +14,7 @@ import { addMember } from "../test/accessFixtures.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
-import { stopCron } from "./cron.js";
+import { stopCron, tickRoutine } from "./cron.js";
 import {
   answerInputRequest,
   awaitPersonAtPage,
@@ -26,6 +26,7 @@ import {
   settleInputRequestPingsForTests,
   sweepInputRequests,
 } from "./inputRequests.js";
+import { isTokenTainted, markTokenTainted } from "./mcpTokens.js";
 import { resetModelAvailabilityForTests } from "./modelAvailability.js";
 import { resetModelRunSlotsForTests } from "./modelRunCapacity.js";
 import {
@@ -35,6 +36,7 @@ import {
 } from "./routineQueue.js";
 import {
   MAX_RUN_PAUSES,
+  clearLocalRunPause,
   pauseLocalRuns,
   resetRunPausesForTests,
   restartPauseCount,
@@ -42,6 +44,7 @@ import {
 import { startRoutineRun } from "./runner.js";
 import { overrideRuntimeSettingsForTests } from "./runtimeSettings.js";
 import { liftStanddown, placeStanddown, stopStanddowns } from "./standdowns.js";
+import { taintGateApplies } from "./taintPolicy.js";
 
 /**
  * A Routine Run that needs a person pauses as itself, through the real runner and the
@@ -176,6 +179,122 @@ async function untilStopped(params: RuntimeParams): Promise<RuntimeResult> {
 async function runningRun(routineId: string): Promise<Run> {
   return runs().findOneByOrFail({ routineId, status: "running" });
 }
+
+describe("a Run that read something from outside", () => {
+  /** A turn's token, which it lists its own tools with before the model starts. */
+  function watchTurnToken(t: TestContext): () => string {
+    let token = "";
+    const realFetch = globalThis.fetch;
+    t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (!url.includes("/api/internal/mcp")) return realFetch(input, init);
+      const bearer = new Headers(init?.headers).get("authorization") ?? "";
+      if (bearer.startsWith("Bearer ")) token = bearer.slice("Bearer ".length);
+      return new Response(JSON.stringify({ tools: [] }), { status: 200 });
+    });
+    return () => token;
+  }
+
+  test("is still gated when a person's answer brings it back", async (t) => {
+    const f = await fixture();
+    const token = watchTurnToken(t);
+    const turns: boolean[] = [];
+    t.mock.method(agentRuntime, "run", async (params: RuntimeParams) => {
+      const side = sideTurn(params);
+      if (side) return side;
+      turns.push(taintGateApplies(token(), "send_mail"));
+      if (turns.length > 1) return { finalText: "Done.", steps: 1, stopReason: "end_turn" };
+      markTokenTainted(token());
+      const asked = await openAnswerInputRequest({
+        companyId: f.company.id,
+        employeeId: f.employee.id,
+        title: "Which VAT number should I use?",
+        work: { runId: (await runningRun(f.routine.id)).id, routineId: f.routine.id },
+        tainted: isTokenTainted(token()),
+      });
+      assert.equal(parkRunForRequest(asked.request), true);
+      return untilStopped(params);
+    });
+
+    const { run } = await startRoutineRun(f.routine, { triggerKind: "manual" });
+    const paused = await waitFor(run.id, heldForPerson, "paused for a person");
+    await waitForRoutineQueueIdle();
+    assert.equal(paused.tainted, true, "it's on the row, since the token dies with the turn");
+
+    await answerInputRequest({
+      companyId: f.company.id,
+      id: paused.waitingOnInputRequestId!,
+      actor: f.actor,
+      value: "GB123",
+    });
+    await waitFor(run.id, finished, "finished");
+    await waitForRoutineQueueIdle();
+    assert.deepEqual(turns, [false, true], "held on the way back, and only after reading");
+    assert.equal((await row(run.id)).tainted, true, "and there's no untaint");
+  });
+
+  test("is still gated when a restart brings it back", async (t) => {
+    const f = await fixture();
+    const token = watchTurnToken(t);
+    const turns: boolean[] = [];
+    t.mock.method(agentRuntime, "run", async (params: RuntimeParams) => {
+      const side = sideTurn(params);
+      if (side) return side;
+      turns.push(taintGateApplies(token(), "send_mail"));
+      if (turns.length > 1) return { finalText: "Done.", steps: 1, stopReason: "end_turn" };
+      markTokenTainted(token());
+      void pauseLocalRuns({ graceMs: 0, reason: "restart" });
+      return untilStopped(params);
+    });
+
+    const { run } = await startRoutineRun(f.routine, { triggerKind: "manual" });
+    const paused = await waitFor(
+      run.id,
+      (current) => current.status === "queued" && current.pauseReason === "restart",
+      "paused for the restart",
+    );
+    assert.equal(paused.tainted, true);
+    await waitForRoutineQueueIdle();
+    clearLocalRunPause();
+    await dispatchQueuedRoutineRuns();
+    await waitFor(run.id, finished, "finished");
+    await waitForRoutineQueueIdle();
+    assert.deepEqual(turns, [false, true]);
+  });
+
+  test("a Run that read nothing comes back as open as it left", async (t) => {
+    const f = await fixture();
+    const token = watchTurnToken(t);
+    const turns: boolean[] = [];
+    t.mock.method(agentRuntime, "run", async (params: RuntimeParams) => {
+      const side = sideTurn(params);
+      if (side) return side;
+      turns.push(taintGateApplies(token(), "send_mail"));
+      if (turns.length > 1) return { finalText: "Done.", steps: 1, stopReason: "end_turn" };
+      const asked = await openAnswerInputRequest({
+        companyId: f.company.id,
+        employeeId: f.employee.id,
+        title: "Which VAT number should I use?",
+        work: { runId: (await runningRun(f.routine.id)).id, routineId: f.routine.id },
+      });
+      assert.equal(parkRunForRequest(asked.request), true);
+      return untilStopped(params);
+    });
+    const { run } = await startRoutineRun(f.routine, { triggerKind: "manual" });
+    const paused = await waitFor(run.id, heldForPerson, "paused for a person");
+    await waitForRoutineQueueIdle();
+    assert.equal(paused.tainted, false);
+    await answerInputRequest({
+      companyId: f.company.id,
+      id: paused.waitingOnInputRequestId!,
+      actor: f.actor,
+      value: "GB123",
+    });
+    await waitFor(run.id, finished, "finished");
+    await waitForRoutineQueueIdle();
+    assert.deepEqual(turns, [false, false]);
+  });
+});
 
 describe("a Run waiting on a person", () => {
   test("pauses as itself, holding nothing, and records nothing final", async (t) => {
@@ -368,6 +487,27 @@ describe("a Run waiting on a person", () => {
     assert.match(brief, /said they can't help/);
     assert.match(brief, /away until Monday/);
     assert.match(brief, /stayed undone/);
+  });
+
+  test("a scheduled occurrence that comes due folds in, so no second one queues up", async (t) => {
+    const f = await fixture();
+    t.mock.method(agentRuntime, "run", async (params: RuntimeParams) => {
+      const side = sideTurn(params);
+      if (side) return side;
+      await nobodyComesToThePage(f, (await runningRun(f.routine.id)).id);
+      return untilStopped(params);
+    });
+    const { run: accepted } = await startRoutineRun(f.routine, { triggerKind: "schedule" });
+    await waitFor(accepted.id, heldForPerson, "paused");
+    await waitForRoutineQueueIdle();
+
+    await tickRoutine(f.routine.id, { missedSlots: 0 }, () => undefined);
+    await waitForRoutineQueueIdle();
+
+    const all = await runs().findBy({ routineId: f.routine.id });
+    assert.equal(all.length, 1, "this month's VAT return doesn't queue behind last month's");
+    assert.equal(all[0].missedSlots, 1, "and the one waiting knows it now covers both");
+    assert.ok(all[0].waitingOnInputRequestId, "still waiting for its person");
   });
 
   test("a restart while it waits leaves it waiting", async (t) => {

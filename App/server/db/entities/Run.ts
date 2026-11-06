@@ -354,6 +354,15 @@ export class Run {
   @Column({ type: "varchar", nullable: true })
   waitingOnInputRequestId!: string | null;
 
+  /**
+   * This Run read something from outside the company before it paused. Taint lives on
+   * a turn's MCP token, which dies with the turn, and a resumed Run gets a new one, so
+   * this is how the gate on its high-risk tools comes back with it. There's no untaint,
+   * just as there isn't for a token.
+   */
+  @Column({ type: "boolean", default: false })
+  tainted!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 }
