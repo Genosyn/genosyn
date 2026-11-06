@@ -5,7 +5,10 @@
 // server validates with `node-cron` and schedules with `cron-parser`. Nothing
 // here changes what is stored. What changes is how we *ask*: a person picks
 // "every weekday at 9:00 AM" and we compile that down, instead of making them
-// author `0 9 * * 1-5` by hand.
+// author `0 9 * * 1-5` by hand. The one thing that is not cron is a Routine's
+// random schedule (`shared/randomSchedule.ts`), which compiles to `@random
+// 3/week` and which no other schedule's server accepts: only a Routine's form
+// offers it (`ScheduleField`'s `allowRandom`).
 //
 // Three jobs, in dependency order:
 //
@@ -25,13 +28,28 @@
 // Not to be confused with `lib/schedule.ts`, the recurring-invoice picker.
 // That model carries an `intervalCount` that rides *alongside* the cron ("every
 // 2 months"), which cron cannot express and only the invoice scheduler knows
-// how to honour. This module compiles to cron and nothing else, because the
-// schedulers it feeds read the cron and only the cron.
+// how to honour. This module compiles to the one string and nothing else,
+// because the schedulers it feeds read that string and only that string.
 
+import {
+  formatRandomSchedule,
+  isRandomPeriod,
+  maxRandomRuns,
+  parseRandomSchedule,
+  type RandomPeriod,
+  type RandomWindow,
+} from "../../shared/randomSchedule";
 import { TIME_ZONE_NAME } from "../../shared/timeZone";
-import { cronHuman } from "./cron";
+import { cronHuman, cronIsReadable } from "./cron";
 
-export type ScheduleFrequency = "minutes" | "hourly" | "daily" | "weekly" | "monthly" | "yearly";
+export type ScheduleFrequency =
+  | "minutes"
+  | "hourly"
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "yearly"
+  | "random";
 
 /**
  * A schedule a person can draw with a handful of controls.
@@ -55,6 +73,16 @@ export type Schedule = {
   dayOfMonth: number;
   /** Month, 1 = January … 12 = December. Read by `yearly`. */
   month: number;
+  /** How many Runs each `randomPeriod`. Read by `random`. */
+  randomCount: number;
+  /** What those Runs are spread through. Read by `random`. */
+  randomPeriod: RandomPeriod;
+  /** Whether those Runs keep to the hours below. Read by `random`. */
+  randomHoursOn: boolean;
+  /** Minutes after midnight the hours open, 0–1439. */
+  randomFrom: number;
+  /** Minutes after midnight they close, 0–1439. Before `randomFrom` runs past midnight. */
+  randomTo: number;
 };
 
 export const WEEKDAY_NAMES = [
@@ -156,6 +184,11 @@ export function defaultSchedule(): Schedule {
     weekdays: [...WEEKDAYS_MON_FRI],
     dayOfMonth: 1,
     month: 1,
+    randomCount: 3,
+    randomPeriod: "week",
+    randomHoursOn: false,
+    randomFrom: 9 * 60,
+    randomTo: 17 * 60,
   };
 }
 
@@ -180,6 +213,8 @@ export const SCHEDULE_PRESETS: Array<{ label: string; schedule: Schedule }> = [
     schedule: { ...defaultSchedule(), frequency: "monthly", dayOfMonth: 1 },
   },
 ];
+
+const MINUTES_PER_DAY = 1_440;
 
 function clampInt(value: number, lo: number, hi: number, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
@@ -212,6 +247,13 @@ export function normalizeSchedule(input: Schedule): Schedule {
         .map((day) => clampInt(day, 0, 6, 1)),
     ),
   ).sort((a, b) => a - b);
+  const randomPeriod = isRandomPeriod(input.randomPeriod) ? input.randomPeriod : "week";
+  const randomHoursOn = input.randomHoursOn === true;
+  const randomFrom = clampInt(input.randomFrom, 0, MINUTES_PER_DAY - 1, 9 * 60);
+  const closes = clampInt(input.randomTo, 0, MINUTES_PER_DAY - 1, 17 * 60);
+  // Opening and closing on the same minute could mean all day or never, so the
+  // API refuses it. Moving one control onto the other pushes that other along.
+  const randomTo = closes === randomFrom ? (closes + 60) % MINUTES_PER_DAY : closes;
   return {
     frequency: input.frequency,
     every:
@@ -237,7 +279,24 @@ export function normalizeSchedule(input: Schedule): Schedule {
       1,
     ),
     month: clampInt(input.month, 1, 12, 1),
+    // Clamped against the period and hours as they now stand: narrowing either
+    // can leave more Runs than the API takes.
+    randomCount: clampInt(
+      input.randomCount,
+      1,
+      maxRandomRuns(randomPeriod, randomHoursOn ? { start: randomFrom, end: randomTo } : null),
+      3,
+    ),
+    randomPeriod,
+    randomHoursOn,
+    randomFrom,
+    randomTo,
   };
+}
+
+/** The hours a schedule's random Runs keep to, or null for any time. */
+export function randomWindowOf(schedule: Schedule): RandomWindow | null {
+  return schedule.randomHoursOn ? { start: schedule.randomFrom, end: schedule.randomTo } : null;
 }
 
 /**
@@ -263,6 +322,12 @@ export function scheduleToCron(input: Schedule): string {
       return `${s.minute} ${s.hour} ${s.dayOfMonth} * *`;
     case "yearly":
       return `${s.minute} ${s.hour} ${s.dayOfMonth} ${s.month} *`;
+    case "random":
+      return formatRandomSchedule({
+        count: s.randomCount,
+        period: s.randomPeriod,
+        window: randomWindowOf(s),
+      });
     case "daily":
     default:
       return `${s.minute} ${s.hour} * * *`;
@@ -330,6 +395,20 @@ function expandWeekdays(field: string): number[] | null {
  * one it was handed, quietly changing when someone's work runs.
  */
 export function cronToSchedule(expr: string): Schedule | null {
+  const random = parseRandomSchedule(expr);
+  if (random) {
+    const base = defaultSchedule();
+    return {
+      ...base,
+      frequency: "random",
+      randomCount: random.count,
+      randomPeriod: random.period,
+      randomHoursOn: random.window !== null,
+      randomFrom: random.window?.start ?? base.randomFrom,
+      randomTo: random.window?.end ?? base.randomTo,
+    };
+  }
+
   const fields = expandMacro(expr).split(/\s+/).filter(Boolean);
   // Six fields means second granularity, which the picker does not offer.
   if (fields.length !== 5) return null;
@@ -393,6 +472,15 @@ export function isFriendlyCron(expr: string): boolean {
   return cronToSchedule(expr) !== null;
 }
 
+/**
+ * Whether this reads as a Routine's schedule: cron, or a random one. Live
+ * feedback only, as with `cronIsReadable`, which everything that is not a
+ * Routine still asks.
+ */
+export function routineScheduleIsReadable(expr: string): boolean {
+  return parseRandomSchedule(expr) !== null || cronIsReadable(expr);
+}
+
 /** "1st", "2nd", "3rd", "21st" … */
 export function ordinal(n: number): string {
   const suffixes = ["th", "st", "nd", "rd"];
@@ -406,6 +494,18 @@ export function formatTimeOfDay(hour: number, minute: number): string {
   const m = clampInt(minute, 0, 59, 0);
   const hour12 = ((h + 11) % 12) + 1;
   return `${hour12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/** Value for an `<input type="time">`, from minutes after midnight. */
+export function minutesInputValue(minutes: number): string {
+  const m = clampInt(minutes, 0, MINUTES_PER_DAY - 1, 0);
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+/** Minutes after midnight from an `<input type="time">`, or `fallback` while it is unfinished. */
+export function minutesFromInput(value: string, fallback: number): number {
+  const [hour, minute] = (value || "").split(":").map((part) => parseInt(part, 10));
+  return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : fallback;
 }
 
 /** Value for an `<input type="time">` ("HH:MM"). */
@@ -446,6 +546,33 @@ export function describeWeekdays(weekdays: number[]): string {
   return joinNames(days.map((day) => WEEKDAY_SHORT_NAMES[day]));
 }
 
+/** "3 times a week at random times between 9:00 AM and 5:00 PM". */
+function describeRandom(s: Schedule): string {
+  const times =
+    s.randomCount === 1 ? "Once" : s.randomCount === 2 ? "Twice" : `${s.randomCount} times`;
+  const per = s.randomPeriod === "hour" ? "an hour" : `a ${s.randomPeriod}`;
+  const when = s.randomCount === 1 ? "at a random time" : "at random times";
+  const clock = (minutes: number) => formatTimeOfDay(Math.floor(minutes / 60), minutes % 60);
+  const hours = s.randomHoursOn ? ` between ${clock(s.randomFrom)} and ${clock(s.randomTo)}` : "";
+  return `${times} ${per} ${when}${hours}`;
+}
+
+/**
+ * Roughly how many Runs a random schedule makes on a day it runs. Worth saying
+ * out loud once it is a lot, because each one is billed to the model.
+ */
+export function randomRunsPerDay(input: Schedule): number {
+  const s = normalizeSchedule(input);
+  if (s.randomPeriod === "hour") {
+    const hours = s.randomHoursOn
+      ? ((s.randomTo - s.randomFrom + MINUTES_PER_DAY) % MINUTES_PER_DAY) / 60
+      : 24;
+    return Math.round(s.randomCount * hours);
+  }
+  const days = { day: 1, week: 7, month: 30, quarter: 91, year: 365 }[s.randomPeriod];
+  return Math.round(s.randomCount / days);
+}
+
 /**
  * Plain-English sentence for a schedule, e.g. "Every weekday at 9:00 AM".
  *
@@ -471,6 +598,8 @@ export function describeSchedule(input: Schedule): string {
       return `The ${ordinal(s.dayOfMonth)} of every month${at}`;
     case "yearly":
       return `Every ${MONTH_NAMES[s.month - 1]} ${s.dayOfMonth}${at}`;
+    case "random":
+      return describeRandom(s);
     case "daily":
     default:
       return `Every day${at}`;

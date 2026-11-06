@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { cronIsReadable } from "./cron";
 import {
   HOUR_STEPS,
   MINUTE_STEPS,
@@ -16,11 +17,16 @@ import {
   formatRunTime,
   formatTimeOfDay,
   isFriendlyCron,
+  minutesFromInput,
+  minutesInputValue,
   nextRuns,
   normalizeSchedule,
   previewRuns,
   ordinal,
+  randomRunsPerDay,
+  randomWindowOf,
   resolveTimeZone,
+  routineScheduleIsReadable,
   scheduleToCron,
   timeInputValue,
   withTimeOfDay,
@@ -147,6 +153,11 @@ describe("normalizeSchedule", () => {
       weekdays: [Number.NaN, 2],
       dayOfMonth: Number.NaN,
       month: Number.NaN,
+      randomCount: Number.NaN,
+      randomPeriod: "fortnight" as Schedule["randomPeriod"],
+      randomHoursOn: "yes" as unknown as boolean,
+      randomFrom: Number.NaN,
+      randomTo: Number.NaN,
     });
     assert.deepEqual(wild, {
       frequency: "weekly",
@@ -156,6 +167,11 @@ describe("normalizeSchedule", () => {
       weekdays: [2],
       dayOfMonth: 1,
       month: 1,
+      randomCount: 3,
+      randomPeriod: "week",
+      randomHoursOn: false,
+      randomFrom: 540,
+      randomTo: 1020,
     });
   });
 
@@ -826,5 +842,161 @@ describe("previews in a time zone", () => {
     assert.doesNotMatch(formatRunTime(run, reference, "America/Los_Angeles"), /2027|2026/);
     // An unknown zone prints like no zone at all, rather than throwing.
     assert.equal(formatRunTime(run, reference, "Mars/Base"), formatRunTime(run, reference));
+  });
+});
+
+describe("random times", () => {
+  const random = (over: Partial<Schedule> = {}) => schedule({ frequency: "random", ...over });
+
+  test("compiles to the expression the Routine routes take", () => {
+    assert.equal(scheduleToCron(random()), "@random 3/week");
+    assert.equal(scheduleToCron(random({ randomCount: 1, randomPeriod: "year" })), "@random 1/year");
+    assert.equal(
+      scheduleToCron(random({ randomCount: 2, randomPeriod: "day", randomHoursOn: true })),
+      "@random 2/day 09:00-17:00",
+    );
+    assert.equal(
+      scheduleToCron(
+        random({
+          randomCount: 1,
+          randomPeriod: "day",
+          randomHoursOn: true,
+          randomFrom: 22 * 60 + 30,
+          randomTo: 6 * 60,
+        }),
+      ),
+      "@random 1/day 22:30-06:00",
+    );
+  });
+
+  test("hours set aside stay remembered without reaching the expression", () => {
+    const set = random({ randomHoursOn: false, randomFrom: 600, randomTo: 660 });
+    assert.equal(scheduleToCron(set), "@random 3/week");
+    assert.equal(normalizeSchedule(set).randomFrom, 600);
+    assert.equal(randomWindowOf(set), null);
+    assert.deepEqual(randomWindowOf({ ...set, randomHoursOn: true }), { start: 600, end: 660 });
+  });
+
+  test("opens in the picker, and a grid round-trips through the expression", () => {
+    for (const period of ["hour", "day", "week", "month", "quarter", "year"] as const) {
+      for (const randomHoursOn of [false, true]) {
+        const input = random({ randomCount: 7, randomPeriod: period, randomHoursOn });
+        const expr = scheduleToCron(input);
+        assert.deepEqual(cronToSchedule(expr), normalizeSchedule(input), expr);
+        assert.equal(isFriendlyCron(expr), true, expr);
+      }
+    }
+  });
+
+  test("something that only looks like one goes to the hatch", () => {
+    assert.equal(cronToSchedule("@random 0/week"), null);
+    assert.equal(cronToSchedule("@random 3/fortnight"), null);
+    assert.equal(cronToSchedule("@random 1/day 09:00-09:00"), null);
+  });
+
+  test("a window that opens and closes together moves its close along", () => {
+    const moved = normalizeSchedule(random({ randomHoursOn: true, randomFrom: 600, randomTo: 600 }));
+    assert.equal(moved.randomTo, 660);
+    const midnight = normalizeSchedule(
+      random({ randomHoursOn: true, randomFrom: 23 * 60 + 30, randomTo: 23 * 60 + 30 }),
+    );
+    assert.equal(midnight.randomTo, 30);
+    assert.equal(
+      scheduleToCron(random({ randomHoursOn: true, randomFrom: 600, randomTo: 600 })),
+      "@random 3/week 10:00-11:00",
+    );
+  });
+
+  test("narrowing the period or the hours brings the count back inside what the API takes", () => {
+    assert.equal(
+      normalizeSchedule(random({ randomCount: 100, randomPeriod: "hour" })).randomCount,
+      60,
+    );
+    assert.equal(
+      normalizeSchedule(
+        random({
+          randomCount: 50,
+          randomPeriod: "day",
+          randomHoursOn: true,
+          randomFrom: 540,
+          randomTo: 550,
+        }),
+      ).randomCount,
+      10,
+    );
+    assert.equal(normalizeSchedule(random({ randomCount: 0 })).randomCount, 1);
+    assert.equal(normalizeSchedule(random({ randomCount: 5000 })).randomCount, 100);
+  });
+
+  test("says the sentence the person just built", () => {
+    assert.equal(describeSchedule(random()), "3 times a week at random times");
+    assert.equal(
+      describeSchedule(random({ randomCount: 1, randomPeriod: "day" })),
+      "Once a day at a random time",
+    );
+    assert.equal(
+      describeSchedule(random({ randomCount: 2, randomPeriod: "hour" })),
+      "Twice an hour at random times",
+    );
+    assert.equal(
+      describeSchedule(random({ randomCount: 4, randomPeriod: "quarter" })),
+      "4 times a quarter at random times",
+    );
+    assert.equal(
+      describeSchedule(random({ randomCount: 2, randomPeriod: "day", randomHoursOn: true })),
+      "Twice a day at random times between 9:00 AM and 5:00 PM",
+    );
+  });
+
+  test("every place that shows a stored schedule gets the sentence", () => {
+    assert.equal(
+      describeCronExpr("@random 1/month 22:00-06:00"),
+      "Once a month at a random time between 10:00 PM and 6:00 AM",
+    );
+  });
+
+  test("reads as a Routine's schedule, and only a Routine's", () => {
+    assert.equal(routineScheduleIsReadable("@random 3/week"), true);
+    assert.equal(routineScheduleIsReadable("0 9 * * 1-5"), true);
+    assert.equal(routineScheduleIsReadable("@random 0/week"), false);
+    assert.equal(routineScheduleIsReadable("not cron"), false);
+    assert.equal(cronIsReadable("@random 3/week"), false, "Pipelines and Signals still refuse it");
+  });
+
+  test("there is nothing to preview, and that is not a schedule that never comes", () => {
+    assert.deepEqual(previewRuns("@random 3/week", at(2026, 3, 2), 3), {
+      supported: false,
+      runs: [],
+    });
+  });
+
+  test("says when it adds up to a lot of Runs in a day", () => {
+    assert.equal(randomRunsPerDay(random({ randomCount: 3, randomPeriod: "week" })), 0);
+    assert.equal(randomRunsPerDay(random({ randomCount: 30, randomPeriod: "day" })), 30);
+    assert.equal(randomRunsPerDay(random({ randomCount: 2, randomPeriod: "hour" })), 48);
+    assert.equal(
+      randomRunsPerDay(random({ randomCount: 2, randomPeriod: "hour", randomHoursOn: true })),
+      16,
+    );
+    assert.equal(
+      randomRunsPerDay(
+        random({
+          randomCount: 2,
+          randomPeriod: "hour",
+          randomHoursOn: true,
+          randomFrom: 22 * 60,
+          randomTo: 2 * 60,
+        }),
+      ),
+      8,
+    );
+  });
+
+  test("reads a time input both ways, and an unfinished one changes nothing", () => {
+    assert.equal(minutesInputValue(9 * 60 + 5), "09:05");
+    assert.equal(minutesInputValue(0), "00:00");
+    assert.equal(minutesFromInput("22:30", 0), 22 * 60 + 30);
+    assert.equal(minutesFromInput("", 540), 540);
+    assert.equal(minutesFromInput("not:atime", 540), 540);
   });
 });

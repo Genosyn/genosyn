@@ -12,12 +12,13 @@ import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
-import { DEFAULT_CRON, cronIsReadable } from "../lib/cron";
+import { DEFAULT_CRON } from "../lib/cron";
 import { errorMessage } from "../lib/errors";
 import { MAX_INITIATIVE_REQUEST_LENGTH } from "../lib/initiativePrompt";
 import { submitFormOnModEnter } from "../lib/keyboard";
 import { type NewRoutineMode, newRoutineMode, withNewRoutineMode } from "../lib/newRoutineMode";
 import { ROUTINE_EXAMPLES, examplesStayOnOffer } from "../lib/routineExamples";
+import { routineScheduleIsReadable } from "../lib/scheduleBuilder";
 import { canOpenSubpage, subpageAt } from "../lib/subpages";
 import { useInitiativeRequest } from "../lib/useInitiativeRequest";
 import { MAX_ROUTINE_BRIEF_LENGTH } from "../../shared/routineBrief";
@@ -336,6 +337,7 @@ function SetUpRoutine({
           <ScheduleField
             value={form.cronExpr}
             onChange={form.setCronExpr}
+            allowRandom
             hint="When the employee picks this work up. Change it any time from the routine."
           />
 
@@ -450,7 +452,7 @@ function useManualRoutine({
   // The schedule control cannot build a bad expression, but its custom-cron
   // escape hatch can be emptied or mistyped. Gate on it rather than let the
   // create round-trip to a 400 the person has to read to understand.
-  const scheduleOk = cronIsReadable(cronExpr.trim());
+  const scheduleOk = routineScheduleIsReadable(cronExpr.trim());
   const canCreate = Boolean(employeeId && name.trim() && brief.trim() && scheduleOk);
 
   async function submit(e: React.FormEvent) {

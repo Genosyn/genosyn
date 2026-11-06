@@ -1771,7 +1771,7 @@ function SettingsTab({
           <SectionLabel>Basics</SectionLabel>
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
 
-          <ScheduleField value={cronExpr} onChange={setCronExpr} />
+          <ScheduleField value={cronExpr} onChange={setCronExpr} allowRandom />
 
           <div className="flex flex-col gap-1">
             <Select label="Goal" value={goalId} onChange={(e) => setGoalId(e.target.value)}>
