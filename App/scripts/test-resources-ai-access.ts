@@ -93,6 +93,13 @@ await context.route("**/api/**", async (route) => {
     );
     return route.fulfill({ json: { row: rows.find((row) => row.employee.id === put[1]) ?? null } });
   }
+  // The library's one Resource sits in no folder, so All resources counts it as unfiled.
+  if (pathname === "/api/companies/company/resource-folders") {
+    return route.fulfill({ json: { folders: [], unfiledCount: 1, maxDepth: 5 } });
+  }
+  if (pathname === `/api/companies/company/history/resource/${resource.id}`) {
+    return route.fulfill({ json: { items: [], nextCursor: null } });
+  }
   if (pathname === `${base}/handbook`) return route.fulfill({ json: resource });
   if (pathname === `${base}/handbook/grants`) {
     const grant = (who: Row["employee"], accessLevel: string) => ({
@@ -150,7 +157,9 @@ try {
   await page.goto(fixture.origin, { waitUntil: "networkidle", timeout: 120_000 });
   await page.getByRole("heading", { name: "AI access", exact: true }).waitFor();
   const sidebar = page.locator("aside").first();
-  await sidebar.getByRole("link", { name: "Library", exact: true }).waitFor();
+  // The rail's link says how much the library holds.
+  const allResources = sidebar.getByRole("link", { name: "All resources 1", exact: true });
+  await allResources.waitFor();
   await sidebar.getByRole("link", { name: "AI access", exact: true }).waitFor();
   assert.equal(
     await checked("Ada Lovelace"),
@@ -203,7 +212,7 @@ try {
   assert.equal(rows.find((row) => row.employee.id === "emp-cy")?.accessLevel, "read");
 
   // ── Sidebar navigation and the chat shortcut ──────────────────────────────
-  await sidebar.getByRole("link", { name: "Library", exact: true }).click();
+  await allResources.click();
   await page.getByText("Library index", { exact: true }).waitFor();
   assert.equal(await location(), "/c/acme/resources");
   await sidebar.getByRole("link", { name: "AI access", exact: true }).click();
