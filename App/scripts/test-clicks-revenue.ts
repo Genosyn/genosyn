@@ -459,6 +459,11 @@ await app.check(
         (select) => (select as HTMLSelectElement).value === "db",
       ),
     );
+    // A Signal's schedule is cron: only a Routine's form offers random times.
+    const scheduleOption = (name: string) =>
+      page.getByRole("dialog").locator("select option", { hasText: name });
+    assert.equal(await scheduleOption("Custom (cron)").count(), 1);
+    assert.equal(await scheduleOption("Random times").count(), 0);
     await page
       .getByRole("dialog")
       .getByLabel("Name", { exact: true })

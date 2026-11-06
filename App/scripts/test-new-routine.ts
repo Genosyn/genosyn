@@ -8,7 +8,8 @@
  * and `?folder=` presets apply in both and survive the switch, an explicit
  * `?describe=1` opens straight on the box, a New routine pressed from the box
  * lands on the form, and with nobody able to answer a Chat the form says why
- * under it instead of offering the link. Run with `npm run test:new-routine`.
+ * under it instead of offering the link. Random times become the schedule the
+ * form sends and reopen in the same controls. Run with `npm run test:new-routine`.
  */
 import assert from "node:assert/strict";
 import type { Locator, Page } from "playwright-core";
@@ -157,6 +158,7 @@ function routes(s: Store): ApiRoute[] {
           owner,
           (body.folderId as string | null | undefined) ?? null,
         );
+        created.cronExpr = String(body.cronExpr ?? created.cronExpr);
         s.routines.push(created);
         s.briefs.set(created.id, String(body.brief ?? ""));
         return { ...created, body: s.briefs.get(created.id) };
@@ -583,6 +585,85 @@ await app.check("Members get a note, with neither the form nor the box", async (
     assert.equal(await backToTheForm(page).count(), 0, path);
     await page.close();
   }
+});
+
+await app.check(
+  "Random times: how many, per what and which hours become the schedule, and reopen as they were",
+  async () => {
+    const s = store();
+    const view = await app.open({ path: "/c/acme/routines/new", routes: routes(s), height: 1100 });
+    const { page } = view;
+    await assertOnTheForm(view, "before choosing");
+    await nameField(page).fill("Post to Reddit");
+    await briefField(page).fill("Write something worth reading and post it.");
+
+    const combobox = (name: string) => page.getByRole("combobox", { name, exact: true });
+    await choose(page, combobox("How often"), /^Random times$/);
+    await page.getByText("@random 3/week", { exact: true }).waitFor();
+    await page.getByText(/^3 times a week at random times/).waitFor();
+    // The times are drawn on the server, so the field says that instead of a preview.
+    await page.getByText(/Genosyn picks the exact times/).waitFor();
+    assert.equal(await page.getByText(/^Next:/).count(), 0, "no times to preview");
+    assert.equal(await page.getByLabel("Time of day", { exact: true }).count(), 0);
+
+    await choose(page, combobox("Per"), /^a day$/);
+    await choose(page, combobox("How many runs"), /^2$/);
+    await choose(page, combobox("Which hours"), /^between$/);
+    await page.getByText("@random 2/day 09:00-17:00", { exact: true }).waitFor();
+    await page.getByLabel("Earliest time of day", { exact: true }).fill("22:00");
+    await page.getByLabel("Latest time of day", { exact: true }).fill("06:00");
+    await page.getByText("@random 2/day 22:00-06:00", { exact: true }).waitFor();
+    await page.getByText(/^Twice a day at random times between 10:00 PM and 6:00 AM/).waitFor();
+    await app.shot(page, "new-routine-random-times");
+
+    await view.click(createRoutine(page));
+    await view.landedOn("/c/acme/routines/alex/post-to-reddit");
+    const post = view.writes.find((w) => w.method === "POST");
+    assert.equal(post?.body.cronExpr, "@random 2/day 22:00-06:00");
+
+    // Settings opens in the same controls, not in the custom field.
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await waitForValue(combobox("How often"), "Random times");
+    assert.equal(await combobox("How many runs").inputValue(), "2");
+    assert.equal(await combobox("Per").inputValue(), "a day");
+    assert.equal(await combobox("Which hours").inputValue(), "between");
+    assert.equal(await page.getByLabel("Earliest time of day", { exact: true }).inputValue(), "22:00");
+    assert.equal(await page.getByLabel("Latest time of day", { exact: true }).inputValue(), "06:00");
+    await page.close();
+  },
+);
+
+await app.check("A broken random schedule holds Create routine back, and says so", async () => {
+  const s = store();
+  const view = await app.open({ path: "/c/acme/routines/new", routes: routes(s) });
+  const { page } = view;
+  await assertOnTheForm(view, "before choosing");
+  await nameField(page).fill("Post to Reddit");
+  await briefField(page).fill("Write something worth reading and post it.");
+  await choose(page, page.getByRole("combobox", { name: "How often", exact: true }), /^Custom/);
+  const expression = page.getByLabel("Cron expression", { exact: true });
+  await expression.fill("@random 0/week");
+  await page.getByText(/^Not a schedule we can read/).waitFor();
+  assert.equal(await createRoutine(page).isDisabled(), true);
+  await expression.fill("@random 1/month 08:30-20:00");
+  await page.getByText(/^Once a month at a random time between 8:30 AM and 8:00 PM/).waitFor();
+  assert.equal(await createRoutine(page).isDisabled(), false);
+  assert.equal(view.writes.length, 0);
+  await page.close();
+});
+
+await app.check("phone width: Random times and its hours fit", async () => {
+  const s = store();
+  const view = await app.open({ path: "/c/acme/routines/new", routes: routes(s), touch: true });
+  const { page } = view;
+  await assertOnTheForm(view, "a phone");
+  const combobox = (name: string) => page.getByRole("combobox", { name, exact: true });
+  await choose(page, combobox("How often"), /^Random times$/);
+  await choose(page, combobox("Which hours"), /^between$/);
+  await page.getByLabel("Latest time of day", { exact: true }).waitFor();
+  await noSidewaysScroll(page, "Random times on a phone");
+  await app.shot(page, "new-routine-random-times-phone");
+  await page.close();
 });
 
 await app.check("phone width: the form and the box both fit", async () => {
