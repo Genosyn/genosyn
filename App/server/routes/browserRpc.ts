@@ -2001,7 +2001,6 @@ browserRpcRouter.post(
 const personWaitSchema = z
   .object({
     requestId: z.string().uuid(),
-    needs: z.enum(["code", "action"]),
     selector: z.string().min(1).max(500).nullable().optional(),
     submitSelector: z.string().min(1).max(500).nullable().optional(),
     key: browserModelPressKeySchema.nullable().optional(),

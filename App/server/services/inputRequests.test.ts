@@ -278,6 +278,8 @@ describe("while the page is waiting", () => {
     assert.equal(asked.status, "waiting", "it waits for them instead");
     assert.equal(asked.askingUntil, null);
     assert.ok(asked.nextReminderAt);
+    const answer = await awaitPersonAtPage({ requestId: asked.id, companyId: f.company.id });
+    assert.equal(answer.outcome, "lapsed", "so the Run pauses, rather than being told it ended");
   });
 });
 

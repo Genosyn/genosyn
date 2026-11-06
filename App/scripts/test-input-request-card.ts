@@ -206,28 +206,22 @@ try {
   });
 
   await check("a code goes once, then leaves the page", async () => {
-    let looks = 0;
-    const row = asking();
-    const { page, store } = await open([row], {
-      onAnswer: (_store, current, body) => {
+    const { page, store } = await open([asking()], {
+      onAnswer: (_store, row, body) => {
         assert.equal(body.value, "481516");
-        return { ...current, answerPending: true };
-      },
-      get: () => {
-        looks += 1;
-        return looks > 1 ? { ...row, status: "submitted", answerPending: false } : undefined;
+        return { ...row, answerPending: true };
       },
     });
-    store.rows = [row];
     await codeBox(page).fill("481516");
     await page.getByRole("button", { name: /Send to login\.freeagent\.com/ }).click();
-    await page.waitForResponse((response) => response.url().endsWith("/answer"));
-    // The session taking it is a moment later: nothing says "sent" until it has.
-    Object.assign(store.rows[0], { status: "submitted", answerPending: false });
+    for (let i = 0; i < 100 && store.writes.length === 0; i += 1) await page.waitForTimeout(50);
+    assert.deepEqual(store.writes, [{ path: "answer", body: { value: "481516" } }]);
+    // The session takes it a moment later, and nothing says "sent" until it has.
+    assert.equal(await page.getByText(/Sent to login\.freeagent\.com/).count(), 0);
+    Object.assign(store.rows[0], { status: "submitted", answerPending: false, askingUntil: null });
     await page.getByText(/Sent to login\.freeagent\.com/).waitFor({ timeout: 10_000 });
     assert.equal(await codeBox(page).count(), 0);
-    const html = await page.content();
-    assert.ok(!html.includes("481516"), "the code isn't left in the page");
+    assert.ok(!(await page.content()).includes("481516"), "the code isn't left in the page");
     await page.context().close();
   });
 

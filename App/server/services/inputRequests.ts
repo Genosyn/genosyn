@@ -502,6 +502,8 @@ export async function awaitPersonAtPage(args: {
     if (!row) return { outcome: "ended", request: null };
     if (row.status === "declined") return { outcome: "declined", request: row };
     if (row.status === "submitted") return { outcome: "done", request: row };
+    // A Run with too little of its limit left to hold the page asks without holding it.
+    if (row.status === "waiting") return { outcome: "lapsed", request: row };
     if (row.status !== "asking") return { outcome: "ended", request: row };
     if (row.encryptedAnswer) {
       const taken = await repo().update(

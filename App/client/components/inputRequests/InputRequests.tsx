@@ -319,8 +319,8 @@ export function InputRequestCard({
                 >
                   {view.lastCodeRefused && !view.answerPending && (
                     <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
-                      {site || "The site"} didn&apos;t accept the last code. Wait for a new one,
-                      then try again.
+                      {site || "The site"} is asking again, so the last code didn&apos;t work. Wait
+                      for a new one, then try again.
                     </p>
                   )}
                   <div className="flex flex-wrap items-center gap-2">

@@ -344,7 +344,6 @@ async function browserAskPerson(args) {
   });
   const reply = await callBrowser("/person/wait", {
     requestId: opened.requestId,
-    needs,
     selector: selector || null,
     submitSelector: submitSelector || null,
     key: key || null,
