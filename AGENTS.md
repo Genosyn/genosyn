@@ -509,6 +509,19 @@ narrow, and widens what an AI may do without a human; a Standdown is imposed,
 broad, and stops it. Neither direction has an MCP tool: the roster must not be able to
 stand itself down and, far more importantly, must not be able to lift one.
 
+**A random schedule is worked out, never rolled.** A Routine's `cronExpr` may hold
+`@random 3/week` or `@random 2/day 09:00-17:00` (`shared/randomSchedule.ts`), and
+only a Routine's: Pipelines, Revenue Signals and recurring invoices stay cron, so
+`nextRunFor` keeps refusing one. `services/randomSchedule.ts` cuts each hour, day,
+week, month, quarter or year on the company's clock into one share per Run and
+places each Run inside its share from a hash of the Routine's id. The answer never
+changes, and it has to not change: the heartbeat, a finishing Run, every settings
+save, a zone change and a restore all work `nextRunAt` out again, so dice would move
+the next Run each time and could lose or add one. Read a Routine's schedule through
+`services/routineSchedule.ts` (`nextRoutineRun`, `countMissedRoutineSlots`,
+`routineScheduleSchema`). Do not store drawn times, add a `Math.random()` to the
+schedule, or hand a Routine's `cronExpr` to `cron-parser` directly.
+
 **A Run paused for a restart is not stood down.** An upgrade (`genosyn upgrade`'s
 pause step), `SIGTERM`, or recovery after a restart cut a Run off (its stopping
 process marked it, or an upgrade held the queue) puts it back in the queue as the
