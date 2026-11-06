@@ -32,8 +32,9 @@ const DAY_MS = DAY_MINUTES * MINUTE_MS;
 /**
  * How much of each share is kept clear at both ends, as a part of it and at most
  * an hour. This is what stops the last Run of one share landing a minute before
- * the first of the next: two Runs are always at least twice this far apart. Only
- * capped so that a long period does not lose whole weeks at its edges.
+ * the first of the next: two Runs are at least twice this far apart, unless
+ * daylight saving moves one of them. Only capped so that a long period does not
+ * lose whole weeks at its edges.
  */
 const EDGE_SHARE = 0.05;
 const MAX_EDGE_SECONDS = 3_600;
