@@ -216,6 +216,10 @@ await context.route("**/api/**", async (route) => {
     );
     return route.fulfill({ json: routingRules.find((rule) => rule.id === ruleOne[1]) });
   }
+  // What people are asked for comes first on the stack; nothing is, here.
+  if (pathname === `${base}/input-requests` && method === "GET") {
+    return route.fulfill({ json: [] });
+  }
   // The Decision stack layout counts what waits beside the stack.
   if (pathname === `${base}/navigation/waiting` && method === "GET") {
     return route.fulfill({

@@ -265,6 +265,10 @@ async function open(
       return route.fulfill({
         json: evidenceMatch[2] === "effects" ? { effects: [], total: 0 } : { results: [] },
       });
+    // A Run's own Input requests: none of these is waiting on anyone.
+    if (url.pathname === "/api/companies/company/input-requests") {
+      return route.fulfill({ json: [] });
+    }
     const entry = entries.find((row) => row.run && url.pathname.includes(`/${row.run.id}/`));
     if (!entry) {
       unexpectedRequests.push(`${request.method()} ${url.pathname}`);
