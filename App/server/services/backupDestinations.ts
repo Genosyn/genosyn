@@ -807,7 +807,7 @@ async function inspectDestination(
 }
 
 /** The bytes free in a folder on this server; null when its filesystem won't say, as some FUSE mounts don't. */
-async function localFreeBytes(dir: string): Promise<number | null> {
+export async function localFreeBytes(dir: string): Promise<number | null> {
   try {
     const disk = await fs.promises.statfs(dir);
     return disk.bavail * disk.bsize;

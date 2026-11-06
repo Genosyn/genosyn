@@ -7,6 +7,7 @@ import type { IncomingMessage } from "node:http";
 import type archiver from "archiver";
 import * as archiverRuntime from "archiver";
 import cron, { ScheduledTask } from "node-cron";
+import { In } from "typeorm";
 import { readZipFile, ZipReadError } from "../lib/zipFile.js";
 import { AppDataSource, optimizeSqliteStatistics } from "../db/datasource.js";
 import { bootMailSearchIndex, stopMailSearchIndex } from "./mail/searchIndex.js";
@@ -20,6 +21,7 @@ import {
   deliverBackupToDestinations,
   isBackupBeingCopied,
   isDeliveryRunning,
+  localFreeBytes,
   OffBoxRetention,
   releaseBackupCopy,
 } from "./backupDestinations.js";
@@ -29,6 +31,7 @@ import {
   copiesByBackup,
   deleteCopiesOfBackups,
   failCopiesInFlight,
+  formatBytes,
   markCopiesPending,
   recoverInterruptedCopies,
   serializeCopy,
@@ -57,10 +60,12 @@ import {
   snapshotManagedInstanceSecrets,
 } from "../lib/instanceSecrets.js";
 import { bindInstanceSecretsToDatabase } from "./instanceSecretsDatabase.js";
+import { PRIVATE_GIT_ROOT_PREFIX } from "./workspaceGitRemote.js";
 
 /**
  * Install-wide backup service. Each backup zips `<dataDir>` (excluding the
- * `Backup/` folder itself and any staging artifact) into
+ * `Backup/` folder itself, any staging artifact, and the private workspaces of
+ * clones and fetches) into
  * `<dataDir>/Backup/backup-YYYY-MM-DD-HHMMSS.zip`. The SQLite file is first
  * snapshotted with SQLite's online backup API so the archive captures a
  * consistent view even while the app is writing.
@@ -866,6 +871,7 @@ async function runBackupInner(
   activeStagingPaths.add(stagingDbPath);
 
   try {
+    if (kind === "scheduled") await assertRoomForScheduledBackup();
     const snapshot = await snapshotSqlite(stagingDbPath);
     await writeZip(outPath, snapshot);
     // The archive is written and renamed into place, and nothing below reads
@@ -940,6 +946,45 @@ async function runBackupInner(
   }
 
   return row;
+}
+
+/**
+ * Refuse an automatic backup that can't fit, before it starts. One that ran out
+ * of room used to write for two hours and then fail, having filled the disk the
+ * database writes to in the meantime. A run needs room for a copy of the
+ * database and for its archive; the last archive stands in for the new one, so
+ * this only catches what clearly won't fit, and a backup can still run out of
+ * room part-way while the data grows.
+ *
+ * Only automatic backups ask. That last size goes stale after a clean-up, and
+ * an estimate must never stand between a person and a backup, or a restore and
+ * the safety snapshot it takes: Back up now tries regardless, and what it
+ * writes corrects the estimate.
+ */
+async function assertRoomForScheduledBackup(): Promise<void> {
+  const free = await localFreeBytes(backupDir());
+  if (free === null) return;
+  const last = await AppDataSource.getRepository(Backup).findOne({
+    where: { status: "completed", kind: In(["scheduled", "manual"]) },
+    order: { createdAt: "DESC" },
+  });
+  const needed = liveDatabaseBytes() + (last?.sizeBytes ?? 0);
+  if (free >= needed) return;
+  throw new Error(
+    `This server has ${formatBytes(free)} free, but this backup needs about ${formatBytes(needed)}, ` +
+      "going by the size of the database and of the last backup. " +
+      "Free some space, or keep fewer backups here under Advanced. Back up now tries regardless.",
+  );
+}
+
+/** The size of the SQLite file a snapshot copies page for page; 0 when there is none. */
+function liveDatabaseBytes(): number {
+  if (config.db.driver !== "sqlite") return 0;
+  try {
+    return fs.statSync(path.resolve(config.db.sqlitePath)).size;
+  } catch {
+    return 0;
+  }
 }
 
 /** How far better-sqlite3's backup has got: pages in the source, pages still to copy. */
@@ -1041,9 +1086,9 @@ function assertCompleteSnapshot(dest: string, pages: number, handle: SqliteBacku
 
 /**
  * Write the zip archive to `outPath`. Everything under `dataDir` is
- * included except for the `Backup/` folder (so backups don't recurse) and
- * the live SQLite files (the snapshot at `sqliteSnapshot` is substituted
- * in as `app.sqlite` if present).
+ * included except for the `Backup/` folder (so backups don't recurse), the
+ * private workspaces of clones and fetches, and the live SQLite files (the
+ * snapshot at `sqliteSnapshot` is substituted in as `app.sqlite` if present).
  *
  * The bytes go to a `.part` sibling and are renamed into place only once the
  * stream closes cleanly, so `outPath` never exists in a half-written state.
@@ -1165,6 +1210,9 @@ async function walkAndAppend(
     if (relPrefix === "" && entry.name === BACKUP_DIR_NAME) continue;
 
     if (entry.isDirectory()) {
+      // A clone or fetch under way, or what a stopped one left: part of a remote
+      // and perhaps its SSH key. Nothing a restore wants, and as large as a repo.
+      if (entry.name.startsWith(PRIVATE_GIT_ROOT_PREFIX)) continue;
       await walkAndAppend(files, absPath, relPath, sqliteSnapshot, walked);
       continue;
     }
