@@ -8,6 +8,7 @@ import {
   humanInputEnabled,
   humanPress,
   humanThinkPause,
+  humanTypeGuarded,
   setHumanInputEnabledForTests,
   type HumanInputTarget,
   type HumanPage,
@@ -59,6 +60,67 @@ function fakePageWithKeyboard() {
 
 afterEach(() => {
   setHumanInputEnabledForTests(null);
+});
+
+describe("humanTypeGuarded", () => {
+  const box = () => {
+    const { calls, record } = recorder();
+    const target: HumanInputTarget = {
+      fill: record("fill"),
+      click: record("click"),
+      focus: record("focus"),
+    };
+    return { calls, target };
+  };
+
+  test("types every key while the keyboard stays where it was", async () => {
+    setHumanInputEnabledForTests(false);
+    const { page, typed } = fakePageWithKeyboard();
+    const { calls, target } = box();
+    let asked = 0;
+    const finished = await humanTypeGuarded(page, target, "1234", async () => {
+      asked += 1;
+      return true;
+    });
+    assert.equal(finished, true);
+    assert.deepEqual(typed, ["1", "2", "3", "4"]);
+    assert.equal(asked, 4, "it asks before each key, not once");
+    assert.deepEqual(
+      calls.map((c) => [c.name, c.args[0]]),
+      [
+        ["focus", undefined],
+        ["fill", ""],
+      ],
+    );
+  });
+
+  test("stops at once when the keyboard moves, and never fills the rest in", async () => {
+    setHumanInputEnabledForTests(false);
+    const { page, typed } = fakePageWithKeyboard();
+    const { calls, target } = box();
+    const answers = [true, true, false, true];
+    const finished = await humanTypeGuarded(page, target, "1234", async () => answers.shift()!);
+    assert.equal(finished, false);
+    assert.deepEqual(typed, ["1", "2"]);
+    assert.ok(
+      calls.every((c) => c.name !== "fill" || c.args[0] === ""),
+      "no fallback puts the value in another way",
+    );
+  });
+
+  test("sends real keys even with humanising off", async () => {
+    setHumanInputEnabledForTests(false);
+    const { page, typed } = fakePageWithKeyboard();
+    const { target } = box();
+    await humanTypeGuarded(page, target, "12", async () => true);
+    assert.deepEqual(typed, ["1", "2"]);
+  });
+
+  test("refuses when no keyboard is reachable, rather than setting the value", async () => {
+    const { calls, target } = box();
+    assert.equal(await humanTypeGuarded({}, target, "12", async () => true), false);
+    assert.deepEqual(calls, []);
+  });
 });
 
 describe("humanFill", () => {
