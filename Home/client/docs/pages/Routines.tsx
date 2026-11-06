@@ -312,8 +312,10 @@ export function Routines() {
             def: (
               <>
                 When it runs. You build this from the <Strong>Schedule</Strong> control — a cadence,
-                the days, a time — and Genosyn compiles it to a standard 5-field cron expression.
-                See <DocLink to="/docs/routines#scheduling">Scheduling</DocLink>.
+                the days, a time — and Genosyn compiles it to a standard 5-field cron expression, or
+                to a short <Code>@random</Code> expression for{" "}
+                <DocLink to="/docs/routines#random-times">random times</DocLink>. See{" "}
+                <DocLink to="/docs/routines#scheduling">Scheduling</DocLink>.
               </>
             ),
           },
@@ -458,6 +460,10 @@ export function Routines() {
         <LI>
           <Strong>Yearly</Strong> — a month, a day, and a time.
         </LI>
+        <LI>
+          <Strong>Random times</Strong> — so many times an hour, day, week, month, quarter or year,
+          at <DocLink to="/docs/routines#random-times">times Genosyn picks</DocLink>. Routines only.
+        </LI>
       </UL>
       <P>
         Underneath, the control writes a plain English sentence, the cron expression it compiled,
@@ -498,10 +504,58 @@ export function Routines() {
         </LI>
       </UL>
 
+      <H3 id="random-times">Random times</H3>
+      <P>
+        Some work should not land at the same time every time: a post that shouldn&apos;t read as if
+        a machine wrote it, a spot check nobody can plan around. Pick <Strong>Random times</Strong>{" "}
+        in a routine&apos;s <Strong>Schedule</Strong> control, then how many times and per what:{" "}
+        <Strong>3 times a week</Strong>, say, or <Strong>1 time a month</Strong>. You can choose an
+        hour, a day, a week, a month, a quarter or a year, and up to 100 Runs each.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Exactly that many, every period.</Strong> Each period gets its full count, at
+          different times from the last, spread through it so they don&apos;t bunch up. A week runs
+          Monday to Sunday, and a quarter starts in January, April, July or October. A routine
+          created partway through a period only runs the times still ahead of it in that period, so
+          a routine set to once a year can take over a year to run for the first time.
+        </LI>
+        <LI>
+          <Strong>Only at sensible hours, if you like.</Strong> Change{" "}
+          <Strong>at any time</Strong> to <Strong>between</Strong> and give the hours, such as 9:00
+          AM and 5:00 PM, read in the company&apos;s{" "}
+          <DocLink to="/docs/routines#time-zone">time zone</DocLink>. An end earlier than the start
+          runs past midnight.
+        </LI>
+        <LI>
+          <Strong>The next one is always on show.</Strong> The control cannot preview the times,
+          because Genosyn only works them out for a saved routine. Once it is saved, the
+          routine&apos;s <Strong>Overview</Strong> shows when the next Run is. That time stays put:
+          saving the routine&apos;s settings, pausing and resuming it, and restarting Genosyn
+          don&apos;t move it. Two routines on the same schedule get different times.
+        </LI>
+      </UL>
+      <P>
+        Everything else works as it does on any routine: <Strong>Run now</Strong>,{" "}
+        <DocLink to="/docs/routines#approvals">Approvals</DocLink>,{" "}
+        <DocLink to="/docs/standdowns">Standdowns</DocLink>, and catching up after downtime, which
+        counts the random times that were missed like any other slots. Revenue Signals and Pipeline
+        schedule triggers keep to a fixed schedule.
+      </P>
+      <P>
+        An AI Employee or an API client writes the same thing as the schedule&apos;s expression, in{" "}
+        <Code>create_routine</Code>, <Code>update_routine</Code> or <Code>cronExpr</Code> on the{" "}
+        <DocLink to="/docs/api">REST API</DocLink>: how many, per what, and optionally the hours.
+      </P>
+      <Pre lang="text">{`@random 3/week               →  three times a week, at any time
+@random 2/day 09:00-17:00    →  twice a day, between 09:00 and 17:00
+@random 1/day 22:00-06:00    →  once a day, overnight`}</Pre>
+
       <H3 id="custom-cron">Writing cron by hand</H3>
       <P>
-        Genosyn stores the schedule as a standard 5-field <Code>node-cron</Code> expression, and the
-        control&apos;s <Strong>Custom (cron)</Strong> option lets you write one directly. Cron can
+        Random times aside, Genosyn stores the schedule as a standard 5-field{" "}
+        <Code>node-cron</Code> expression, and the control&apos;s{" "}
+        <Strong>Custom (cron)</Strong> option lets you write one directly. Cron can
         say things the cadences above cannot — two fixed times a day, second-level granularity, the
         13th and every Friday — and a routine already on such an expression opens in the custom
         field with it intact rather than being rounded to the nearest cadence.

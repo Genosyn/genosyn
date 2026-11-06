@@ -4,7 +4,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { isValidTimeZone } from "../lib/timeZone.js";
-import { nextRunFor } from "./cronMath.js";
+import { nextRoutineRun } from "./routineSchedule.js";
 
 /**
  * Which clock a company's Routines are scheduled on.
@@ -15,8 +15,8 @@ import { nextRunFor } from "./cronMath.js";
  * is either a zone the runtime can schedule in or the empty string, which means
  * *server time* — the process's own clock, which is how every Routine ran
  * before a company could name one. Callers hand the answer straight to
- * `nextRunFor()` and `countMissedSlots()` and never need to ask whether it is
- * usable.
+ * `nextRoutineRun()` and `countMissedRoutineSlots()` and never need to ask whether
+ * it is usable.
  *
  * Both lookups are primary-key reads on tables with one row per company or
  * employee, so they are safe to make from the heartbeat (§7: nothing here scans
@@ -136,7 +136,7 @@ export async function rescheduleCompanyRoutines(
   for (const routine of routines) {
     let current: Routine | null = routine;
     for (let attempt = 0; attempt < 3 && current?.enabled; attempt += 1) {
-      const next = nextRunFor(current.cronExpr, now, timeZone);
+      const next = nextRoutineRun(current, now, timeZone);
       if (next === null || current.nextRunAt?.getTime() === next.getTime()) break;
       const updated = await repo.update(
         {

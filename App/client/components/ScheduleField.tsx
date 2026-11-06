@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, CalendarClock } from "lucide-react";
+import { AlertTriangle, CalendarClock, Shuffle } from "lucide-react";
 import { Select } from "./ui/Select";
 import { cronHuman, cronIsReadable } from "../lib/cron";
 import {
@@ -11,18 +11,30 @@ import {
   cronToSchedule,
   daysInMonth,
   defaultSchedule,
+  describeCronExpr,
   describeSchedule,
   formatRunTime,
+  minutesFromInput,
+  minutesInputValue,
   normalizeSchedule,
   previewRuns,
   ordinal,
+  randomRunsPerDay,
+  randomWindowOf,
   resolveTimeZone,
+  routineScheduleIsReadable,
   scheduleToCron,
   timeInputValue,
   withTimeOfDay,
   type Schedule,
   type ScheduleFrequency,
 } from "../lib/scheduleBuilder";
+import {
+  RANDOM_PERIODS,
+  isRandomPeriod,
+  maxRandomRuns,
+  parseRandomSchedule,
+} from "../../shared/randomSchedule";
 import { useScheduleTimeZone } from "./ScheduleTimeZone";
 
 /**
@@ -41,6 +53,10 @@ import { useScheduleTimeZone } from "./ScheduleTimeZone";
  * in people's databases. Anything the picker cannot redraw opens in the hatch
  * with its expression intact rather than being quietly rewritten into the
  * nearest thing the controls happen to support.
+ *
+ * A Routine's form also offers random times (`allowRandom`). That compiles to a
+ * `@random` schedule rather than cron, which only a Routine's server route takes,
+ * so everywhere else one opens in the hatch and the server's answer makes sense.
  */
 
 const FREQUENCY_OPTIONS: Array<{ value: ScheduleFrequency; label: string }> = [
@@ -53,6 +69,15 @@ const FREQUENCY_OPTIONS: Array<{ value: ScheduleFrequency; label: string }> = [
 ];
 
 const CUSTOM = "custom";
+
+/** A runs-per-day figure past which the field says what that costs. */
+const MANY_RANDOM_RUNS_PER_DAY = 24;
+
+/** What the picker can redraw of this expression here, or null for the hatch. */
+function pickerSchedule(expr: string, allowRandom: boolean): Schedule | null {
+  const schedule = cronToSchedule(expr);
+  return schedule?.frequency === "random" && !allowRandom ? null : schedule;
+}
 
 // One border, one radius, one focus ring for every inline control, so the row
 // reads as a single sentence rather than a pile of fields. Mirrors `Input`.
@@ -73,6 +98,7 @@ export function ScheduleField({
   showPresets = true,
   previewCount = 3,
   timeZone,
+  allowRandom = false,
 }: {
   /** The cron expression being edited. */
   value: string;
@@ -91,6 +117,8 @@ export function ScheduleField({
    * one, which is how Pipelines and Revenue Signals are scheduled.
    */
   timeZone?: string | null;
+  /** Offer random times. Only a Routine's server route accepts them. */
+  allowRandom?: boolean;
 }) {
   const inheritedTimeZone = useScheduleTimeZone();
   // Unknown to this browser reads as server time rather than throwing while
@@ -112,9 +140,9 @@ export function ScheduleField({
   // string cannot carry the fields its own frequency does not use. Seeded once
   // from the incoming expression; the effect below handles it changing later.
   const [draft, setDraft] = React.useState<Schedule>(
-    () => cronToSchedule(value) ?? defaultSchedule(),
+    () => pickerSchedule(value, allowRandom) ?? defaultSchedule(),
   );
-  const [custom, setCustom] = React.useState(() => cronToSchedule(value) === null);
+  const [custom, setCustom] = React.useState(() => pickerSchedule(value, allowRandom) === null);
 
   // The escape hatch keeps its own text. What reaches the caller is trimmed —
   // a pipeline matches its firing node by exact cron string, so one stray
@@ -140,14 +168,14 @@ export function ScheduleField({
     if (value === emitted.current) return;
     emitted.current = value;
     setCustomText(value);
-    const next = cronToSchedule(value);
+    const next = pickerSchedule(value, allowRandom);
     if (next) {
       setDraft(next);
       setCustom(false);
     } else {
       setCustom(true);
     }
-  }, [value]);
+  }, [value, allowRandom]);
 
   function apply(next: Schedule) {
     const normalized = normalizeSchedule(next);
@@ -177,7 +205,10 @@ export function ScheduleField({
     apply({ ...draft, weekdays: selected });
   }
 
-  const readable = cronIsReadable(value);
+  const readable = allowRandom ? routineScheduleIsReadable(value) : cronIsReadable(value);
+  // Worked out on the server from the Routine's id, so there are no times to
+  // preview here: the note below says so, and the Routine shows its next one.
+  const random = allowRandom && parseRandomSchedule(value) !== null;
   const preview = React.useMemo(
     () =>
       previewCount > 0 && readable
@@ -220,8 +251,85 @@ export function ScheduleField({
               {option.label}
             </option>
           ))}
+          {allowRandom && <option value="random">Random times</option>}
           <option value={CUSTOM}>Custom (cron)</option>
         </Select>
+
+        {!custom && draft.frequency === "random" && (
+          <>
+            <Select
+              value={String(draft.randomCount)}
+              onChange={(e) => apply({ ...draft, randomCount: Number(e.target.value) })}
+              disabled={disabled}
+              aria-label="How many runs"
+              containerClassName="w-24"
+            >
+              {Array.from(
+                { length: maxRandomRuns(draft.randomPeriod, randomWindowOf(draft)) },
+                (_, index) => index + 1,
+              ).map((count) => (
+                <option key={count} value={count}>
+                  {count}
+                </option>
+              ))}
+            </Select>
+            <span className={word}>{draft.randomCount === 1 ? "time" : "times"}</span>
+            <Select
+              value={draft.randomPeriod}
+              onChange={(e) => {
+                const period = e.target.value;
+                if (isRandomPeriod(period)) apply({ ...draft, randomPeriod: period });
+              }}
+              disabled={disabled}
+              aria-label="Per"
+              containerClassName="w-28"
+            >
+              {RANDOM_PERIODS.map((period) => (
+                <option key={period} value={period}>
+                  {period === "hour" ? "an hour" : `a ${period}`}
+                </option>
+              ))}
+            </Select>
+            <Select
+              value={draft.randomHoursOn ? "between" : "any"}
+              onChange={(e) => apply({ ...draft, randomHoursOn: e.target.value === "between" })}
+              disabled={disabled}
+              aria-label="Which hours"
+              containerClassName="w-36"
+            >
+              <option value="any">at any time</option>
+              <option value="between">between</option>
+            </Select>
+            {draft.randomHoursOn && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="time"
+                  value={minutesInputValue(draft.randomFrom)}
+                  onChange={(e) =>
+                    apply({
+                      ...draft,
+                      randomFrom: minutesFromInput(e.target.value, draft.randomFrom),
+                    })
+                  }
+                  disabled={disabled}
+                  aria-label="Earliest time of day"
+                  className={field}
+                />
+                <span className={word}>and</span>
+                <input
+                  type="time"
+                  value={minutesInputValue(draft.randomTo)}
+                  onChange={(e) =>
+                    apply({ ...draft, randomTo: minutesFromInput(e.target.value, draft.randomTo) })
+                  }
+                  disabled={disabled}
+                  aria-label="Latest time of day"
+                  className={field}
+                />
+              </div>
+            )}
+          </>
+        )}
 
         {!custom && draft.frequency === "minutes" && (
           <>
@@ -348,19 +456,22 @@ export function ScheduleField({
           </>
         )}
 
-        {!custom && draft.frequency !== "minutes" && draft.frequency !== "hourly" && (
-          <>
-            <span className={word}>at</span>
-            <input
-              type="time"
-              value={timeInputValue(draft)}
-              onChange={(e) => apply(withTimeOfDay(draft, e.target.value))}
-              disabled={disabled}
-              aria-label="Time of day"
-              className={field}
-            />
-          </>
-        )}
+        {!custom &&
+          draft.frequency !== "minutes" &&
+          draft.frequency !== "hourly" &&
+          draft.frequency !== "random" && (
+            <>
+              <span className={word}>at</span>
+              <input
+                type="time"
+                value={timeInputValue(draft)}
+                onChange={(e) => apply(withTimeOfDay(draft, e.target.value))}
+                disabled={disabled}
+                aria-label="Time of day"
+                className={field}
+              />
+            </>
+          )}
 
         {custom && (
           <input
@@ -374,7 +485,7 @@ export function ScheduleField({
             aria-label="Cron expression"
             spellCheck={false}
             placeholder="0 9 * * 1-5"
-            className={`${field} w-56 font-mono`}
+            className={`${field} w-72 max-w-full font-mono`}
           />
         )}
       </div>
@@ -387,9 +498,11 @@ export function ScheduleField({
         >
           {!readable
             ? "Not a schedule we can read — check the expression."
-            : custom
-              ? cronHuman(value)
-              : describeSchedule(draft)}
+            : random
+              ? describeCronExpr(value)
+              : custom
+                ? cronHuman(value)
+                : describeSchedule(draft)}
           {readable && (
             <span className="ml-2 font-mono text-slate-400 dark:text-slate-500">{value}</span>
           )}
@@ -409,6 +522,28 @@ export function ScheduleField({
             </span>
           </div>
         )}
+
+        {random && (
+          <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+            <Shuffle size={12} className="shrink-0" />
+            <span>
+              Genosyn picks the exact times, spread out so they don&apos;t bunch up. The routine
+              shows the next one once it&apos;s saved.
+              <span className="ml-1 text-slate-400 dark:text-slate-500" title={clockHint}>
+                ({zone ?? "server time"})
+              </span>
+            </span>
+          </div>
+        )}
+
+        {!custom &&
+          draft.frequency === "random" &&
+          randomRunsPerDay(draft) >= MANY_RANDOM_RUNS_PER_DAY && (
+            <div className="text-slate-500 dark:text-slate-400">
+              That is about {randomRunsPerDay(draft)} runs a day, each one billed to the model. Pick
+              the fewest the work can live with.
+            </div>
+          )}
 
         {neverFires && (
           <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">

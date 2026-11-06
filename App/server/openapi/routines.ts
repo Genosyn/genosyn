@@ -5,6 +5,19 @@ import { routineRunsQuerySchema } from "../services/runHistory.js";
 import { legacyOrPage, pageBadRequest, pageInfoShape } from "./pagedLists.js";
 import { defaultSecurity, registry } from "./registry.js";
 
+/** What a Routine's `cronExpr` holds, in both of the shapes below that carry it. */
+const ROUTINE_SCHEDULE_DESCRIPTION =
+  "When the routine fires, read in the company's time zone (the server's when it has none). " +
+  "Either a cron expression, accepted if BOTH `node-cron` validates it and `cron-parser` can " +
+  "compute a next run from it — the two disagree, and an expression only the first accepts " +
+  "saves and then never fires. Five fields is the normal shape; six-field second granularity " +
+  "is accepted but cannot be delivered faithfully by a 30-second heartbeat. Or a random " +
+  "schedule, `@random <count>/<hour|day|week|month|quarter|year>` with optional hours, such as " +
+  "`@random 3/week` or `@random 2/day 09:00-17:00` (an end before the start runs past " +
+  "midnight). That many Runs land in each period at times worked out for this routine, at " +
+  "most 100 and no more than one a minute, and `nextRunAt` says when the next is. The " +
+  "dashboard builds either from a schedule picker.";
+
 /** A Routine's priority, as every response carries it. */
 const RoutinePriority = z
   .enum(ROUTINE_PRIORITIES)
@@ -41,15 +54,7 @@ const Routine = z
     employeeId: z.string().uuid(),
     name: z.string(),
     slug: z.string(),
-    cronExpr: z.string().openapi({
-      description:
-        "When the routine fires, as a cron expression in the server's local time zone. " +
-        "Accepted if BOTH `node-cron` validates it and `cron-parser` can compute a next " +
-        "run from it — the two disagree, and an expression only the first accepts saves " +
-        "and then never fires. Five fields is the normal shape; six-field second " +
-        "granularity is accepted but cannot be delivered faithfully by a 30-second " +
-        "heartbeat. The dashboard builds this from a schedule picker.",
-    }),
+    cronExpr: z.string().openapi({ description: ROUTINE_SCHEDULE_DESCRIPTION }),
     enabled: z.boolean(),
     body: z.string().describe("Markdown brief that describes what the routine should do."),
     tags: z.array(Tag).describe("Company tags attached to this routine."),
@@ -234,15 +239,7 @@ const RoutineColumns = z.object({
       "Unique per employee rather than per company — which is why the UI addresses a " +
         "routine as /routines/{empSlug}/{routineSlug}.",
     ),
-  cronExpr: z.string().openapi({
-    description:
-      "When the routine fires, as a cron expression in the server's local time zone. " +
-      "Accepted if BOTH `node-cron` validates it and `cron-parser` can compute a next " +
-      "run from it — the two disagree, and an expression only the first accepts saves " +
-      "and then never fires. Five fields is the normal shape; six-field second " +
-      "granularity is accepted but cannot be delivered faithfully by a 30-second " +
-      "heartbeat. The dashboard builds this from a schedule picker.",
-  }),
+  cronExpr: z.string().openapi({ description: ROUTINE_SCHEDULE_DESCRIPTION }),
   enabled: z.boolean(),
   folderId: z
     .string()

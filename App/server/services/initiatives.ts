@@ -1,4 +1,3 @@
-import cron from "node-cron";
 import { In, MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -10,7 +9,8 @@ import { Membership } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
 import { toSlug } from "../lib/slug.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
-import { nextRunFor, registerRoutine } from "./cron.js";
+import { registerRoutine } from "./cron.js";
+import { routineScheduleProblem } from "./routineSchedule.js";
 import { companyTimeZone } from "./companyTimeZone.js";
 import { recordAudit } from "./audit.js";
 import { createNotifications } from "./notifications.js";
@@ -49,11 +49,7 @@ export function parseRoutineSpec(raw: string): InitiativeRoutineSpec {
   // bare `*`, which really do fire — so an accepted Initiative could create a
   // live Routine whose schedule nothing else in the product can read or draw,
   // leaving the human approving it looking at an expression and no sentence.
-  if (
-    typeof p.cronExpr !== "string" ||
-    !cron.validate(p.cronExpr) ||
-    nextRunFor(p.cronExpr) === null
-  ) {
+  if (typeof p.cronExpr !== "string" || routineScheduleProblem(p.cronExpr) !== null) {
     throw new InitiativeError("The routine spec's cron expression cannot be scheduled");
   }
   if (typeof p.body !== "string" || !p.body.trim()) {
