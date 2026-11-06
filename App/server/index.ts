@@ -8,6 +8,7 @@ import { config } from "../config.js";
 import { AppDataSource, initDb } from "./db/datasource.js";
 import { ensureBootstrapMasterAdmin } from "./services/masterAdmin.js";
 import { bootCron } from "./services/cron.js";
+import { sweepOrphanedPrivateGitRoots } from "./services/workspaceGitRemote.js";
 import { startRunPauseWatcher } from "./services/runPause.js";
 import { startModelAvailabilityWatcher } from "./services/modelAvailability.js";
 import { startModelWaits } from "./services/modelWaits.js";
@@ -103,6 +104,9 @@ async function main() {
   resolveCodingExecutionMode();
   validateRuntimeSecurity();
   await validateRuntimeDependencies();
+  // What a stopped process's clones and fetches left behind, before anything
+  // here can start one of its own.
+  await sweepOrphanedPrivateGitRoots();
   await bootRealtimeBridge();
   await backfillTagColors();
   await backfillLegacyResourceTags();

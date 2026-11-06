@@ -21,6 +21,7 @@ import {
   resetInstanceSecretsCacheForTests,
 } from "../lib/instanceSecrets.js";
 import { AppDataSource } from "../db/datasource.js";
+import { Backup } from "../db/entities/Backup.js";
 import { BackupError } from "./backupErrors.js";
 import {
   backupDir,
@@ -97,6 +98,77 @@ describe("backup archive generation", () => {
       await archiveText(archivePath, "companies/release-lab/marker.txt"),
       "release proof",
     );
+  });
+
+  test("leaves out a clone's or fetch's private workspace, and the SSH key in it", async () => {
+    const employees = path.join(tempDir, "companies", "release-lab", "employees");
+    const repositories = path.join(tempDir, ".private", "repositories", "company-1");
+    const workspaces = [
+      path.join(employees, ".genosyn-git-fetch-aB3dE6"),
+      path.join(repositories, ".genosyn-git-fetch-fG7hI9"),
+    ];
+    for (const workspace of workspaces) {
+      await fs.mkdir(path.join(workspace, "remote.git"), { recursive: true });
+      await fs.writeFile(path.join(workspace, "ssh-key"), "private key");
+      await fs.writeFile(path.join(workspace, "remote.git", "HEAD"), "ref: refs/heads/main\n");
+    }
+    await fs.mkdir(path.join(employees, "jamie", "repos"), { recursive: true });
+    await fs.writeFile(path.join(employees, "jamie", "repos", "kept.txt"), "kept");
+
+    const backup = await runBackup("manual");
+    const names = (await archiveEntries(backupFilePath(backup.filename))).map((e) => e.path);
+    assert.ok(names.includes("companies/release-lab/employees/jamie/repos/kept.txt"));
+    assert.deepEqual(
+      names.filter((name) => name.includes(".genosyn-git-fetch-") || name.endsWith("ssh-key")),
+      [],
+    );
+  });
+});
+
+describe("an automatic backup that can't fit", () => {
+  const LAST_ARCHIVE = "backup-2026-01-01-060000.zip";
+
+  /** A finished backup too large for any disk this test runs on. */
+  async function lastBackupLargerThanAnyDisk(kind: Backup["kind"] = "scheduled"): Promise<void> {
+    await AppDataSource.getRepository(Backup).save(
+      AppDataSource.getRepository(Backup).create({
+        filename: LAST_ARCHIVE,
+        kind,
+        status: "completed",
+        sizeBytes: 2 ** 52,
+        errorMessage: "",
+        completedAt: new Date(),
+      }),
+    );
+  }
+
+  test("fails at once, saying how much room it needs, and writes nothing", async () => {
+    await lastBackupLargerThanAnyDisk();
+    await assert.rejects(runBackup("scheduled"), /free, but this backup needs about/);
+
+    const failed = await AppDataSource.getRepository(Backup).findOneByOrFail({ status: "failed" });
+    assert.equal(failed.kind, "scheduled");
+    assert.match(failed.errorMessage, /This server has .* free, but this backup needs about/);
+    assert.match(failed.errorMessage, /Back up now tries regardless/);
+    assert.deepEqual(await fs.readdir(backupDir()), []);
+  });
+
+  test("Back up now tries regardless: that size goes stale after a clean-up", async () => {
+    await lastBackupLargerThanAnyDisk();
+    const backup = await runBackup("manual");
+    assert.equal(backup.status, "completed");
+    assert.ok(fsSync.existsSync(backupFilePath(backup.filename)));
+  });
+
+  test("an uploaded archive says nothing about the size of the next backup", async () => {
+    await lastBackupLargerThanAnyDisk("uploaded");
+    const backup = await runBackup("scheduled");
+    assert.equal(backup.status, "completed");
+  });
+
+  test("the first backup, with nothing to go by, runs", async () => {
+    const backup = await runBackup("scheduled");
+    assert.equal(backup.status, "completed");
   });
 });
 

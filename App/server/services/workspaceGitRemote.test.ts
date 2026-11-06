@@ -4,7 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { after, before, test } from "node:test";
+import { after, before, test, type TestContext } from "node:test";
 import { promisify } from "node:util";
 import { config } from "../../config.js";
 import { inlineEnvCredentialHelper } from "./gitCredentialHelper.js";
@@ -13,9 +13,94 @@ import {
   buildPrivateFetchSshCommand,
   cloneWorkspaceGitRemote,
   fetchWorkspaceGitRemote,
+  sweepOrphanedPrivateGitRoots,
 } from "./workspaceGitRemote.js";
 
 const execFixture = promisify(execFile);
+
+/** A data directory of its own, under `driver`, for one test. */
+function useDataDir(t: TestContext, driver: "sqlite" | "postgres"): string {
+  const mutable = config as unknown as {
+    dataDir: string;
+    db: { driver: "sqlite" | "postgres" };
+  };
+  const { dataDir: originalDataDir } = mutable;
+  const originalDriver = mutable.db.driver;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-git-sweep-"));
+  mutable.dataDir = root;
+  mutable.db.driver = driver;
+  t.after(() => {
+    mutable.dataDir = originalDataDir;
+    mutable.db.driver = originalDriver;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  return root;
+}
+
+function writeFile(file: string): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "x");
+}
+
+test("boot removes the private workspaces stopped processes left, wherever they are put", async (t) => {
+  const root = useDataDir(t, "sqlite");
+  const employees = path.join(root, "companies", "acme", "employees");
+  const repositories = path.join(root, ".private", "repositories", "company-1");
+  writeFile(path.join(employees, ".genosyn-git-fetch-aB3dE6", "ssh-key"));
+  writeFile(path.join(employees, ".genosyn-git-fetch-cD4eF7", "checkout", ".git", "config"));
+  writeFile(path.join(repositories, ".genosyn-git-fetch-gH8iJ0", "remote.git", "HEAD"));
+
+  assert.equal(await sweepOrphanedPrivateGitRoots(), 3);
+
+  assert.deepEqual(fs.readdirSync(employees), []);
+  assert.deepEqual(fs.readdirSync(repositories), []);
+});
+
+test("boot leaves everything else alone", async (t) => {
+  const root = useDataDir(t, "sqlite");
+  const employees = path.join(root, "companies", "acme", "employees");
+  const repositories = path.join(root, ".private", "repositories", "company-1");
+  const outside = path.join(root, "outside", "precious.txt");
+  const kept = [
+    path.join(employees, "jamie", "repos", "project", "README.md"),
+    // Inside a working tree, where only a person or an AI Employee could have made it.
+    path.join(employees, "jamie", ".genosyn-git-fetch-notes", "mine.txt"),
+    // A file, not a workspace.
+    path.join(employees, ".genosyn-git-fetch-file"),
+    path.join(repositories, "repository-1", "checkout", "README.md"),
+    outside,
+  ];
+  for (const file of kept) writeFile(file);
+  // A link with the name of one: removing what it points at would be a way out.
+  const link = path.join(employees, ".genosyn-git-fetch-link");
+  fs.symlinkSync(path.dirname(outside), link);
+
+  assert.equal(await sweepOrphanedPrivateGitRoots(), 0);
+
+  for (const file of kept) assert.ok(fs.existsSync(file), `removed ${file}`);
+  assert.ok(fs.lstatSync(link).isSymbolicLink());
+});
+
+test("under Postgres replicas share the volume, so a recent workspace may be another's", async (t) => {
+  const root = useDataDir(t, "postgres");
+  const employees = path.join(root, "companies", "acme", "employees");
+  const recent = path.join(employees, ".genosyn-git-fetch-aB3dE6");
+  const old = path.join(employees, ".genosyn-git-fetch-cD4eF7");
+  writeFile(path.join(recent, "ssh-key"));
+  writeFile(path.join(old, "ssh-key"));
+  const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000);
+  fs.utimesSync(old, sevenHoursAgo, sevenHoursAgo);
+
+  assert.equal(await sweepOrphanedPrivateGitRoots(), 1);
+
+  assert.ok(fs.existsSync(recent));
+  assert.equal(fs.existsSync(old), false);
+});
+
+test("a brand-new data directory has nothing to sweep", async (t) => {
+  useDataDir(t, "sqlite");
+  assert.equal(await sweepOrphanedPrivateGitRoots(), 0);
+});
 
 /** Fixture Git must not inherit a developer's signing, hooks, or URL config. */
 function exec(command: "git", args: string[], options: { cwd?: string } = {}) {
