@@ -86,7 +86,8 @@
     "test:notes-editor": "tsx scripts/test-notes-editor.ts",
     "test:group-chats": "tsx scripts/test-group-chats.ts",
     "test:visual-system": "tsx scripts/test-visual-system.ts",
-    "test:ux-placements": "tsx scripts/test-ux-placements.ts"
+    "test:ux-placements": "tsx scripts/test-ux-placements.ts",
+    "test:panel-widths": "tsx scripts/test-panel-widths.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
