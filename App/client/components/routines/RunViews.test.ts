@@ -432,6 +432,10 @@ describe("a Run paused for a restart", () => {
     assert.equal(isRunPaused({ status: "queued" }), false);
     assert.equal(isRunPaused({ status: "failed", pauseCount: 1 }), false);
     assert.equal(runStatusLabel("queued", true), "resuming");
+    assert.equal(runStatusLabel("queued", true, "outage"), "resuming");
+    // It isn't resuming until someone does something, so it doesn't say so.
+    assert.equal(runStatusLabel("queued", true, "person"), "waiting on a person");
+    assert.match(runStatusHint("queued", null, true, "person") ?? "", /waiting for a person/);
     assert.equal(runStatusLabel("queued"), "pending");
     assert.match(runStatusHint("queued", null, true) ?? "", /Paused while Genosyn restarted/);
     assert.match(runStatusHint("queued") ?? "", /Waiting to start/);

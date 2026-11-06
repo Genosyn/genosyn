@@ -14,7 +14,7 @@ import { addMember } from "../test/accessFixtures.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { agentRuntime } from "./agent/runtime.js";
-import { stopCron } from "./cron.js";
+import { stopCron, tickRoutine } from "./cron.js";
 import {
   answerInputRequest,
   awaitPersonAtPage,
@@ -368,6 +368,27 @@ describe("a Run waiting on a person", () => {
     assert.match(brief, /said they can't help/);
     assert.match(brief, /away until Monday/);
     assert.match(brief, /stayed undone/);
+  });
+
+  test("a scheduled occurrence that comes due folds in, so no second one queues up", async (t) => {
+    const f = await fixture();
+    t.mock.method(agentRuntime, "run", async (params: RuntimeParams) => {
+      const side = sideTurn(params);
+      if (side) return side;
+      await nobodyComesToThePage(f, (await runningRun(f.routine.id)).id);
+      return untilStopped(params);
+    });
+    const { run: accepted } = await startRoutineRun(f.routine, { triggerKind: "schedule" });
+    await waitFor(accepted.id, heldForPerson, "paused");
+    await waitForRoutineQueueIdle();
+
+    await tickRoutine(f.routine.id, { missedSlots: 0 }, () => undefined);
+    await waitForRoutineQueueIdle();
+
+    const all = await runs().findBy({ routineId: f.routine.id });
+    assert.equal(all.length, 1, "this month's VAT return doesn't queue behind last month's");
+    assert.equal(all[0].missedSlots, 1, "and the one waiting knows it now covers both");
+    assert.ok(all[0].waitingOnInputRequestId, "still waiting for its person");
   });
 
   test("a restart while it waits leaves it waiting", async (t) => {
