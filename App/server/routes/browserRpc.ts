@@ -14,7 +14,10 @@ import {
 } from "../services/browserSessions.js";
 import {
   acquirePage,
+  holdPageForApproval,
+  holdRuntime,
   releasePage,
+  releaseRuntime,
   getRuntime,
   markActivity,
   pushSessionNotice,
@@ -30,6 +33,7 @@ import {
   getVaultPasskeyForEmployee,
   getVaultItemPayloadForEmployee,
   getVaultTotpCodeForEmployee,
+  listVaultItemsForEmployee,
   recordVaultPasskeyUseForEmployee,
   releaseVaultPasskeyRegistrationForEmployee,
   releaseVaultPasskeyUseForEmployee,
@@ -64,6 +68,15 @@ import {
   humanPress,
   humanThinkPause,
 } from "../services/humanInput.js";
+import { MAX_CODES_PER_INPUT_REQUEST, inputRequestPageOrigin } from "../../shared/inputRequests.js";
+import { InputRequest } from "../db/entities/InputRequest.js";
+import {
+  InputRequestError,
+  awaitPersonAtPage,
+  parkRunForRequest,
+  recordCodeUse,
+} from "../services/inputRequests.js";
+import { noteVaultTotpFilled, vaultTotpWindowWasUsed } from "../services/vaultTotpFreshness.js";
 
 /**
  * Internal HTTP surface called by the stripped-down `browser` MCP child.
@@ -125,6 +138,12 @@ const SETTLE_CAP_MS = 2_000;
 /** How long an action waits for a popup it opened to be adopted. Slightly
  *  above adoptPage's own 5s load wait so a just-loaded popup is reflected. */
 const ADOPTION_WAIT_MS = 5_500;
+/**
+ * How long a Vault one-time code may wait for a usable window. It reaches the next
+ * window of an ordinary 30-second code, and stays under the minute a browser tool
+ * call may take. A rarer, longer period says when to try again instead.
+ */
+const VAULT_TOTP_FRESHNESS_MS = 40_000;
 const vaultTotpCaptureBindings = new Map<
   string,
   { companyId: string; employeeId: string; itemId: string; origin: string }
@@ -1557,8 +1576,11 @@ browserRpcRouter.post(
         );
       }
       let totpCode: string | null = null;
+      let totpExpiresAt: Date | null = null;
       if (body.field === "totp") {
-        const freshnessDeadline = Date.now() + 15_000;
+        // Long enough to reach the next window of an ordinary 30-second code, and
+        // well under what a browser tool call may take.
+        const freshnessDeadline = Date.now() + VAULT_TOTP_FRESHNESS_MS;
         for (;;) {
           const generated = await getVaultTotpCodeForEmployee({
             companyId: session.companyId,
@@ -1596,14 +1618,17 @@ browserRpcRouter.post(
             );
           }
           const remainingMs = generated.expiresAt.getTime() - Date.now();
-          if (remainingMs >= 5_000) {
+          // A code that already went in can't be used twice, and a site reads the
+          // second try as a wrong code. Wait for the next one instead.
+          if (remainingMs >= 5_000 && !vaultTotpWindowWasUsed(body.itemId, generated.expiresAt)) {
             totpCode = generated.code;
+            totpExpiresAt = generated.expiresAt;
             break;
           }
           const waitMs = Math.max(50, remainingMs + 50);
           if (Date.now() + waitMs > freshnessDeadline) {
             throw new VaultError(
-              "A fresh TOTP window was not available before the Vault fill deadline",
+              `A fresh TOTP window was not available before the Vault fill deadline. Try again in ${Math.ceil(waitMs / 1_000)} seconds.`,
               409,
             );
           }
@@ -1618,6 +1643,7 @@ browserRpcRouter.post(
       // think-pause first.
       if (body.field !== "totp") await humanThinkPause();
       await humanFill(page, targetHandle, value, { timeout: ACTION_TIMEOUT_MS });
+      if (totpExpiresAt) noteVaultTotpFilled(body.itemId, totpExpiresAt);
       await recordAudit({
         companyId: session.companyId,
         actorEmployeeId: employee.id,
@@ -1771,7 +1797,7 @@ browserRpcRouter.post(
       }
       await assertLiveVaultAccess(liveTarget);
 
-      const freshnessDeadline = Date.now() + 15_000;
+      const freshnessDeadline = Date.now() + VAULT_TOTP_FRESHNESS_MS;
       let generated: Awaited<ReturnType<typeof getVaultTotpCodeForEmployee>>;
       for (;;) {
         generated = await getVaultTotpCodeForEmployee({
@@ -1793,11 +1819,13 @@ browserRpcRouter.post(
         }
         await assertLiveVaultAccess(liveTarget, generated.itemVersion);
         const remainingMs = generated.expiresAt.getTime() - Date.now();
-        if (remainingMs >= 5_000) break;
+        if (remainingMs >= 5_000 && !vaultTotpWindowWasUsed(body.itemId, generated.expiresAt)) {
+          break;
+        }
         const waitMs = Math.max(50, remainingMs + 50);
         if (Date.now() + waitMs > freshnessDeadline) {
           throw new BrowserApprovalError(
-            "A fresh TOTP window was not available before the approved submission deadline",
+            `A fresh TOTP window was not available before the approved submission deadline. Try again in ${Math.ceil(waitMs / 1_000)} seconds.`,
             409,
           );
         }
@@ -1811,6 +1839,7 @@ browserRpcRouter.post(
       await humanFill(page, liveTarget.vaultTotpTarget!.handle, generated.code, {
         timeout: ACTION_TIMEOUT_MS,
       });
+      noteVaultTotpFilled(body.itemId, generated.expiresAt);
 
       // Only the selected TOTP value is normalized in the fingerprint, so a
       // fresh code leaves it stable while any unrelated field or DOM change
@@ -1864,6 +1893,245 @@ browserRpcRouter.post(
       }
       res.status(500).json({
         error: "Vault TOTP submission failed without revealing the one-time code",
+      });
+    }
+  },
+);
+
+// ──────────────── asking a person, while the page waits
+
+const ALLOWED_CODE_INPUT_TYPES = ["text", "tel", "number", "password"];
+
+const personDescribeSchema = z
+  .object({
+    needs: z.enum(["code", "action"]),
+    selector: z.string().min(1).max(500).nullable().optional(),
+    itemId: z.string().uuid().nullable().optional(),
+    savedCodeFailed: z.boolean().optional(),
+  })
+  .strict();
+
+function assertCodeTarget(args: {
+  employee: AIEmployee;
+  pageOrigin: string;
+  pageUrl: string;
+  target: VaultTargetDescriptor;
+}): void {
+  // A person is shown one address, so the code goes to that address and no other,
+  // even if a page hosts its box in a frame from somewhere else.
+  if (inputRequestPageOrigin(args.target.frameUrl) !== args.pageOrigin) {
+    throw new VaultError("That input is in a frame from a different site than the page.", 403);
+  }
+  if (!ALLOWED_CODE_INPUT_TYPES.includes((args.target.inputType ?? "text").toLowerCase())) {
+    throw new VaultError("A code can only go into a text, telephone, number, or password input.", 400);
+  }
+  assertVaultBrowserPolicy(args.employee, args.pageUrl, args.target.frameUrl);
+}
+
+/**
+ * Read the real page, before anyone is asked. This is what a person will be shown, and
+ * it comes from the browser, never from the model. It is also where a request that
+ * shouldn't go out stops: a code already in the Vault doesn't need anyone's phone.
+ */
+browserRpcRouter.post(
+  "/person/describe",
+  validateBody(personDescribeSchema),
+  async (req: BrowserRpcReq, res) => {
+    const body = req.body as z.infer<typeof personDescribeSchema>;
+    const session = req.browserSession!;
+    const employee = req.browserEmployee!;
+    try {
+      if (body.needs === "code" && session.memberBrowserId) {
+        throw new VaultError(
+          "This browser is on a person's own computer, so a code goes in by their hand, not through Genosyn. Ask with needs=action, and tell them what to type there.",
+          403,
+        );
+      }
+      const page = await bumpAndAcquire(req);
+      const pageUrl = page.url();
+      const pageOrigin = inputRequestPageOrigin(pageUrl);
+      if (!pageOrigin) {
+        throw new VaultError("Open the site first: nobody can be asked about this page.", 400);
+      }
+      if (body.needs === "code") {
+        if (!body.selector) throw new VaultError("Say which input the code goes into.", 400);
+        const handle = await resolveVaultTarget(await locate(page, session.id, body.selector));
+        assertCodeTarget({
+          employee,
+          pageOrigin,
+          pageUrl,
+          target: await describeVaultTarget(handle),
+        });
+      }
+      if (body.itemId) {
+        const login = await getVaultItemPayloadForEmployee({
+          companyId: session.companyId,
+          employeeId: employee.id,
+          itemId: body.itemId,
+          required: "use",
+        });
+        if (!vaultWebsiteMatchesPage(login.payload.websiteUrl, pageUrl)) {
+          throw new VaultError(
+            "This page is not the site saved on that Vault login, so nobody was asked. Check you are on the real site.",
+            403,
+          );
+        }
+      }
+      if (body.needs === "code" && !body.savedCodeFailed) {
+        const saved = (await listVaultItemsForEmployee(session.companyId, employee.id)).find(
+          (item) =>
+            item.type === "login" && item.hasTotp && vaultWebsiteMatchesPage(item.websiteUrl, pageUrl),
+        );
+        if (saved) {
+          throw new VaultError(
+            `Nobody was asked: you hold a Vault login for this site with its authenticator saved (${JSON.stringify(saved.title)}, id ${saved.id}). Use browser_fill_vault with field "totp", or browser_submit_with_vault_totp. If the site refuses it or wants something else, like a text message, call browser_ask_person again with savedCodeFailed true.`,
+            409,
+          );
+        }
+      }
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ pageUrl });
+    } catch (err) {
+      if (err instanceof VaultError) return res.status(err.statusCode).json({ error: err.message });
+      res.status(500).json({ error: safeBrowserError(session.id, err) });
+    }
+  },
+);
+
+const personWaitSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    selector: z.string().min(1).max(500).nullable().optional(),
+    submitSelector: z.string().min(1).max(500).nullable().optional(),
+    key: browserModelPressKeySchema.nullable().optional(),
+  })
+  .strict();
+
+/** What the session is told when nobody came. A Run's turn stops before it can read this. */
+function nobodyCameMessage(request: InputRequest): string {
+  if (request.runId) {
+    return "Nobody answered while the page was waiting. This Run pauses now and costs nothing while it waits. It starts again, as itself, when they say they're ready.";
+  }
+  if (request.todoId) {
+    return "Nobody answered while the page was waiting. This Todo now waits for them, and they keep being reminded. End this session now with one line saying what you are waiting for. You start again when they say they're ready.";
+  }
+  return "Nobody answered while the page was waiting. Tell them what you need, and to say when they have it to hand. When they do, sign in again from the start and call browser_ask_person on the new prompt: nothing they could give you now would still work by then. End your turn.";
+}
+
+/**
+ * Hold the page until a person answers, or the window ends, then do what they said.
+ * The code exists here, in this handler's memory, from the moment the session takes
+ * it to the moment it is typed into the page, and nowhere else: not the reply, not
+ * the log, not the audit row.
+ */
+browserRpcRouter.post(
+  "/person/wait",
+  validateBody(personWaitSchema),
+  async (req: BrowserRpcReq, res) => {
+    const body = req.body as z.infer<typeof personWaitSchema>;
+    const session = req.browserSession!;
+    const employee = req.browserEmployee!;
+    res.setHeader("Cache-Control", "no-store");
+    const request = await AppDataSource.getRepository(InputRequest).findOneBy({
+      id: body.requestId,
+      companyId: session.companyId,
+      employeeId: employee.id,
+      browserSessionId: session.id,
+    });
+    if (!request) return res.status(404).json({ error: "That request is not for this browser." });
+
+    // The turn ending, for a Stop or a restart, closes this connection.
+    const gone = new AbortController();
+    res.once("close", () => {
+      if (!res.writableEnded) gone.abort();
+    });
+    holdRuntime(session.id);
+    let answer: Awaited<ReturnType<typeof awaitPersonAtPage>>;
+    try {
+      answer = await awaitPersonAtPage({
+        requestId: request.id,
+        companyId: session.companyId,
+        signal: gone.signal,
+      });
+    } catch (err) {
+      return res.status(500).json({
+        error: `Could not wait for a person: ${err instanceof InputRequestError ? err.message : "something went wrong"}`,
+      });
+    } finally {
+      releaseRuntime(session.id);
+    }
+
+    if (answer.outcome === "aborted") return res.end();
+    if (answer.outcome === "lapsed") {
+      // A Todo or a chat comes back to this same page, which may well still be asking
+      // if they're quick. A Run opens a new one, so it has nothing to hold.
+      if (!answer.request.runId) holdPageForApproval(session.id);
+      res.json({ message: nobodyCameMessage(answer.request) });
+      parkRunForRequest(answer.request);
+      return;
+    }
+    if (answer.outcome === "declined") {
+      return res.json({
+        message: `A person said they can't help with this${answer.request.answerText ? `: ${JSON.stringify(answer.request.answerText)}` : "."} Don't ask again. Do what you can without it, and say plainly what stayed undone.`,
+      });
+    }
+    if (answer.outcome === "ended") {
+      return res.json({
+        message: `This request has ended${answer.request?.closeReason ? `: ${answer.request.closeReason}` : "."} Don't ask again.`,
+      });
+    }
+    try {
+      const page = await bumpAndAcquire(req);
+      if (answer.outcome === "done") {
+        await settle(page);
+        return res.json({
+          message:
+            "They say they've done it. Read the page below: it should have moved on. If it hasn't, it may take a moment, so check again before you ask them anything.",
+          snapshot: await pageSnapshot(currentPage(session.id, page), session.id),
+        });
+      }
+      // The origin the person read when they typed this is the only place it goes.
+      const pageOrigin = inputRequestPageOrigin(page.url());
+      if (pageOrigin !== answer.request.pageOrigin) {
+        throw new VaultError(
+          "The page moved to a different site after the person was asked, so their code was not typed in. Get back to the prompt and ask again.",
+          409,
+        );
+      }
+      if (!body.selector) throw new VaultError("Say which input the code goes into.", 400);
+      const handle = await resolveVaultTarget(await locate(page, session.id, body.selector));
+      assertCodeTarget({
+        employee,
+        pageOrigin,
+        pageUrl: page.url(),
+        target: await describeVaultTarget(handle),
+      });
+      await humanFill(page, handle, answer.code, { timeout: ACTION_TIMEOUT_MS });
+      if (body.submitSelector) {
+        const submit = await locate(page, session.id, body.submitSelector);
+        await humanClick(page, submit, { timeout: ACTION_TIMEOUT_MS });
+      } else if (body.key) {
+        await humanPress(await locate(page, session.id, body.selector), body.key, {
+          timeout: ACTION_TIMEOUT_MS,
+        });
+      }
+      await recordCodeUse({ request: answer.request, filled: true, actorEmployeeId: employee.id });
+      await settle(page);
+      await awaitAdoption(session.id, ADOPTION_WAIT_MS);
+      const remaining = Math.max(0, MAX_CODES_PER_INPUT_REQUEST - answer.request.codesGiven);
+      return res.json({
+        message: `A person gave a code, and it went into the page${body.submitSelector || body.key ? " and was submitted" : ""}. You don't see it. Read the page below. If you got through, carry on. If it says the code was wrong or has expired, call browser_ask_person again (${remaining} more at most, because wrong codes lock accounts).`,
+        snapshot: await pageSnapshot(currentPage(session.id, page), session.id),
+      });
+    } catch (err) {
+      if (answer.outcome === "code") {
+        await recordCodeUse({ request: answer.request, filled: false, actorEmployeeId: employee.id });
+      }
+      if (err instanceof VaultError) return res.status(err.statusCode).json({ error: err.message });
+      // Never the raw error: anything that went wrong while typing could quote it.
+      return res.status(500).json({
+        error:
+          "The code could not be typed into the page, and it was not shown to anyone. Take a snapshot, get back to the prompt, and ask again.",
       });
     }
   },

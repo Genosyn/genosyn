@@ -30,6 +30,7 @@ const DELIVERY: Record<NotificationKind, "push" | "bell"> = {
   support_sla_breached: "push",
   group_discussion: "push",
   model_unavailable: "push",
+  input_request: "push",
   finance_review_ready: "bell",
   run_failed: "bell",
   run_off_goal: "bell",

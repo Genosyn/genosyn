@@ -256,7 +256,7 @@ export function Vocabulary() {
           },
           {
             term: "Waiting",
-            def: "An in_progress Todo paused for a customer's reply, a person, a Decision, a review or a date. It wakes itself when that arrives.",
+            def: "An in_progress Todo paused for a customer's reply, a person, a Decision, a review, an Input request or a date. It wakes itself when that arrives.",
           },
           {
             term: "Email intake",
@@ -441,6 +441,17 @@ export function Vocabulary() {
                 or a &quot;gate&quot; — System Health keeps &quot;probe&quot; for its own
                 diagnostics. See <DocLink to="/docs/verification">What proves a Run worked</DocLink>
                 .
+              </>
+            ),
+          },
+          {
+            term: "Input request",
+            def: (
+              <>
+                Something an AI Employee needs from a person that only a person has: a one-time
+                code, a step on their own device, a fact no tool can reach. The work stops at no cost
+                and carries on when they come. See{" "}
+                <DocLink to="/docs/input-requests">When AI needs a person</DocLink>.
               </>
             ),
           },

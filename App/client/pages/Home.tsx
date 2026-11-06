@@ -35,6 +35,7 @@ import {
   X,
   CloudOff,
   Cloud,
+  KeyRound,
 } from "lucide-react";
 // The API's Notification row is aliased so the DOM global `Notification`
 // (used for the push-permission check) stays reachable in value positions.
@@ -1853,6 +1854,8 @@ function KindIcon({ kind, className }: { kind: NotificationKind; className?: str
       return <Users size={12} className={className} />;
     case "model_unavailable":
       return <CloudOff size={12} className={className} />;
+    case "input_request":
+      return <KeyRound size={12} className={className} />;
     case "model_available":
       return <Cloud size={12} className={className} />;
   }
@@ -1984,6 +1987,10 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
     fg: "text-indigo-600 dark:text-indigo-300",
   },
   model_unavailable: {
+    bg: "bg-amber-100 dark:bg-amber-500/15",
+    fg: "text-amber-600 dark:text-amber-300",
+  },
+  input_request: {
     bg: "bg-amber-100 dark:bg-amber-500/15",
     fg: "text-amber-600 dark:text-amber-300",
   },

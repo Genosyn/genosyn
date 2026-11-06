@@ -1,7 +1,9 @@
+import { InputRequestsForWork } from "@/components/inputRequests/InputRequests";
 import React from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
+  Hourglass,
   Ban,
   CheckCircle2,
   Download,
@@ -92,25 +94,28 @@ export function RunStatusChip({
   errorKind?: RunErrorKind | null;
   /** Times this Run was paused; a queued Run with any reads as resuming. */
   pauseCount?: number | null;
-  /** Why it was last paused: a restart, or its AI Model being unavailable. */
+  /** Why it was last paused: a restart, its AI Model being unavailable, or a person. */
   pauseReason?: RunPauseReason | null;
   size?: "xs" | "sm";
 }) {
   const paused = isRunPaused({ status, pauseCount });
+  const waitingOnPerson = paused && pauseReason === "person";
   return (
     <Badge
-      tone={RUN_STATUS_TONE[status]}
+      tone={waitingOnPerson ? "warning" : RUN_STATUS_TONE[status]}
       size={BADGE_SIZE[size]}
       title={runStatusHint(status, errorKind, paused, pauseReason)}
       icon={
         status === "running" ? (
           <Loader2 className="animate-spin" />
+        ) : waitingOnPerson ? (
+          <Hourglass />
         ) : paused ? (
           <Play />
         ) : undefined
       }
     >
-      {runStatusLabel(status, paused)}
+      {runStatusLabel(status, paused, pauseReason)}
     </Badge>
   );
 }
@@ -141,7 +146,9 @@ export function RunPauseNotice({
       <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
         <Pause size={14} className="mt-0.5 shrink-0" />
         <p>
-          {outage
+          {pauseReason === "person"
+            ? `Paused${when ? ` at ${when}` : ""} waiting for a person. This Run keeps its work so far, costs nothing while it waits, and continues where it stopped as soon as they come.`
+            : outage
             ? `Paused${when ? ` at ${when}` : ""} while its AI Model was unavailable. This Run keeps its work so far and continues where it stopped once the AI Model answers again — nothing needs doing.`
             : `Paused${when ? ` at ${when}` : ""} while Genosyn restarted. This Run keeps its work so far and continues where it stopped as soon as it can start again — nothing needs doing.`}
         </p>
@@ -152,7 +159,9 @@ export function RunPauseNotice({
     <p className="text-xs text-slate-500 dark:text-slate-400">
       {outage
         ? `Paused ${count === 1 ? "while its AI Model was unavailable" : `${count} times, last while its AI Model was unavailable,`} and resumed; the transcript continues across ${count === 1 ? "it" : "them"}.`
-        : `Paused for ${count === 1 ? "a restart" : `${count} restarts`} and resumed; the transcript continues across ${count === 1 ? "it" : "them"}.`}
+        : pauseReason === "person"
+          ? `Paused ${count === 1 ? "to wait for a person" : `${count} times, last to wait for a person,`} and resumed; the transcript continues across ${count === 1 ? "it" : "them"}.`
+          : `Paused for ${count === 1 ? "a restart" : `${count} restarts`} and resumed; the transcript continues across ${count === 1 ? "it" : "them"}.`}
     </p>
   );
 }
@@ -1283,6 +1292,7 @@ function RunLiveModalContent({
             pausedAt={log?.pausedAt ?? initialRun.pausedAt}
             pauseReason={log?.pauseReason ?? initialRun.pauseReason}
           />
+          <InputRequestsForWork companyId={company.id} work={{ runId: initialRun.id }} />
           <RunContinuationNotice
             continuationPending={log?.continuationPending ?? initialRun.continuationPending}
             continuationStopReason={

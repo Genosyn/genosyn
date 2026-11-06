@@ -3,6 +3,7 @@ import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import type { Decision } from "../db/entities/Decision.js";
 import type { Approval } from "../db/entities/Approval.js";
+import type { InputRequest } from "../db/entities/InputRequest.js";
 import type { MailAccount } from "../db/entities/MailAccount.js";
 import type { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
@@ -176,6 +177,7 @@ const WAIT_KINDS: TodoWaitKind[] = [
   "work_review",
   "browser_approval",
   "work_session",
+  "input_request",
   "date",
 ];
 
@@ -690,6 +692,54 @@ export async function wakeTodoForBrowserApproval(
         : "A person declined the browser action you queued, so it didn't happen. Don't try it another way. Say on the Todo what's left, or close it.",
     authority: authorityOf(last),
     ceiling: ceilingOf(last, todo),
+  });
+}
+
+// ───────────────────────────── an input request
+
+/**
+ * Nobody could answer while the page waited, so this Todo waits for them, with no
+ * check-back: the request does its own reminding, and when it ends the Todo hears.
+ */
+export async function waitTodoOnInputRequest(
+  request: Pick<InputRequest, "id" | "companyId" | "todoId" | "title" | "employeeId">,
+): Promise<void> {
+  if (!request.todoId) return;
+  const todo = await todos().findOneBy({ id: request.todoId });
+  if (!todo || todo.assigneeEmployeeId !== request.employeeId) return;
+  const last = await lastPickup(todo.id);
+  await waitOnTodo({
+    companyId: request.companyId,
+    todo,
+    on: "input_request",
+    refId: request.id,
+    reason: request.title,
+    checkAt: null,
+    authority: authorityOf(last),
+    ceiling: ceilingOf(last, todo),
+  });
+}
+
+/**
+ * A person is here, or answered, or nobody came. The same Todo carries on with what
+ * its last session had: pressing a button says someone's present and authorizes
+ * nothing. A person asked for this one, so it doesn't wait behind the automatic limits.
+ */
+export async function wakeTodoForInputRequest(
+  request: Pick<InputRequest, "id" | "companyId">,
+  note: string,
+): Promise<void> {
+  const todo = await todoWaitingOn("input_request", request.id);
+  if (!todo) return;
+  const last = await lastPickup(todo.id);
+  await wake({
+    companyId: request.companyId,
+    todo,
+    trigger: "person_input",
+    note,
+    authority: authorityOf(last),
+    ceiling: ceilingOf(last, todo),
+    byMember: true,
   });
 }
 

@@ -232,6 +232,7 @@ code, UI copy, commits, and docs.
 | **Phone number** (a Twilio number the company reserved and gave to one AI Employee — `PhoneNumber`; its texts are `PhoneMessage`, its calls `PhoneCall`) | Line, DID, Connection, Integration (of the number) |
 | **Customer channel** (a Slack channel — usually a Slack Connect one — linked to one Customer, where an AI Employee keeps notes on that Customer's timeline and answers from Member-written instructions — `CustomerChannel`; the messages it keeps are `CustomerChannelMessage`) | Shared channel, Customer room, Connection (of the row); never a Workspace `Channel` |
 | **Decision** (a consequential choice an AI Employee stacked for the company to answer — a human, or the AI decider a `DecisionPolicy` rule names — `Decision`) | Approval, Question, Ask, Escalation |
+| **Input request** (something an AI Employee needs from a person that only a person has — a one-time code, a step on their own device, a fact no tool can reach; the work waits and carries on by itself — `InputRequest`) | Decision (a choice), Approval (a gate), Question, Prompt, Human-in-the-loop (in product copy) |
 | **Waiver** (an earned, revocable exemption from one human gate — `AutonomyWaiver`) | Tier, Level, Trust score |
 | **Check** (a machine-verifiable assertion a Run must pass before it finalizes green — `RoutineCheck`, result `RunCheckResult`) | Test, Assertion, Gate, Validation |
 | **Standdown** (a revocable stop on all AI work at one scope — `Standdown`) | Pause, Hold, Suspend, Freeze, Kill switch |
@@ -254,7 +255,7 @@ code, UI copy, commits, and docs.
 | **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
 | **Pickup** (one session an AI Employee spends on one Todo — `TodoPickup`) | Run (a Routine's), Work session (a Repository's), Job, Attempt, Kickoff |
-| **Waiting** (an `in_progress` Todo paused for a customer's reply, a person, a Decision, a review or a date — `Todo.waitingOn`; never a Todo status of its own) | Blocked, Snoozed, Paused, On hold |
+| **Waiting** (an `in_progress` Todo paused for a customer's reply, a person, a Decision, a review, an Input request or a date — `Todo.waitingOn`; never a Todo status of its own) | Blocked, Snoozed, Paused, On hold |
 | **Email intake** (a Project's setting for which email becomes its Todos and how far they may go — `ProjectIntake`) | Inbox rule, Routing rule, Auto-triage |
 | **Trusted sender** (an address or `@domain` on an Email intake whose receiving-server-verified mail may use the employee's tools and browser) | Allowlist, Safe sender, VIP |
 | **Work queue** (an AI Employee's queued Runs and Pickups; for Pickups, the `todo_pickups` table itself, which the scheduler's heartbeat starts) | Backlog (a Todo status), Inbox, Scheduler |
@@ -533,6 +534,34 @@ change or retry, and must never be counted as a failure. A Standdown placed
 while a Run is paused still defers it; a Standdown that lands while a Run is
 pausing wins, and the Run ends interrupted. Do not reuse the pause to stop work
 on purpose — that is what a Standdown is for.
+
+**A person isn't there, and a one-time code dies in seconds.** Those two facts shape
+every Input request (`services/inputRequests.ts`). A session at a page that wants a code
+asks (`browser_ask_person`, or `ask_person` for a fact, which has no page and stops at
+once) and holds the page for a few minutes, under the 300 seconds a tool call may wait.
+Whoever comes types a code that goes straight into the page; nothing hands it to the
+model, though browser snapshots stay unfiltered here as for any Vault fill (§6).
+Nobody came: a Run pauses as itself (`pauseReason: "person"`, `waitingOnInputRequestId`
+keeps the queue off it, counted in `personPauses` and never toward the restart cap) and a
+Todo waits (`input_request`), both costing nothing, and reminders back off from an hour
+to a day. Later a person presses **I'm ready**, which carries no code on purpose: the
+same work starts first, signs in again from the start, because the page has long gone,
+and asks on the new prompt, and only then does the person get a box. Gone again? Back to
+waiting, as often as it takes, each round needing a person, so nothing spends tokens with
+nobody there. After a week it gives up and the work is told, which, like a decline, goes
+through the Run's ordinary finalization rather than a side door. A chat just asks: its
+next message is the resume. Keep these: never take a code unless a page is really
+waiting (`answerInputRequest` refuses, since it could only be a dead code); a code exists
+encrypted on the row only until the session holding the page takes it, is cleared by the
+sweep otherwise, and is never in a reply, transcript, audit row, notification or log; it
+goes only to the origin read from the browser when the page asked, never one the model
+named; answering grants nothing, so the work comes back with what it had (`authorityOf`,
+`ceilingOf`), and a Standdown still holds it; answering takes a person at a browser
+(`requireBrowserSession`), with no AI tool and no API key, since something that answers
+its own request has defeated the only reason to ask; and a browser needing Approval to
+submit takes an owner or admin. It is not a Decision or an Approval. Don't hold a code
+in advance, add a box to the waiting state, resume a Run outside `bringWorkBack`, or take
+a value from the model and call it what the page said.
 
 **An unavailable AI Model is not a failure, and not a Standdown.** When an AI
 Model's service can't be reached, fails, is overloaded, or keeps every key

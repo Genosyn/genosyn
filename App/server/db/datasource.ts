@@ -51,6 +51,7 @@ import { ConversationActivityEvent } from "./entities/ConversationActivityEvent.
 import { JournalEntry } from "./entities/JournalEntry.js";
 import { Approval } from "./entities/Approval.js";
 import { Decision } from "./entities/Decision.js";
+import { InputRequest } from "./entities/InputRequest.js";
 import { McpServer } from "./entities/McpServer.js";
 import { Secret } from "./entities/Secret.js";
 import { AuditEvent } from "./entities/AuditEvent.js";
@@ -322,6 +323,7 @@ const entities = [
   JournalEntry,
   Approval,
   Decision,
+  InputRequest,
   McpServer,
   AdSpendEvent,
   Tag,

@@ -495,7 +495,8 @@ export function VaultItemDetail({
                           </>
                         ) : (
                           <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                            None attached. Edit this login to add a Base32 setup key or otpauth URI.
+                            None attached. Edit this login to add its QR code or setup key, and
+                            a granted AI Employee can sign in without asking anyone for a code.
                           </p>
                         )}
                       </div>

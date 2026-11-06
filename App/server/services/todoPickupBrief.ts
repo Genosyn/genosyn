@@ -98,6 +98,7 @@ function headline(input: TodoPickupBriefInput): string {
     case "decision_answered":
     case "review_outcome":
     case "work_session_ended":
+    case "person_input":
       return `You are working on ${name} in project "${project.name}" ${details}. The thread above is what has happened so far.`;
     case "email_intake":
       return `${name} in project "${project.name}" ${details} was filed from an email and assigned to you.`;

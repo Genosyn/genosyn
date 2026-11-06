@@ -187,6 +187,10 @@ export function Browser() {
             def: "Submit a form. With approval mode on, queues an Approval instead of firing.",
           },
           {
+            term: "browser_ask_person",
+            def: "Ask a person for a one-time code or a step only they can do, while the page waits. A code goes straight into the page without the model seeing it. If nobody answers, the work stops and costs nothing, and starts again when they say they're ready. See When AI needs a person.",
+          },
+          {
             term: "browser_submit_with_vault_totp",
             def: "Claim the bound action, generate a fresh Vault one-time code, fill it, and submit immediately; approval mode queues this before any code is generated or filled.",
           },
@@ -339,7 +343,9 @@ export function Browser() {
         While the employee browses, the chat panel shows the page live. Click{" "}
         <Strong>Take over</Strong> to drive it yourself — your mouse and keyboard go straight to the
         same Chrome. Use Vault actions for a granted password, authenticator code, or software
-        passkey; take-over remains the fallback for a credential not in the Vault, captchas,
+        passkey. For a code on your phone, the employee{" "}
+        <DocLink to="/docs/input-requests">asks you for it</DocLink> and it goes straight into the
+        page, so you don&apos;t have to be watching. Take-over remains the fallback for captchas,
         hardware-bound passkeys, and unsupported challenges. The employee navigates to the right
         page, you complete the human-only step, and the employee carries on. The browser is never
         torn down while someone is watching.
@@ -447,8 +453,10 @@ export function Browser() {
       <P>
         That per-employee profile is also what a sign-in driven from the{" "}
         <DocLink to="/docs/vault">Vault</DocLink> uses. When a site challenges a sign-in with a
-        captcha or an authenticator not attached to the Login, the fix is to take over here and sign
-        in once — the employee picks up the session you established and stops failing.
+        captcha, the fix is to take over here and sign in once — the employee picks up the session
+        you established and stops failing. For an authenticator not attached to the Login, attach it
+        in the Vault, or the employee <DocLink to="/docs/input-requests">asks you</DocLink>. A site
+        that offers to remember this device saves everyone the next ask, since the profile keeps it.
       </P>
 
       <H2 id="runtime">The browser it actually runs</H2>

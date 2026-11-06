@@ -70,6 +70,8 @@
     "test:clicks-routines": "tsx scripts/test-clicks-routines.ts",
     "test:new-routine": "tsx scripts/test-new-routine.ts",
     "test:routine-priority": "tsx scripts/test-routine-priority.ts",
+    "test:input-requests": "tsx scripts/test-input-requests-live.ts",
+    "test:input-request-card": "tsx scripts/test-input-request-card.ts",
     "test:clicks-employees": "tsx scripts/test-clicks-employees.ts",
     "test:clicks-revenue": "tsx scripts/test-clicks-revenue.ts",
     "test:clicks-home": "tsx scripts/test-clicks-home.ts",

@@ -67,7 +67,7 @@ export const PAUSE_WATCH_INTERVAL_MS = 2_000;
 const PAUSE_REQUEST_LEASE = "routine-pause-request";
 
 /** Why Genosyn is asking its Runs to pause: an upgrade, or any other restart. */
-export type RunRestartReason = Exclude<RunPauseReason, "outage">;
+export type RunRestartReason = Exclude<RunPauseReason, "outage" | "person">;
 
 export type RunPauseRequest = {
   id: string;
@@ -84,6 +84,11 @@ type Pauser = {
 };
 
 const pausers = new Map<string, Pauser>();
+/**
+ * Registered by the runner beside its pauser. A person who isn't there stops one Run
+ * and nobody else, so it stays out of the requests a restart sends to all of them.
+ */
+const personPausers = new Map<string, (inputRequestId: string) => void>();
 let active: RunPauseRequest | null = null;
 let watcher: ReturnType<typeof setInterval> | null = null;
 let watching: Promise<void> | null = null;
@@ -104,6 +109,27 @@ export function registerRunPauser(
 
 export function unregisterRunPauser(runId: string): void {
   pausers.delete(runId);
+  personPausers.delete(runId);
+}
+
+/** How the runner hears that this Run needs a person (`services/inputRequests.ts`). */
+export function registerRunPersonPauser(
+  runId: string,
+  pause: (inputRequestId: string) => void,
+): void {
+  personPausers.set(runId, pause);
+}
+
+/**
+ * Stop this Run's model turn because a person has to come first. The runner puts it
+ * back in the queue as itself, held for this request. False when this process isn't
+ * executing it, and the runner then finds the request when its turn ends.
+ */
+export function pauseRunForPerson(runId: string, inputRequestId: string): boolean {
+  const pause = personPausers.get(runId);
+  if (!pause) return false;
+  pause(inputRequestId);
+  return true;
 }
 
 /** The pause in force in this process, if any. */
@@ -252,6 +278,7 @@ export function stopRunPauseWatcher(): void {
 /** Test seam: forget every registration and request held in memory. */
 export function resetRunPausesForTests(): void {
   pausers.clear();
+  personPausers.clear();
   active = null;
   stopRunPauseWatcher();
 }
@@ -386,13 +413,20 @@ export function isPausedRun(run: Pick<Run, "status" | "pauseCount">): boolean {
 }
 
 /** How many of a Run's pauses were for a restart — the ones {@link MAX_RUN_PAUSES} bounds. */
-export function restartPauseCount(run: Pick<Run, "pauseCount" | "outagePauses">): number {
-  return Math.max(0, (run.pauseCount ?? 0) - (run.outagePauses ?? 0));
+export function restartPauseCount(
+  run: Pick<Run, "pauseCount" | "outagePauses"> & Partial<Pick<Run, "personPauses">>,
+): number {
+  return Math.max(0, (run.pauseCount ?? 0) - (run.outagePauses ?? 0) - (run.personPauses ?? 0));
 }
 
 /** Whether a Run's latest pause was for its AI Model being unavailable. */
 export function pausedForOutage(run: Pick<Run, "pauseReason">): boolean {
   return run.pauseReason === "outage";
+}
+
+/** Whether a Run's latest pause was waiting on a person. */
+export function pausedForPerson(run: Pick<Run, "pauseReason">): boolean {
+  return run.pauseReason === "person";
 }
 
 // ──────────────────────────────── brief ────────────────────────────────────
@@ -446,12 +480,21 @@ export function runResumeBrief(args: {
   effects: BriefEffect[];
   remainingMs: number;
   checkpoint: { completed: string; remaining: string; resume: string; progressKey: string } | null;
+  /** What the person said, or that nobody came, when it paused for a person. */
+  personNote?: string;
 }): string {
   const at = args.run.pausedAt ? `${args.run.pausedAt.toISOString().slice(0, 16).replace("T", " ")} UTC` : "an earlier moment";
   const minutes = Math.max(1, Math.round(args.remainingMs / 60_000));
   const left = `about ${minutes} minute${minutes === 1 ? "" : "s"} of its time limit left`;
   const lines =
-    args.run.pauseReason === "outage"
+    args.run.pauseReason === "person"
+      ? [
+          "## Resume this Run now that a person has answered",
+          `This Run stopped to wait for a person (paused at ${at}). This is the same Run, not a new one, and it continues with ${left}. Your earlier conversation could not be kept, so pick the work up from the record below.`,
+          "",
+          args.personNote || "Check the current state and carry on.",
+        ]
+      : args.run.pauseReason === "outage"
       ? [
           "## Resume this Run now that your AI Model is back",
           `Your AI Model became unavailable while you were working on this Run (paused at ${at}), and it is answering again. This is the same Run, not a new one, and it continues with ${left}. Your earlier conversation could not be kept, so pick the work up from the record below.`,

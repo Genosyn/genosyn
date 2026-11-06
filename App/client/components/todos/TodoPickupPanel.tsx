@@ -1,3 +1,4 @@
+import { InputRequestsForWork } from "@/components/inputRequests/InputRequests";
 import React from "react";
 import { Clock3, Hourglass, Play, Square } from "lucide-react";
 
@@ -170,6 +171,7 @@ export function TodoPickupPanel({
       {standing && (
         <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{standing}</p>
       )}
+      <InputRequestsForWork companyId={companyId} work={{ todoId: todo.id }} />
       {waiting && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-500/30 dark:bg-amber-500/10">
           <Hourglass

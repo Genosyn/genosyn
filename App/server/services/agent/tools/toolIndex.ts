@@ -144,8 +144,9 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   },
   decisions: {
     label: "decisions",
-    blurb: "Ask a human to choose, and read back what they chose.",
+    blurb: "Ask a human to choose or to tell you something, and read back what they chose.",
     tools: [
+      "ask_person",
       "request_decision",
       "list_decisions",
       "get_decision",
@@ -742,6 +743,16 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "take notes",
     "notetaker",
     "google meet",
+  ],
+  ask_person: [
+    "ask a person",
+    "ask someone",
+    "ask a human",
+    "human in the loop",
+    "wait for a person",
+    "ping someone",
+    "need information from a person",
+    "they know",
   ],
   // Phone — people ask for these by the errand ("get the code they texted me",
   // "ring the supplier"), and "sms", "otp" and "2fa" appear in no description.

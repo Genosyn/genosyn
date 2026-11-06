@@ -38,6 +38,12 @@ export function Decisions() {
         plan. See <DocLink to="/docs/reactivity">Proactive work</DocLink>.
       </P>
 
+      <P>
+        When an AI Employee needs something only you have, like a sign-in code from your phone, a card
+        comes first, at the top under <Strong>Waiting for you</Strong>. See{" "}
+        <DocLink to="/docs/input-requests">When AI needs a person</DocLink>.
+      </P>
+
       <H2 id="fewer-questions">How the stack stays short</H2>
       <P>
         Routine research, reply wording, duplicate checks, recordkeeping and factual customer

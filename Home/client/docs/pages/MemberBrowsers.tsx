@@ -261,7 +261,10 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       <P>
         Take-over is still the intended answer to a captcha, a 2FA prompt, or any step that wants a
         human — and here you are already sitting at the machine, so you can also just use the Chrome
-        window directly.
+        window directly. An employee that needs you there{" "}
+        <DocLink to="/docs/input-requests">asks</DocLink>, and you press Done when you&apos;ve finished.
+        It won&apos;t ask you to type a code through Genosyn on this browser, since you can type it
+        straight into the page.
       </P>
       <P>
         That owner-only boundary also covers saved Routine recordings. Company owners and admins

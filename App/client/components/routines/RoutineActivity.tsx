@@ -430,7 +430,7 @@ function ActivityRow({
           {running ? (
             `Started ${timeAgo(run.startedAt)}`
           ) : waitingSince ? (
-            `${paused ? "Paused" : "Queued"} ${timeAgo(waitingSince)}`
+            `${paused ? (waiting?.pauseReason === "person" ? "Waiting" : "Paused") : "Queued"} ${timeAgo(waitingSince)}`
           ) : (
             <span>
               {runCount && runCount > 1 ? `${runCount} Runs · latest ` : ""}

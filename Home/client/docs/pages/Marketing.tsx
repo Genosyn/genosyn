@@ -345,7 +345,8 @@ export function Marketing() {
         </LI>
         <LI>
           Log in once via <Strong>live view → Take over</Strong>: you type the credentials and the
-          2FA code directly; the model never sees them and the session persists.
+          2FA code directly; the model never sees them and the session persists. Or let the employee{" "}
+          <DocLink to="/docs/input-requests">ask you for the code</DocLink> when it reaches the prompt.
         </LI>
       </OL>
       <P>

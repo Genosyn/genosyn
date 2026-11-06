@@ -12,6 +12,7 @@ import {
   GitBranch,
   GitPullRequest,
   Hourglass,
+  KeyRound,
   Landmark,
   LifeBuoy,
   Lightbulb,
@@ -448,6 +449,8 @@ function KindIcon({
       return <Users size={size} className={className} />;
     case "model_unavailable":
       return <CloudOff size={size} className={className} />;
+    case "input_request":
+      return <KeyRound size={size} className={className} />;
     case "model_available":
       return <Cloud size={size} className={className} />;
   }
@@ -579,6 +582,10 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
     iconFg: "text-indigo-600 dark:text-indigo-300",
   },
   model_unavailable: {
+    iconBg: "bg-amber-100 dark:bg-amber-500/15",
+    iconFg: "text-amber-600 dark:text-amber-300",
+  },
+  input_request: {
     iconBg: "bg-amber-100 dark:bg-amber-500/15",
     iconFg: "text-amber-600 dark:text-amber-300",
   },

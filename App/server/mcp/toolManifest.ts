@@ -2804,6 +2804,30 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "ask_person",
+    description:
+      "Ask a Member for a fact, or something done by hand, that no tool of yours can get, then end your turn. This Run or Todo stops and costs nothing, and carries on by itself with their answer, however long that takes. For a choice use request_decision. For a code or anything on a web page use browser_ask_person. In a chat, just ask them. One at a time per piece of work.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: {
+          type: "string",
+          description: "What you need, plainly, in a line a busy person can answer.",
+        },
+        why: {
+          type: "string",
+          description: "One sentence: what it's for, and that you can't find it yourself.",
+        },
+        person: {
+          type: "string",
+          description: "A Member's email or handle, if you know who holds this. Otherwise the owners and admins are asked.",
+        },
+      },
+      required: ["question"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "request_decision",
     description:
       "Ask a person one major business choice you cannot settle; never upkeep, research or wording. One combined question: a repeat, or a 4th waiting, is refused. Write for a busy non-expert owner. Then stop that work and end your turn. An answer normally starts a fresh session; from preparation-only work, none. Authorize work with request_work_review.",
@@ -3697,7 +3721,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_vault_items",
     description:
-      "List the Vault items explicitly granted to you. Returns safe metadata only: item id, type, title, username, saved website origin, whether TOTP exists, non-secret software-passkey metadata, and your Grant level. Passwords, TOTP setup keys and codes, passkey private material, API keys, and secure-note bodies are never returned to the model. Use browser_fill_vault for a Login username, password, or current TOTP code, and browser_use_vault_passkey for a listed passkey. Browser access, host policy, live origins, and the item Grant are re-checked for each use.",
+      "List the Vault items explicitly granted to you. Returns safe metadata only: item id, type, title, username, saved website origin, whether TOTP exists, non-secret software-passkey metadata, and your Grant level. Passwords, TOTP setup keys and codes, passkey private material, API keys, and secure-note bodies are never returned to the model. Use browser_fill_vault for a Login username, password, or current TOTP code, and browser_use_vault_passkey for a listed passkey. A Login with hasTotp signs in with nobody asked; for a code only a person has, use browser_ask_person on the prompt. Browser access, host policy, live origins, and the item Grant are re-checked for each use.",
     inputSchema: {
       type: "object",
       properties: {

@@ -300,6 +300,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Questions your AI Employees stopped to ask, with the options they will act on — and the settings that decide which questions reach you.",
       },
       {
+        path: "/docs/input-requests",
+        title: "When AI needs a person",
+        blurb:
+          "A code on your phone, a push to approve, a fact nobody wrote down: the work stops at no cost and carries on when you answer, whenever that is.",
+      },
+      {
         path: "/docs/goals",
         title: "Goals",
         blurb:

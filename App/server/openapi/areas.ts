@@ -27,6 +27,7 @@ import { contractsRouter } from "../routes/contracts.js";
 import { customerMergeRouter } from "../routes/customerMerge.js";
 import { decisionPoliciesRouter } from "../routes/decisionPolicies.js";
 import { decisionsRouter } from "../routes/decisions.js";
+import { inputRequestsRouter } from "../routes/inputRequests.js";
 import { decisionStackSettingsRouter } from "../routes/decisionStackSettings.js";
 import { emailLogsRouter } from "../routes/emailLogs.js";
 import { emailProvidersRouter } from "../routes/emailProviders.js";
@@ -187,7 +188,10 @@ export const AREAS: readonly Area[] = [
   },
   { name: "Policies", description: "Company-wide policies every AI Employee is bound by." },
   { name: "Budgets", description: "Monthly ad-spend envelopes." },
-  { name: "Decisions", description: "The Decision stack, decision policies and its settings." },
+  {
+    name: "Decisions",
+    description: "The Decision stack, decision policies, its settings, and Input requests.",
+  },
   { name: "Approvals", description: "Actions held for an owner or admin to approve." },
   { name: "Handoffs", description: "Work one AI Employee hands to another." },
   { name: "Teams", description: "Groups of AI Employees." },
@@ -364,6 +368,7 @@ function areaRules(): AreaRule[] {
     { router: companyPoliciesRouter, area: "Policies" },
     { router: budgetsRouter, area: "Budgets" },
     { router: decisionsRouter, area: "Decisions" },
+    { router: inputRequestsRouter, area: "Decisions" },
     { router: decisionPoliciesRouter, area: "Decisions" },
     { router: decisionStackSettingsRouter, area: "Decisions" },
     { router: approvalsRouter, area: "Approvals" },

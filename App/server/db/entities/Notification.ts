@@ -61,7 +61,9 @@ export type NotificationKind =
   /** An AI Model became unavailable, so the work on it waits (`services/modelAvailability.ts`). */
   | "model_unavailable"
   /** An AI Model that was unavailable answers again, and the work that waited carries on. */
-  | "model_available";
+  | "model_available"
+  /** An AI Employee needs something only the recipient has (`services/inputRequests.ts`). */
+  | "input_request";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -86,7 +88,8 @@ export type NotificationEntityKind =
   | "data_room"
   | "support_ticket"
   | "group_discussion"
-  | "ai_model";
+  | "ai_model"
+  | "input_request";
 
 @Entity("notifications")
 @Index(["userId", "readAt"])

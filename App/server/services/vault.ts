@@ -1747,7 +1747,10 @@ export async function getVaultTotpCodeForEmployee(args: {
     );
   }
   if (resolved.item.type !== "login" || !resolved.payload.totp) {
-    throw new VaultError("This Vault login has no TOTP saved", 404);
+    throw new VaultError(
+      "This Vault login has no authenticator saved. If the code is on a person's phone, use browser_ask_person.",
+      404,
+    );
   }
   return {
     ...(await generateVaultTotpCode(resolved.payload.totp, args.at ?? new Date())),

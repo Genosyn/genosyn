@@ -1,4 +1,4 @@
-import { In, MoreThan } from "typeorm";
+import { In, IsNull, MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { AIModel } from "../db/entities/AIModel.js";
@@ -98,7 +98,8 @@ export async function waitingWorkByModel(
   for (const part of chunks(employeeIds)) {
     runs.push(
       ...(await AppDataSource.getRepository(Run).find({
-        where: { employeeId: In(part), status: "queued" },
+        // A Run held for a person isn't waiting for this model.
+        where: { employeeId: In(part), status: "queued", waitingOnInputRequestId: IsNull() },
         select: { id: true, routineId: true, employeeId: true },
       })),
     );

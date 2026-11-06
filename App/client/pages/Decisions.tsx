@@ -15,6 +15,7 @@ import { decisionStackOffBanner } from "../lib/decisionStack";
 import { errorMessage } from "../lib/errors";
 import { waitingLinks } from "../lib/waitingElsewhere";
 import type { DecisionsOutletContext } from "./DecisionsLayout";
+import { InputRequestsSection } from "@/components/inputRequests/InputRequests";
 import { StackBulkBar } from "@/components/decisions/StackBulkBar";
 import { StackList, type StackListSelection } from "@/components/decisions/StackList";
 import { bulkTarget, type BulkTarget } from "@/components/decisions/stackBulk";
@@ -100,6 +101,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   const [resolutionNotice, setResolutionNotice] = React.useState<{ message: string } | null>(null);
   const [retryingDecisions, setRetryingDecisions] = React.useState(false);
   const [retryingWork, setRetryingWork] = React.useState(false);
+  const [inputRequestsShown, setInputRequestsShown] = React.useState(0);
   const canReview = company.role === "owner" || company.role === "admin";
   // Owners and admins may answer any Decision, including another Member's.
   const canAnswerAssigned = canReview;
@@ -428,6 +430,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
           canManage={stackSettings.canManage}
         />
       )}
+      <InputRequestsSection companyId={company.id} onCount={setInputRequestsShown} />
       {visibleRows.length || visibleWork.length ? (
         <div className="mb-5 flex flex-wrap items-center gap-3">
           <StackSearch
@@ -496,6 +499,7 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
         visibleRows.length === 0 &&
         visibleWork.length === 0 &&
         followUps.items.length === 0 &&
+        inputRequestsShown === 0 &&
         !loadError &&
         !workError &&
         workReviews !== null ? (

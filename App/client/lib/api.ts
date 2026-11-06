@@ -1224,7 +1224,7 @@ export type Run = {
   pauseReason?: RunPauseReason | null;
 };
 /** Why a Run was paused: Genosyn restarting, or its AI Model unavailable (`outage`). */
-export type RunPauseReason = "upgrade" | "restart" | "outage";
+export type RunPauseReason = "upgrade" | "restart" | "outage" | "person";
 export type RunFollowUp = Pick<
   Run,
   | "id"
@@ -3899,7 +3899,8 @@ export type NotificationKind =
   /** An AI Model became unavailable; the work on it waits. */
   | "model_unavailable"
   /** An AI Model that was unavailable answers again. */
-  | "model_available";
+  | "model_available"
+  | "input_request";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -3922,7 +3923,8 @@ export type NotificationEntityKind =
   | "recruiting_application"
   | "data_room"
   | "support_ticket"
-  | "ai_model";
+  | "ai_model"
+  | "input_request";
 
 export type NotificationActor = {
   kind: NotificationActorKind;

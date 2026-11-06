@@ -1202,6 +1202,17 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         restart, a crash, and downtime across scheduled slots differently.
       </P>
 
+      <H3 id="paused-for-a-person">Paused for a person, then resumed</H3>
+      <P>
+        A Run that needs something only a person has, like a sign-in code from their phone, asks and
+        waits. If nobody answers while the page is waiting, it pauses as the same Run, keeping its
+        transcript, tokens, saved progress, and Effects. It holds no slot on its AI Model and uses no
+        tokens however long it waits, and it never counts as a failure. A scheduled occurrence that
+        comes due meanwhile folds into it, so no second VAT return queues up behind the first. When
+        the person answers, or says they&apos;re ready to, the same Run resumes ahead of new work,
+        with the time it had left. See <DocLink to="/docs/input-requests">When AI needs a person</DocLink>.
+      </P>
+
       <H3 id="paused-for-restart">Paused for a restart, then resumed</H3>
       <P>
         An upgrade, <Code>genosyn stop</Code>, <Code>docker stop</Code>, or a Kubernetes rollout

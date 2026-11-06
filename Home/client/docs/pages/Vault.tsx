@@ -72,10 +72,9 @@ export function Vault() {
           you also need to enter it somewhere outside Genosyn.
         </LI>
         <LI>
-          Optionally attach an authenticator by pasting its Base32 setup key or complete{" "}
-          <Code>otpauth://</Code> URI. Leave the field blank while editing to keep the current
-          authenticator. Software passkeys are created from an AI Employee&apos;s Browser flow, not
-          imported through this form.
+          Optionally <DocLink to="/docs/vault#authenticator">attach an authenticator</DocLink>. Leave the field
+          blank while editing to keep the current one. Software passkeys are created from an AI
+          Employee&apos;s Browser flow, not imported through this form.
         </LI>
         <LI>
           Choose whether every Member in the company may view the item or only selected Members may.
@@ -190,6 +189,50 @@ export function Vault() {
         remain deliberate Member actions in the Vault.
       </P>
 
+      <H2 id="authenticator">Let an AI Employee sign in with no one&apos;s phone</H2>
+      <P>
+        The Vault can be the authenticator app. Save a login&apos;s two-factor setup here, grant the
+        login to an AI Employee, and it signs in by itself at any hour, with nobody asked and without
+        ever seeing the code. That&apos;s what lets a monthly filing run at 3am.
+      </P>
+      <P>
+        Edit the login and, under <Strong>Authenticator code</Strong>, give it any of these:
+      </P>
+      <UL>
+        <LI>
+          <Strong>The QR code</Strong> the site shows when you set up two-factor. Press{" "}
+          <Strong>QR</Strong> to upload a screenshot, or paste it into the field. It&apos;s read in
+          your browser.
+        </LI>
+        <LI>
+          <Strong>The setup key</Strong>, the text the site offers if you can&apos;t scan, or a full{" "}
+          <Code>otpauth://</Code> URI.
+        </LI>
+        <LI>
+          <Strong>Google Authenticator&apos;s Transfer accounts QR</Strong>, if the account is already
+          in there. It holds the setup key, so you don&apos;t have to turn two-factor off and on again.
+          If it holds several accounts, choose the one for this login.
+        </LI>
+      </UL>
+      <P>
+        Authy doesn&apos;t let you export a setup key. For a site on Authy, or any site you set up
+        without saving the key, turn on two-factor again from the site&apos;s security settings to get
+        a new QR code, and add it here. Check it worked by pressing <Strong>Show</Strong>: the code
+        should match what the site expects. Keep a second way in, such as recovery codes, somewhere
+        you can reach without Genosyn.
+      </P>
+      <P>
+        A code your phone gets by text can&apos;t be saved here, because the site generates those. An
+        AI Employee with its own <DocLink to="/docs/phone-numbers">Phone number</DocLink> can read them
+        if the number is on the account. Otherwise it{" "}
+        <DocLink to="/docs/input-requests">asks a person</DocLink>.
+      </P>
+      <P>
+        A code is only good once, and a site treats a second try as a wrong code. If an AI Employee
+        signs in again within the same 30 seconds, it waits for the next code instead of being locked
+        out.
+      </P>
+
       <H2 id="browser">Sign in without showing the model a password</H2>
       <P>
         With the <DocLink to="/docs/browser">built-in Browser</DocLink> enabled, an AI Employee can
@@ -220,8 +263,10 @@ export function Vault() {
         Browser access and the employee&apos;s host allow list remain independent gates: a Vault
         Grant cannot enable the Browser or widen its browsing policy. Sensitive values exist only at
         the server-side credential-to-browser boundary and are not serialized directly into the
-        Vault action&apos;s response, audit detail, or log. Captchas, hardware-bound credentials,
-        and unsupported challenges can still use the Browser&apos;s human take-over flow.
+        Vault action&apos;s response, audit detail, or log. For a code that isn&apos;t in the Vault,
+        a captcha, or a push to approve, the employee{" "}
+        <DocLink to="/docs/input-requests">asks a person</DocLink>, and a hardware-bound credential
+        can use the Browser&apos;s human take-over flow.
       </P>
       <P>
         The same works on a <DocLink to="/docs/tasks#email-to-done">todo an email started</DocLink>,
