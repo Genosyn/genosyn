@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { In, IsNull, LessThanOrEqual, MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -20,11 +21,11 @@ import {
   ORPHAN_GRACE_MS,
   STALE_SLOT_MS,
   automaticRetryLimit,
-  countMissedSlots,
   isSlotStale,
   nextRunFor,
   shouldRetry,
 } from "./cronMath.js";
+import { countMissedRoutineSlots, nextRoutineRun } from "./routineSchedule.js";
 import { timeZoneLookup } from "./companyTimeZone.js";
 import { dispatchDueFollowUpReminders } from "./revenue/followUpReminders.js";
 import {
@@ -54,6 +55,7 @@ import { dispatchDueWakeups } from "./wakeups.js";
 import { dispatchTodoPickups } from "./todoPickups.js";
 import { continuationEligibility, readRunCheckpoint } from "./runContinuation.js";
 import { notifyRunFailure } from "./runAlerts.js";
+import { isRandomScheduleExpr } from "../../shared/randomSchedule.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -130,7 +132,10 @@ export function registerRoutine(routine: Routine, timeZone: string): void {
     routine.nextRunAt = null;
     return;
   }
-  routine.nextRunAt = nextRunFor(routine.cronExpr, new Date(), timeZone);
+  // A random schedule's times are drawn from the Routine's id, so a row about
+  // to be created needs its id now: the database would only give it one on save.
+  if (isRandomScheduleExpr(routine.cronExpr)) routine.id ??= randomUUID();
+  routine.nextRunAt = nextRoutineRun(routine, new Date(), timeZone);
 }
 
 /**
@@ -714,8 +719,8 @@ async function runHeartbeat(generation: number): Promise<void> {
         const timeZone = await zoneOf(r.employeeId);
         assertHeld();
         const slot = r.nextRunAt as Date; // non-null by the query predicate
-        const { count, capped } = countMissedSlots(
-          r.cronExpr,
+        const { count, capped } = countMissedRoutineSlots(
+          r,
           slot,
           now,
           MISSED_SLOT_CAP,
@@ -723,7 +728,7 @@ async function runHeartbeat(generation: number): Promise<void> {
         );
         const stale = isSlotStale(slot, now, STALE_SLOT_MS);
         // Advance BEFORE firing so a long-running routine doesn't re-trigger.
-        r.nextRunAt = nextRunFor(r.cronExpr, now, timeZone);
+        r.nextRunAt = nextRoutineRun(r, now, timeZone);
         await repo.save(r);
         // A Standdown skips the slot but keeps the schedule moving (M58).
         // Holding `nextRunAt` still would turn a month-old stop into a
@@ -911,7 +916,7 @@ async function initialSweep(): Promise<void> {
   const now = new Date();
   const zoneOf = timeZoneLookup();
   for (const r of orphans) {
-    r.nextRunAt = nextRunFor(r.cronExpr, now, await zoneOf(r.employeeId));
+    r.nextRunAt = nextRoutineRun(r, now, await zoneOf(r.employeeId));
     // A null here means the expression no longer parses, so the row stays
     // permanently invisible to the heartbeat. Say so — otherwise a routine
     // that silently stopped firing has no server-side signal at all.
@@ -953,7 +958,7 @@ export async function resetSchedulesAfterRestore(): Promise<void> {
   const now = new Date();
   const zoneOf = timeZoneLookup();
   for (const r of rows) {
-    r.nextRunAt = nextRunFor(r.cronExpr, now, await zoneOf(r.employeeId));
+    r.nextRunAt = nextRoutineRun(r, now, await zoneOf(r.employeeId));
     await repo.save(r);
   }
   await resetTldrSchedulesAfterRestore(now);

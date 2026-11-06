@@ -8,7 +8,7 @@ import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { employeeDir, ensureDir } from "./paths.js";
-import { nextRunFor } from "./cron.js";
+import { nextRoutineRun } from "./routineSchedule.js";
 import { employeeTimeZone } from "./companyTimeZone.js";
 import { automaticRetryDelayMs, automaticRetryLimit, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
@@ -1798,7 +1798,7 @@ async function touchRoutine(routineId: string, at: Date | null): Promise<void> {
     // Read on the company's clock, the one the heartbeat set `nextRunAt` on —
     // two clocks here would let a finishing Run skip or repeat a slot.
     let next = fresh.enabled
-      ? nextRunFor(fresh.cronExpr, at, await employeeTimeZone(fresh.employeeId))
+      ? nextRoutineRun(fresh, at, await employeeTimeZone(fresh.employeeId))
       : fresh.nextRunAt;
     if (next && fresh.nextRunAt && fresh.nextRunAt > next) next = fresh.nextRunAt;
     const updated = await repo.update(

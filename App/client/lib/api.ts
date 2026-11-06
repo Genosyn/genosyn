@@ -447,6 +447,7 @@ export type Routine = {
   employeeId: string;
   name: string;
   slug: string;
+  /** A cron expression, or a random schedule (`shared/randomSchedule.ts`). */
   cronExpr: string;
   enabled: boolean;
   /**
@@ -466,7 +467,8 @@ export type Routine = {
    * When the schedule next fires. Null when the routine is paused, or when
    * `cronExpr` parses for `node-cron` (which validates it) but not for
    * `cron-parser` (which computes this) — so a null here on an *enabled*
-   * routine means the schedule never fires, and the UI says so.
+   * routine means the schedule never fires, and the UI says so. On a random
+   * schedule this is the one place the drawn time is visible before it happens.
    */
   nextRunAt: string | null;
   timeoutSec: number;

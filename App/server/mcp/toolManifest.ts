@@ -1063,7 +1063,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         cronExpr: {
           type: "string",
           description:
-            "5-field cron expression (minute hour day-of-month month day-of-week), company-local. Must be schedulable, not just valid. Examples: '0 9 * * 1' = every Monday at 9:00, '*/15 * * * *' = every 15 minutes.",
+            "5-field cron, company-local, must be schedulable: '0 9 * * 1' = Mondays at 9:00. Or random times per hour/day/week/month/quarter/year: '@random 3/week', '@random 2/day 09:00-17:00'.",
         },
         brief: {
           type: "string",
@@ -1105,7 +1105,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         cronExpr: {
           type: "string",
           description:
-            "5-field cron expression (minute hour day-of-month month day-of-week), company-local. Must be schedulable, not just valid. Examples: '0 9 * * 1' = every Monday at 9:00, '*/15 * * * *' = every 15 minutes.",
+            "5-field cron, company-local, must be schedulable: '0 9 * * 1' = Mondays at 9:00. Or random times per hour/day/week/month/quarter/year: '@random 3/week', '@random 2/day 09:00-17:00'.",
         },
         brief: {
           type: "string",
@@ -1481,7 +1481,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
             name: { type: "string" },
             cronExpr: {
               type: "string",
-              description: "A schedulable 5-field cron expression, read in the company's time zone.",
+              description:
+                "A schedulable 5-field cron expression, read in the company's time zone, or random times: '@random 3/week', '@random 2/day 09:00-17:00'.",
             },
             body: { type: "string", description: "The Routine's markdown brief." },
             acceptanceCriteria: { type: "string", description: "Optional definition of done." },
