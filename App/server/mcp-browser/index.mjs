@@ -306,6 +306,52 @@ async function browserFillVault(args) {
   );
 }
 
+/**
+ * Ask a person for what only they have, while this page waits. The App reads the
+ * real page, opens the request through the Genosyn seam, so Policies and scopes
+ * apply, then holds the page until someone answers or the window ends. A code goes
+ * straight from the person's request into the page: it never reaches this child or
+ * the model, which is why there is no `code` anywhere in this function.
+ */
+async function browserAskPerson(args) {
+  const needs = args?.needs === "action" ? "action" : "code";
+  const label = String(args?.label ?? "").trim();
+  if (!label) throw new Error("`label` is required: say in a few words what you need");
+  const selector = String(args?.selector ?? "").trim();
+  const submitSelector = String(args?.submitSelector ?? "").trim();
+  const key = typeof args?.key === "string" ? args.key.trim() : "";
+  const itemId = String(args?.itemId ?? "").trim();
+  if (needs === "code" && !selector) {
+    throw new Error("`selector` is required with needs=code: the input the code goes into");
+  }
+  if (key) assertModelPressKeyAllowed(key);
+  const page = await callBrowser("/person/describe", {
+    needs,
+    selector: selector || null,
+    itemId: itemId || null,
+    savedCodeFailed: args?.savedCodeFailed === true,
+  });
+  const opened = await callGenosyn("/tools/browser_ask_person", {
+    needs,
+    label,
+    ...(typeof args?.why === "string" && args.why.trim() ? { why: args.why.trim() } : {}),
+    ...(typeof args?.person === "string" && args.person.trim()
+      ? { person: args.person.trim() }
+      : {}),
+    ...(itemId ? { vaultItemId: itemId } : {}),
+    browserSessionId: BROWSER_SESSION_ID,
+    pageUrl: page.pageUrl,
+  });
+  const reply = await callBrowser("/person/wait", {
+    requestId: opened.requestId,
+    needs,
+    selector: selector || null,
+    submitSelector: submitSelector || null,
+    key: key || null,
+  });
+  return textResult([reply.message, reply.snapshot].filter(Boolean).join("\n\n"));
+}
+
 async function browserSaveVaultTotp(args) {
   const selector = String(args?.selector ?? "").trim();
   const itemId = String(args?.itemId ?? "").trim();
@@ -1029,7 +1075,7 @@ const TOOLS = [
   {
     name: "browser_open",
     description:
-      "Navigate to an absolute http(s) URL in the headless browser and return a snapshot of the loaded page: URL, title, and an outline of the page in which every interactive element carries a [ref=eN] marker you can act on via `aria-ref=eN` selectors. Use this first to land on a page. The browser persists across chat turns — humans can watch it live in the chat panel and take over to type things in (e.g. solve a captcha or 2FA), and the page state survives until the conversation moves on.",
+      "Navigate to an absolute http(s) URL in the headless browser and return a snapshot of the loaded page: URL, title, and an outline of the page in which every interactive element carries a [ref=eN] marker you can act on via `aria-ref=eN` selectors. Use this first to land on a page. The browser persists across chat turns — humans can watch it live in the chat panel and take over to type things in, and the page state survives until the conversation moves on. When a sign-in needs a code you don't have, use browser_ask_person rather than waiting.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1321,6 +1367,56 @@ const TOOLS = [
       "Shut down the browser and free its memory. Only does anything when no human is watching — viewers are protected so a model that idly closes the browser at the end of its turn doesn't yank the rug out from under a human mid-takeover.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: browserClose,
+  },
+  {
+    name: "browser_ask_person",
+    description: `Ask a person for what only they have, while this page waits: a one-time code from their phone or inbox (needs=code), or a step only they can do, like approving a sign-in on their device or solving a captcha by taking over this browser (needs=action). Call it on the screen that needs it, not before: codes die within seconds. First check list_vault_items for a login with hasTotp (browser_fill_vault fills those with nobody asked) and your own phone number or inbox for a code sent there. Genosyn pings them and holds this call for up to 4 minutes. A code goes straight into \`selector\` and is submitted; you never see it. Returns a fresh snapshot: read it. If the page refused the code, call this again. If nobody answers, this Run or Todo stops by itself and costs nothing, so call save_run_checkpoint first if you have progress to keep. You are started again when they say they're ready; the page will have timed out, so sign in again from the start and call this on the new prompt. In a chat, tell them to say when they're ready. ${SELECTOR_HINT}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        needs: {
+          type: "string",
+          enum: ["code", "action"],
+          description: "code: type something into this page. action: they do it, then press Done.",
+        },
+        label: {
+          type: "string",
+          description: "A few plain words: 'FreeAgent sign-in code', 'Approve the sign-in on your phone'.",
+        },
+        why: {
+          type: "string",
+          description: "One sentence: what you're doing and why it needs them.",
+        },
+        selector: {
+          type: "string",
+          description: "needs=code: the input the code goes into. If it's split into a box per digit, the first box.",
+        },
+        submitSelector: {
+          type: "string",
+          description: "The button that submits it. Leave out if the form submits by itself.",
+        },
+        key: {
+          type: "string",
+          enum: MODEL_PRESS_KEYS,
+          description: "A key to submit with instead of a button, pressed in selector. Usually Enter.",
+        },
+        itemId: {
+          type: "string",
+          description: "The Vault login you are signing in with, if any. The page must be its saved site.",
+        },
+        person: {
+          type: "string",
+          description: "A Member's email or handle, if your brief names who holds the phone. Otherwise Genosyn works out who to ask.",
+        },
+        savedCodeFailed: {
+          type: "boolean",
+          description: "True only if the login's saved authenticator was refused, or this site asks for something else, like a text message.",
+        },
+      },
+      required: ["needs", "label"],
+      additionalProperties: false,
+    },
+    handler: browserAskPerson,
   },
   {
     name: "browser_submit_with_vault_totp",

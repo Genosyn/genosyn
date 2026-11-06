@@ -45,6 +45,7 @@ import {
   sweepPendingStandingQuestions,
 } from "./tldrStandingQuestions.js";
 import { sweepStalledWork } from "./escalations.js";
+import { sweepInputRequests } from "./inputRequests.js";
 import { releaseDueDecisionSnoozes } from "./decisionSnoozes.js";
 import { sweepGoals } from "./goals.js";
 import { sweepRoutedDecisions } from "./decisionRouting.js";
@@ -832,6 +833,14 @@ async function runHeartbeat(generation: number): Promise<void> {
       await sweepStalledWork(now, assertHeld).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] stall sweep failed:", err);
+      });
+
+      // Input requests: remind whoever work is waiting on, backing off, and end the
+      // ones nobody came to. Each step is a conditional claim on the row.
+      assertHeld();
+      await sweepInputRequests(now, assertHeld).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] input request sweep failed:", err);
       });
 
       // Phase 8 — keep the Goals honest. Refresh chart-bound values (bounded

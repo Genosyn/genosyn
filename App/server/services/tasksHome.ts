@@ -32,6 +32,7 @@ const NEEDS_A_PERSON: TodoWaitKind[] = [
   "mail_review",
   "work_review",
   "browser_approval",
+  "input_request",
 ];
 const WAITING_ON_OTHERS: TodoWaitKind[] = ["customer", "date", "work_session"];
 const LINE_CHARS = 160;

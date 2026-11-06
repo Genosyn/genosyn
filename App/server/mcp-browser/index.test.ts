@@ -178,6 +178,29 @@ async function browserHarness(options: HarnessOptions = {}) {
       }
       return json(res, 200, { snapshot: `passkey ${kind} complete` });
     }
+    if (url.pathname === "/browser/person/describe") {
+      const body = await requestJson(req);
+      events.push(`person-describe:${String(body.needs)}`);
+      return json(res, 200, { pageUrl: approvedUrl });
+    }
+    if (url.pathname === "/mcp/tools/browser_ask_person") {
+      const body = await requestJson(req);
+      events.push("person-open");
+      assert.equal(body.pageUrl, approvedUrl, "the page the App read, not one the model named");
+      assert.equal(body.label, "FreeAgent sign-in code");
+      return json(res, 200, { requestId: "request-1", status: "asking" });
+    }
+    if (url.pathname === "/browser/person/wait") {
+      const body = await requestJson(req);
+      events.push("person-wait");
+      assert.equal(body.requestId, "request-1");
+      assert.equal(body.selector, "aria-ref=e8");
+      assert.equal(body.submitSelector, "aria-ref=e9");
+      return json(res, 200, {
+        message: "A person gave a code, and it went into the page.",
+        snapshot: "Welcome back",
+      });
+    }
     if (url.pathname === "/browser/click") {
       events.push("click");
       if (options.clickFails) return json(res, 504, { error: "click timed out" });
@@ -365,6 +388,45 @@ test("approval mode refuses an early standalone Vault TOTP fill", async () => {
 
   assert.equal(response.result?.isError, true);
   assert.match(response.result?.content?.[0]?.text ?? "", /browser_submit_with_vault_totp/);
+  assert.deepEqual(harness.events, []);
+});
+
+test("asking a person reads the page, opens the request, then holds it", async () => {
+  const harness = await browserHarness();
+  const listed = await harness.listTools();
+  assert.ok(listed.result?.tools?.some((tool) => tool.name === "browser_ask_person"));
+  const response = await harness.rpc("browser_ask_person", {
+    needs: "code",
+    label: "FreeAgent sign-in code",
+    selector: "aria-ref=e8",
+    submitSelector: "aria-ref=e9",
+  });
+  assert.notEqual(response.result?.isError, true);
+  const text = response.result?.content?.[0]?.text ?? "";
+  assert.match(text, /went into the page/);
+  assert.match(text, /Welcome back/);
+  assert.deepEqual(harness.events, ["person-describe:code", "person-open", "person-wait"]);
+});
+
+test("nobody is pinged about a code with nowhere to go", async () => {
+  const harness = await browserHarness();
+  const response = await harness.rpc("browser_ask_person", {
+    needs: "code",
+    label: "FreeAgent sign-in code",
+  });
+  assert.equal(response.result?.isError, true);
+  assert.match(response.result?.content?.[0]?.text ?? "", /`selector` is required/);
+  assert.deepEqual(harness.events, []);
+});
+
+test("a person is only ever asked after the App has checked the page", async () => {
+  const harness = await browserHarness();
+  const response = await harness.rpc("browser_ask_person", {
+    needs: "action",
+    label: "",
+  });
+  assert.equal(response.result?.isError, true);
+  assert.match(response.result?.content?.[0]?.text ?? "", /`label` is required/);
   assert.deepEqual(harness.events, []);
 });
 

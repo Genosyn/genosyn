@@ -27,6 +27,7 @@ const WAITING_ON: Record<TodoWaitKind, string> = {
   work_review: "Waiting for someone to review proposed work",
   browser_approval: "Waiting for someone to approve a browser action",
   work_session: "Waiting on a work session",
+  input_request: "Waiting for a person's input",
   date: "Waiting until a set date",
 };
 

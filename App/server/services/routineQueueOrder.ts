@@ -43,6 +43,7 @@ const KEY_FIELDS = {
   createdAt: true,
   pauseCount: true,
   continuationCount: true,
+  waitingOnInputRequestId: true,
 } as const;
 
 /** Keep each `IN (…)` list well under every driver's parameter limit. */
@@ -90,10 +91,12 @@ function queuedRun(row: Run, owner: RoutineOwner | undefined): QueuedRun {
 /**
  * Every Run waiting to start across the install, in the order the dispatcher
  * offers them to their AI Models. Bounded by the `status` index to waiting Runs.
+ * A Run held for a person is not waiting to start: nothing can happen until they
+ * come (`services/inputRequests.ts`), so it is never offered a model's slot.
  */
 export async function queuedRunsInStartOrder(): Promise<QueuedRun[]> {
   const rows = await AppDataSource.getRepository(Run).find({
-    where: { status: "queued", employeeId: Not(IsNull()) },
+    where: { status: "queued", employeeId: Not(IsNull()), waitingOnInputRequestId: IsNull() },
     select: KEY_FIELDS,
   });
   const owners = await routineOwners(rows.map((row) => row.routineId));
@@ -124,10 +127,13 @@ export type CompanyQueuedRun = QueuedRun & {
   /**
    * Its place among the company's Runs the queue will offer, 1 being next up.
    * Null for a Run the queue passes over until something changes: one covered
-   * by a Standdown, one still holding an earlier claim, or one its reassigned
-   * Routine left behind (the dispatcher ends it rather than starting it).
+   * by a Standdown, one still holding an earlier claim, one waiting on a person, or
+   * one its reassigned Routine left behind (the dispatcher ends it rather than
+   * starting it).
    */
   position: number | null;
+  /** The Input request holding it, when it waits on a person. */
+  waitingOnInputRequestId: string | null;
 };
 
 /**
@@ -173,18 +179,22 @@ export async function companyRunQueue(companyId: string): Promise<CompanyQueuedR
   // claim is released; only a stranded legacy claim leaves one.
   const claimed = new Set((await claimedRuns(runs)).map((run) => run.id));
   let position = 0;
+  const heldBy = new Map(theirs.map((row) => [row.id, row.waitingOnInputRequestId ?? null]));
   return orderQueuedRuns(theirs.map((row) => queuedRun(row, owners.get(row.routineId)))).map(
     (run) => {
       const owner = owners.get(run.routineId);
+      const waitingOnInputRequestId = heldBy.get(run.id) ?? null;
       const inLine =
         !!owner &&
         owner.employeeId === run.employeeId &&
         !claimed.has(run.id) &&
+        !waitingOnInputRequestId &&
         !workBlocked(companyId, { employeeId: owner.employeeId, routineId: run.routineId }).blocked;
       return {
         ...run,
         routineEmployeeId: owner?.employeeId ?? null,
         position: inLine ? ++position : null,
+        waitingOnInputRequestId,
       };
     },
   );

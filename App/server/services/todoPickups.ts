@@ -1381,7 +1381,8 @@ async function finishTodoBrowserWork(pickup: TodoPickup): Promise<void> {
       where: { id: todoId },
       select: { id: true, waitingOn: true },
     });
-    if (todo?.waitingOn === "browser_approval") return;
+    // Both come back to this page. It may well still be asking when they do.
+    if (todo?.waitingOn === "browser_approval" || todo?.waitingOn === "input_request") return;
     const ending = await repo().findOne({
       where: { id: pickup.id },
       select: { id: true, rerunJson: true },

@@ -104,6 +104,15 @@ import {
   type TodoPickupCeiling,
 } from "../services/todoPickups.js";
 import { TodoPickup } from "../db/entities/TodoPickup.js";
+import { BrowserSession } from "../db/entities/BrowserSession.js";
+import { MemberBrowser } from "../db/entities/MemberBrowser.js";
+import { browserApprovalRequiredForSession } from "./browserRpc.js";
+import {
+  InputRequestError,
+  openAnswerInputRequest,
+  openPageInputRequest,
+  parkRunForRequest,
+} from "../services/inputRequests.js";
 import { filedSince } from "../services/todoIntake.js";
 import {
   MAX_TODO_FOLLOW_UPS,
@@ -20598,6 +20607,148 @@ mcpInternalRouter.post(
       holdPageForApproval(body.browserSessionId);
     }
     res.json({ approvalId: approval.id, status: approval.status });
+  },
+);
+
+// ─────────────────── asking a person
+
+const browserAskPersonSchema = z
+  .object({
+    needs: z.enum(["code", "action"]),
+    label: z.string().trim().min(1).max(500),
+    why: z.string().trim().max(2_000).optional(),
+    person: z.string().trim().max(320).optional(),
+    vaultItemId: z.string().uuid().optional(),
+    browserSessionId: z.string().uuid(),
+    /** Read from the browser by the App a moment ago, not by the model. */
+    pageUrl: z.string().min(1).max(4_096),
+  })
+  .strict();
+
+function inputRequestFailure(res: Response, error: unknown): Response {
+  if (error instanceof InputRequestError) {
+    return res.status(error.statusCode).json({ error: error.message });
+  }
+  // eslint-disable-next-line no-console
+  console.error("[mcp] could not ask a person:", error);
+  return res.status(500).json({ error: "Could not ask a person. Nobody was asked." });
+}
+
+/**
+ * Called by the browser's own server once it has read the page. Coming through here
+ * means a Policy, a scope that keeps the browser out, and a Member's access all apply,
+ * as they do for any tool. The page's address is what a person is shown, so it's read
+ * from the session's own browser and never taken from what the model said.
+ */
+mcpInternalRouter.post(
+  "/tools/browser_ask_person",
+  validateBody(browserAskPersonSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof browserAskPersonSchema>;
+    const co = req.mcpCompany!;
+    const emp = req.mcpEmployee!;
+    // A delegated copy has nothing that can stop and come back: its parent is
+    // waiting on its result.
+    if (resolveMcpToken(req.mcpToken!)?.delegated) {
+      return res.status(403).json({
+        error: "A parallel worker can't wait for a person. Report what you need to your parent.",
+      });
+    }
+    const session = await AppDataSource.getRepository(BrowserSession).findOneBy({
+      id: body.browserSessionId,
+      companyId: co.id,
+      employeeId: emp.id,
+    });
+    if (!session || (session.runId ?? null) !== (req.mcpRunId ?? null)) {
+      return res.status(403).json({ error: "That browser belongs to different work." });
+    }
+    const memberBrowser = session.memberBrowserId
+      ? await AppDataSource.getRepository(MemberBrowser).findOneBy({ id: session.memberBrowserId })
+      : null;
+    try {
+      const request = await openPageInputRequest({
+        companyId: co.id,
+        employeeId: emp.id,
+        kind: body.needs,
+        title: body.label,
+        body: body.why,
+        named: body.person,
+        requesterUserId: req.mcpRequesterUserId,
+        work: {
+          runId: session.runId,
+          routineId: req.mcpRoutineId ?? null,
+          todoId: session.todoId,
+          conversationId: session.conversationId,
+          browserSessionId: session.id,
+        },
+        vaultItemId: body.vaultItemId,
+        memberBrowserId: session.memberBrowserId,
+        pageUrl: body.pageUrl,
+        tainted: isTokenTainted(req.mcpToken!),
+        adminOnly: browserApprovalRequiredForSession(emp, memberBrowser),
+      });
+      return res.json({ requestId: request.id, status: request.status });
+    } catch (error) {
+      return inputRequestFailure(res, error);
+    }
+  },
+);
+
+const askPersonSchema = z
+  .object({
+    question: z.string().trim().min(1).max(500),
+    why: z.string().trim().max(2_000).optional(),
+    person: z.string().trim().max(320).optional(),
+  })
+  .strict();
+
+/**
+ * A fact, or something done by hand, that no tool can get. The work stops here and
+ * carries on with the answer, however long that takes.
+ */
+mcpInternalRouter.post(
+  "/tools/ask_person",
+  validateBody(askPersonSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof askPersonSchema>;
+    if (resolveMcpToken(req.mcpToken!)?.delegated) {
+      return res.status(403).json({
+        error: "A parallel worker can't wait for a person. Report what you need to your parent.",
+      });
+    }
+    const pickup = req.mcpTodoPickupId
+      ? await AppDataSource.getRepository(TodoPickup).findOne({
+          where: { id: req.mcpTodoPickupId, companyId: req.mcpCompany!.id },
+          select: { id: true, todoId: true },
+        })
+      : null;
+    try {
+      const { request, alreadyWaiting } = await openAnswerInputRequest({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        title: body.question,
+        body: body.why,
+        named: body.person,
+        requesterUserId: req.mcpRequesterUserId,
+        work: {
+          runId: req.mcpRunId ?? null,
+          routineId: req.mcpRoutineId ?? null,
+          todoId: pickup?.todoId ?? null,
+        },
+        tainted: isTokenTainted(req.mcpToken!),
+      });
+      res.json({
+        requestId: request.id,
+        status: request.status,
+        note: alreadyWaiting
+          ? "You already have this waiting. End your turn: you start again when they answer."
+          : "Asked. End your turn now: this work stops and costs nothing while it waits, and you start again with their answer.",
+      });
+      parkRunForRequest(request);
+      return;
+    } catch (error) {
+      return inputRequestFailure(res, error);
+    }
   },
 );
 

@@ -62,6 +62,7 @@ const ITEM_FIELDS = {
   checkpointJson: true,
   continuationCount: true,
   continuationStopReason: true,
+  waitingOnInputRequestId: true,
 } as const;
 
 /**
@@ -206,7 +207,9 @@ export async function getEmployeeWorkQueue(
       position: options.position ?? null,
       blockedReason: stopped.blocked
         ? redactSensitiveText(`Stood down: ${stopped.reason}`)
-        : modelWait(routine),
+        : !followUp && run.waitingOnInputRequestId
+          ? "Waiting for a person's input"
+          : modelWait(routine),
     };
     return entry;
   }

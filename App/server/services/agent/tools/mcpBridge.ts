@@ -90,6 +90,8 @@ export async function connectMcpServer(
   namePrefix: string,
   signal?: AbortSignal,
   guard?: McpToolGuard,
+  /** Tools that wait on purpose, by their name on the server, and for how long. */
+  toolTimeoutsMs?: Readonly<Record<string, number>>,
 ): Promise<BridgedServer> {
   const client = new Client({ name: "genosyn", version: appVersion() });
 
@@ -146,7 +148,7 @@ export async function connectMcpServer(
       },
       run: guarded
         ? (input) => guard!.onGuarded(t.name, input)
-        : (input) => callBridged(client, t.name, input, signal),
+        : (input) => callBridged(client, t.name, input, signal, toolTimeoutsMs?.[t.name]),
     };
   });
 
@@ -167,12 +169,15 @@ async function callBridged(
   toolName: string,
   input: Record<string, unknown>,
   signal?: AbortSignal,
+  timeoutMs?: number,
 ): Promise<ToolResult> {
   try {
     const res = await client.callTool(
       { name: toolName, arguments: input },
       undefined,
-      signal ? { signal } : undefined,
+      signal || timeoutMs
+        ? { ...(signal ? { signal } : {}), ...(timeoutMs ? { timeout: timeoutMs } : {}) }
+        : undefined,
     );
     const { text, images } = splitContent(res.content);
     return {

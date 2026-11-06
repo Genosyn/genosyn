@@ -282,6 +282,8 @@ async function claimRun(
     .where("run.id = :runId AND run.status = :status", { runId, status: "queued" })
     .getOne();
   if (!run?.employeeId || !canClaim()) return null;
+  // Held for a person since this pass read the queue: they come first.
+  if (run.waitingOnInputRequestId) return null;
   assertHeld();
   const employeeId = run.employeeId;
   const routine = await AppDataSource.getRepository(Routine).findOneBy({ id: run.routineId });
@@ -335,7 +337,12 @@ async function claimRun(
             )
           : new Date(startedAt.getTime() + Math.max(1, routine.timeoutSec) * 1000);
     const claimed = await claims.update(
-      { id: run.id, status: "queued", queueActiveEmployeeId: IsNull() },
+      {
+        id: run.id,
+        status: "queued",
+        queueActiveEmployeeId: IsNull(),
+        waitingOnInputRequestId: IsNull(),
+      },
       {
         routineId: run.routineId,
         status: "running",
@@ -444,7 +451,7 @@ async function skipQueuedRun(run: Run, reason: string): Promise<void> {
           status: "error",
           errorKind: "interrupted",
           finishedAt: new Date(),
-          logContent: `${run.logContent ?? ""}\n[queue] ${run.pauseReason === "outage" ? "Paused while its AI Model was unavailable" : "Paused for a restart"}, this Run could not continue: ${reason}\n`,
+          logContent: `${run.logContent ?? ""}\n[queue] ${run.pauseReason === "outage" ? "Paused while its AI Model was unavailable" : run.pauseReason === "person" ? "Paused while it waited on a person" : "Paused for a restart"}, this Run could not continue: ${reason}\n`,
         }
       : {
           routineId: run.routineId,

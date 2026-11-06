@@ -35,6 +35,7 @@ import { projectsRouter } from "./routes/projects.js";
 import { todoPickupsRouter } from "./routes/todoPickups.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { decisionsRouter } from "./routes/decisions.js";
+import { inputRequestsRouter } from "./routes/inputRequests.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { mcpRouter } from "./routes/mcp.js";
 import { mcpConnectRouter } from "./routes/mcpConnect.js";
@@ -428,6 +429,7 @@ export function createApp(): express.Express {
   // The Decision Stack — questions an AI employee raised for a human to answer.
   // Member-level, unlike the admin-gated approvals inbox above it.
   app.use("/api/companies/:cid", decisionsRouter);
+  app.use("/api/companies/:cid", inputRequestsRouter);
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid/vault", vaultRouter);
   app.use("/api/companies/:cid", auditRouter);

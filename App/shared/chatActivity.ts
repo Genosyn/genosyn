@@ -647,6 +647,20 @@ const SPECIAL: Record<string, Special> = {
     keys: ["filename"],
     kind: "path",
   },
+  ask_person: {
+    family: "people",
+    verb: v("Asking", "Asked"),
+    object: "a person",
+    keys: ["question"],
+    kind: "plain",
+  },
+  browser_ask_person: {
+    family: "people",
+    verb: v("Waiting", "Waited"),
+    object: "for a person",
+    keys: ["label"],
+    kind: "plain",
+  },
   request_decision: {
     family: "people",
     verb: v("Raising", "Raised"),

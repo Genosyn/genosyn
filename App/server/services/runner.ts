@@ -88,7 +88,9 @@ import {
   MAX_OUTAGE_PAUSES,
   MAX_RUN_PAUSES,
   pausedForOutage,
+  pausedForPerson,
   registerRunPauser,
+  registerRunPersonPauser,
   restartPauseCount,
   runPauseNotice,
   runResumeBrief,
@@ -111,6 +113,12 @@ import {
 } from "./runContinuation.js";
 import { QueuedRoutineIneligibleError, registerQueuedRun } from "./routineQueue.js";
 import { findAcceptedManualRoutineRun, persistManualRoutineRun } from "./routineManualStart.js";
+
+import {
+  inputRequestBriefForRun,
+  openInputRequestHoldingRun,
+  releaseRunIfAlreadyAnswered,
+} from "./inputRequests.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
 
@@ -428,6 +436,7 @@ async function prepareRoutineRun(
       pauseRemainingMs: queued.pauseRemainingMs,
       pauseReason: queued.pauseReason,
       outagePauses: queued.outagePauses,
+      personPauses: queued.personPauses,
     });
   }
   let saved: Run;
@@ -537,7 +546,7 @@ async function prepareRoutineRun(
     log.write(
       [
         "",
-        `[${startedAt.toISOString()}] [resumed] ${pausedForOutage(saved) ? "The AI Model is answering again" : "Genosyn is back"}; this Run continues where it paused` +
+        `[${startedAt.toISOString()}] [resumed] ${pausedForPerson(saved) ? "A person came back to it" : pausedForOutage(saved) ? "The AI Model is answering again" : "Genosyn is back"}; this Run continues where it paused` +
           (saved.pausedAt ? ` at ${saved.pausedAt.toISOString()}` : "") +
           `, with its deadline at ${new Date(deadlineAtMs).toISOString()}.`,
         modelLine,
@@ -794,6 +803,58 @@ async function prepareRoutineRun(
       releaseBrowserRecordingRunFinalizing(saved.id);
       return (await runRepo.findOneBy({ id: saved.id })) ?? saved;
     };
+    /**
+     * Put this Run back in the queue as itself, held until a person comes
+     * (`services/inputRequests.ts`). The same pause again, for the longest wait of
+     * the three: it can sit for days, so it must cost nothing while it does. It holds
+     * no model slot, spends no tokens, and keeps the time it had left. Nothing about
+     * it is final, and a person taking their time counts against nobody. The browser
+     * closes with it: whatever page was open will have timed out long before they
+     * come, and the Chrome profile keeps anything worth keeping.
+     */
+    const pauseForPerson = async (requestId: string, runDeadlineMs: number): Promise<Run> => {
+      const now = new Date();
+      const remainingMs = Math.max(0, runDeadlineMs - now.getTime());
+      const minutes = Math.max(1, Math.round(remainingMs / 60_000));
+      log.line(
+        `\n[paused] Waiting for a person. This Run keeps its transcript, progress and Effects, costs nothing while it waits, and carries on as soon as they come, with about ${minutes} min of its time limit left.`,
+      );
+      await finalizeBrowserRecordingsForRun(saved.id).catch(() => undefined);
+      try {
+        await log.stopCheckpointing();
+      } catch {
+        // The update below carries the whole transcript.
+      }
+      // Only from this process's own claim: a row recovered or finalized
+      // elsewhere in the meantime keeps that verdict.
+      await runRepo.update(
+        {
+          id: saved.id,
+          status: "running",
+          queueActiveEmployeeId: saved.queueActiveEmployeeId ?? IsNull(),
+        },
+        {
+          // ResourceChangeSubscriber routes this update to its Routine stream.
+          routineId: saved.routineId,
+          status: "queued",
+          queueActiveEmployeeId: null,
+          logContent: log.value(),
+          diagnosticsJson: diagnostics.json(),
+          tokensIn: saved.tokensIn,
+          tokensOut: saved.tokensOut,
+          pausedAt: now,
+          pauseCount: (saved.pauseCount ?? 0) + 1,
+          pauseRemainingMs: remainingMs,
+          pauseReason: "person",
+          personPauses: (saved.personPauses ?? 0) + 1,
+          waitingOnInputRequestId: requestId,
+        },
+      );
+      releaseBrowserRecordingRunFinalizing(saved.id);
+      // Someone may have pressed the button while this pause was landing.
+      await releaseRunIfAlreadyAnswered(saved.id, requestId).catch(() => undefined);
+      return (await runRepo.findOneBy({ id: saved.id })) ?? saved;
+    };
     try {
       if (deadlineReached()) {
         const timedOutRun = await finalizeTimedOutRun();
@@ -993,6 +1054,9 @@ async function prepareRoutineRun(
             effects: await runEffects(saved.id, { companyId: co.id }).catch(() => []),
             remainingMs: Math.max(0, deadlineAtMs - Date.now()),
             checkpoint: readRunCheckpoint(saved),
+            personNote: pausedForPerson(saved)
+              ? await inputRequestBriefForRun(saved.id).catch(() => "")
+              : "",
           })
         : "";
       const userMessage = [
@@ -1093,6 +1157,14 @@ async function prepareRoutineRun(
         },
         runSettled,
       );
+      // A person has to come first. The turn stops here, with nothing further to
+      // spend on it, and the same Run comes back when they do.
+      let personRequestId: string | null = null;
+      registerRunPersonPauser(saved.id, (requestId) => {
+        if (paused) return;
+        personRequestId = requestId;
+        pauseNow();
+      });
       const timer = setTimeout(() => {
         timedOut = true;
         controller.abort();
@@ -1243,7 +1315,9 @@ async function prepareRoutineRun(
       }
       // A Standdown that landed during the pause still stops the Run outright.
       if (paused && !interrupted && !batchYielded) {
-        return await pauseForRestart(pauseRequest, deadlineAtMs);
+        return personRequestId
+          ? await pauseForPerson(personRequestId, deadlineAtMs)
+          : await pauseForRestart(pauseRequest, deadlineAtMs);
       }
       if (batchYielded) {
         saved.status = "failed";
@@ -1271,6 +1345,12 @@ async function prepareRoutineRun(
       // A Standdown that landed meanwhile still wins, below.
       if (result.status === "error" && result.unavailable && !interrupted) {
         return await pauseForOutage(result.unavailable, deadlineAtMs);
+      }
+      // The turn ended on its own with a person still owed an answer: the request
+      // went out from another process, or the model stopped before the pause could.
+      if (!interrupted) {
+        const waitingOn = await openInputRequestHoldingRun(saved.id).catch(() => null);
+        if (waitingOn) return await pauseForPerson(waitingOn, deadlineAtMs);
       }
 
       saved.finishedAt = new Date();

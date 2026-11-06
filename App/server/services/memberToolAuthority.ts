@@ -77,6 +77,9 @@ const MEMBER_TOOLS = [
   // company-scoped. A Member driving a turn can raise, read back, and retract a
   // question exactly as they could from the Decisions page.
   "request_decision",
+  // Nothing happens on an answer but the work carrying on, and a person's answer
+  // grants nothing. Refused anyway unless this is a Run or a Pickup.
+  "ask_person",
   "request_work_review",
   "request_mail_review",
   "list_decisions",
@@ -613,6 +616,7 @@ const MEMBER_INTERNAL_CALLBACK_AUTHORITY = new Map<string, MemberToolPolicy>([
   ["check_browser_approval", "admin"],
   ["claim_browser_approval", "admin"],
   ["finish_browser_approval", "admin"],
+  ["browser_ask_person", "admin"],
 ]);
 
 export function memberInternalCallbackPolicy(name: string): MemberToolPolicy | null {

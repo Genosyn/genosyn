@@ -41,8 +41,11 @@ import { companyNotificationLink, needsCompanyPrefix } from "../../shared/notifi
  * match for an Opening the recipient owns, a guest's question in a data room
  * the recipient runs — someone outside the company is waiting on it — and the
  * outcome of a group discussion the recipient started — the answer they asked
- * several AI Employees to come back with — and an AI Model becoming
- * unavailable, which holds up every piece of work on it at once.
+ * several AI Employees to come back with — an AI Model becoming unavailable,
+ * which holds up every piece of work on it at once, and an Input request, where
+ * work has stopped for something only the recipient has. That one pushes for its
+ * reminders too, on a schedule that backs off, because it is how the work gets
+ * unstuck when someone is away.
  *
  * The rest wait quietly in the bell and on Home: a failed or off-goal Run, a
  * reminder about something already pushed, a proposed edit or Initiative to
@@ -72,6 +75,7 @@ export const PUSHED_NOTIFICATION_KINDS: ReadonlySet<NotificationKind> = new Set<
   "support_sla_breached",
   "group_discussion",
   "model_unavailable",
+  "input_request",
 ]);
 
 export type CreateNotificationInput = {

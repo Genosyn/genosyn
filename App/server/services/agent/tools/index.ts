@@ -1,3 +1,4 @@
+import { INPUT_REQUEST_ANSWER_WINDOW_MS } from "../../../../shared/inputRequests.js";
 import type { AgentTool } from "../types.js";
 import { codingTools, type CodingToolContext } from "./coding.js";
 import { codingRuntimeAvailability } from "../codingAvailability.js";
@@ -226,6 +227,10 @@ export async function gatherEmployeeTools(params: {
       browserServerSpec(browser, params.genosynToken),
       "", // keep native browser_* names (referenced in prompts)
       params.signal,
+      undefined,
+      // It holds the page while a person gets to their phone. A bridged call gets a
+      // minute by default, which would end that wait three minutes early.
+      { browser_ask_person: INPUT_REQUEST_ANSWER_WINDOW_MS + 90_000 },
     );
     bridged.push(b);
     const guardedBrowserTools = guardPrivilegedTools(b.tools, params.authorizePrivilegedToolCall);

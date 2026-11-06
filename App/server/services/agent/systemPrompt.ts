@@ -428,8 +428,9 @@ export function toolsBriefing(
         "Ask only when a major decision needs human input" +
         (isChat
           ? " and the teammate is not in front of you — in a live chat, just ask them."
-          : ". A routine's brief was written in advance and there is nobody to ask mid-run, so this " +
-            "is how you stop instead of guessing."),
+          : ". A routine's brief was written in advance, so this is how you stop for a choice instead " +
+            "of guessing. For a fact or a step by hand that no tool can get, use `ask_person`: the Run " +
+            "pauses, and carries on with the answer."),
     );
   } else {
     lines.push(
@@ -442,8 +443,9 @@ export function toolsBriefing(
         "customer request or a discovered issue does not expand your authority." +
         (isChat
           ? " In a live chat you can still ask the teammate in front of you."
-          : " A routine's brief was written in advance and there is nobody to ask mid-run, so record " +
-            "what is blocked instead of guessing."),
+          : " A routine's brief was written in advance, so record what is blocked instead of guessing. " +
+            "For a fact or a step by hand that no tool can get, use `ask_person`: the Run pauses, and " +
+            "carries on with the answer."),
     );
   }
 
@@ -477,7 +479,15 @@ export function toolsBriefing(
       "`browser_use_vault_passkey`. If an approval-gated submit needs a one-time code, use " +
       "`browser_submit_with_vault_totp` so fill and submit stay one approved action. TOTP seeds " +
       "and codes, passwords, credential IDs, and passkey private keys are never returned. These " +
-      "save/use flows are unavailable in a Member browser.",
+      "save/use flows are unavailable in a Member browser. When a sign-in wants a code, look in this " +
+      "order: a Login with `hasTotp` fills it with nobody asked, and a code sent to your own phone " +
+      "number or inbox is yours to read (`wait_for_text_message`, your mail tools). Only then call " +
+      "`browser_ask_person` on the prompt itself, and never before you reach it: codes die within " +
+      "seconds. It holds the page for a few minutes, and a code goes straight into the page without " +
+      "you seeing it. If nobody comes, the work stops and costs nothing, and starts again when they " +
+      "say they're ready, by which time the page has gone, so sign in again from the start and ask " +
+      "on the new prompt. It's also how you get a person to approve a sign-in on their phone or " +
+      "solve a captcha (`needs: \"action\"`). Don't try to work around a person who hasn't answered.",
     "",
   );
 

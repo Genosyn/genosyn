@@ -26,9 +26,10 @@ export type RunErrorKind = "runtime" | "timeout" | "interrupted";
 /**
  * Why a Run was paused and put back in the queue as itself
  * (`services/runPause.ts`): `upgrade` or `restart` when Genosyn restarted,
- * `outage` while its AI Model was unavailable. A pause is never a Standdown.
+ * `outage` while its AI Model was unavailable, `person` while it needed something
+ * only a person has (`services/inputRequests.ts`). A pause is never a Standdown.
  */
-export type RunPauseReason = "upgrade" | "restart" | "outage";
+export type RunPauseReason = "upgrade" | "restart" | "outage" | "person";
 
 /**
  * How a completed Run measured against its Routine's acceptance criteria,
@@ -335,6 +336,23 @@ export class Run {
    */
   @Column({ type: "integer", default: 0 })
   outagePauses!: number;
+
+  /**
+   * Of {@link pauseCount}, the pauses waiting on a person. Counted apart so a
+   * person who takes days never spends the bound on restarts: each of these takes
+   * somebody pressing a button, so they need no bound of their own.
+   */
+  @Column({ type: "integer", default: 0 })
+  personPauses!: number;
+
+  /**
+   * The Input request holding this Run. While it is set the Run is `queued` and the
+   * queue passes over it: there is nothing to do until a person comes. Cleared the
+   * moment they do, or the request ends, and the Run then resumes first like any
+   * other paused Run.
+   */
+  @Column({ type: "varchar", nullable: true })
+  waitingOnInputRequestId!: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;
