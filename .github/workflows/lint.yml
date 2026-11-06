@@ -178,6 +178,14 @@ jobs:
         run: npm run test:support-chat-widget
         env:
           GENOSYN_TEST_BROWSER: chromium
+      - name: Test what a person sees when an AI Employee needs them, and reading an authenticator QR
+        run: npm run test:input-request-card
+        env:
+          GENOSYN_TEST_BROWSER: chromium
+      - name: Test asking a person end to end, with nothing faked but the AI Model
+        run: npm run test:input-requests
+        env:
+          GENOSYN_TEST_BROWSER: chromium
       - name: Save browser screenshots
         if: always()
         uses: actions/upload-artifact@v4
