@@ -18,6 +18,7 @@ import { attachedModelsByEmployee, type AttachedModels } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { recordAudit } from "../audit.js";
 import { nextRunFor } from "../cron.js";
+import { nextRoutineRun } from "../routineSchedule.js";
 import { companyTimeZone } from "../companyTimeZone.js";
 import { emitResourceChange } from "../resourceEvents.js";
 import { broadcastToCompany } from "../realtime.js";
@@ -449,7 +450,7 @@ export async function toggleProactiveStarter(
       {
         enabled,
         nextRunAt: enabled
-          ? nextRunFor(routine.cronExpr, new Date(), await companyTimeZone(companyId))
+          ? nextRoutineRun(routine, new Date(), await companyTimeZone(companyId))
           : null,
       },
     );

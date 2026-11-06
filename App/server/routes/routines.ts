@@ -1,7 +1,6 @@
 import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
 import { Router } from "express";
 import { z } from "zod";
-import cron from "node-cron";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -35,7 +34,8 @@ import { MAX_ROUTINE_BRIEF_LENGTH } from "../../shared/routineBrief.js";
 import { DEFAULT_ROUTINE_PRIORITY, ROUTINE_PRIORITIES } from "../../shared/routinePriority.js";
 import { getGoal } from "../services/goals.js";
 import { isModelAttached } from "../services/models.js";
-import { nextRunFor, registerRoutine } from "../services/cron.js";
+import { registerRoutine } from "../services/cron.js";
+import { routineScheduleSchema } from "../services/routineSchedule.js";
 import {
   startManualRoutineRun,
   getLiveRunSnapshot,
@@ -358,15 +358,6 @@ routinesRouter.get("/employees/:eid/routines", async (req, res) => {
   res.json(routines.map((routine) => ({ ...routine, tags: tags.get(routine.id) ?? [] })));
 });
 
-// node-cron validates and cron-parser schedules, and the two do not agree —
-// node-cron accepts expressions like "5-1 9 * * *" that cron-parser throws on,
-// which used to produce a routine that saved with a 200 and then never fired.
-// Both checks, so what we accept is exactly what we can schedule.
-const cronExprSchema = z
-  .string()
-  .refine((v) => cron.validate(v), "Invalid cron expression")
-  .refine((v) => nextRunFor(v) !== null, "That cron expression cannot be scheduled");
-
 // Where the Routine's Runs wait while their AI Model is busy: a High Routine's
 // waiting Runs start before Normal ones (`shared/routinePriority.ts`). Like
 // every Routine setting it is written by owners and admins; no AI Employee
@@ -382,7 +373,7 @@ const routinePrioritySchema = z
 
 const createSchema = z.object({
   name: z.string().min(1).max(80),
-  cronExpr: cronExprSchema,
+  cronExpr: routineScheduleSchema,
   // What each Run should do. With one the Routine starts on its schedule;
   // without (or blank) it starts paused, so nothing runs before there is one.
   brief: z.string().max(MAX_ROUTINE_BRIEF_LENGTH).optional(),
@@ -467,7 +458,7 @@ async function loadRoutine(cid: string, rid: string) {
 const patchSchema = z
   .object({
     name: z.string().min(1).max(80).optional(),
-    cronExpr: cronExprSchema.optional(),
+    cronExpr: routineScheduleSchema.optional(),
     enabled: z.boolean().optional(),
     timeoutSec: z
       .number()

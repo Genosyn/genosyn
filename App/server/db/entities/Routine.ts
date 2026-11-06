@@ -29,6 +29,11 @@ export class Routine {
   @Column({ type: "varchar" })
   slug!: string;
 
+  /**
+   * When this routine fires: a cron expression, or a random schedule such as
+   * `@random 3/week` (`shared/randomSchedule.ts`). Read it through
+   * `services/routineSchedule.ts`, which knows both.
+   */
   @Column({ type: "varchar" })
   cronExpr!: string;
 
@@ -67,7 +72,7 @@ export class Routine {
    * `cronExpr`. The heartbeat in `services/cron.ts` looks for enabled routines
    * whose `nextRunAt` is due and runs them. Null when disabled, when the cron
    * expression fails to parse, or briefly on fresh rows before the schedule is
-   * computed. See `registerRoutine()` / `nextRunFor()` for the write seam.
+   * computed. See `registerRoutine()` / `nextRoutineRun()` for the write seam.
    */
   @Column({ type: dateTimeColumnType, nullable: true })
   nextRunAt!: Date | null;
