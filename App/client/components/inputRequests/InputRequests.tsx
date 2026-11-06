@@ -357,7 +357,7 @@ export function InputRequestCard({
                     </Button>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    It goes straight into the page. {view.employee.name} never sees it.
+                    It goes straight into the page, not to {view.employee.name}.
                   </p>
                 </form>
               )}

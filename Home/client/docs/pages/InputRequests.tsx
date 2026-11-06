@@ -48,7 +48,7 @@ export function InputRequests() {
         rows={[
           {
             term: "A page is waiting",
-            def: "There's a box and a countdown of a few minutes. Type the code and press Send. It goes straight into the page and is submitted. The AI Employee never sees it.",
+            def: "There's a box and a countdown of a few minutes. Type the code and press Send. It goes straight into the page and is submitted, and Genosyn doesn't show it to the AI Employee.",
           },
           {
             term: "Nobody got to it in time",
@@ -117,8 +117,10 @@ export function InputRequests() {
         </LI>
         <LI>
           <Strong>It isn&apos;t kept.</Strong> A code waits, encrypted, only until the session
-          holding the page takes it, usually about a second. It never reaches the AI Model or a
-          transcript, an audit entry, a notification or a log.
+          holding the page takes it, usually about a second. Genosyn never gives it to the AI Model
+          or puts it in a transcript, an audit entry, a notification or a log. Like any browser
+          work, snapshots and recordings show whatever the page shows, so a site that leaves a code
+          in its box after refusing it can show that used code there.
         </LI>
         <LI>
           <Strong>Check before you type.</Strong> If the session has read something from outside your

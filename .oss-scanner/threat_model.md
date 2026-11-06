@@ -250,9 +250,11 @@ trusted-origin check, is in `App/server/index.ts`.
 
 - **A person can type a one-time code into a page an AI Employee is holding.** That is
   the point of an Input request (`App/server/services/inputRequests.ts`). The code reaches
-  the page and nothing else: it must never reach an AI Model, a transcript, an audit row, a
-  notification, a log, or any response, and it must go only to the origin the server read
-  from the browser, shown to the person before they typed. An AI Employee can write what
+  the page and nothing else: the server must never put it in a model's tool result, a
+  transcript, an audit row, a notification, a log, or any response, and it must go only to
+  the origin the server read from the browser, shown to the person before they typed. A
+  page that displays a typed code back can show it in a browser snapshot, which is
+  unfiltered by design, as for a Vault fill. An AI Employee can write what
   the card says and could try to talk a person into giving it a code for another site,
   which is why the card shows the address and warns on a tainted session; a code reaching
   any other origin, a request answered by an API key or an AI tool, or one read by someone

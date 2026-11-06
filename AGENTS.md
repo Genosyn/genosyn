@@ -539,7 +539,8 @@ on purpose — that is what a Standdown is for.
 every Input request (`services/inputRequests.ts`). A session at a page that wants a code
 asks (`browser_ask_person`, or `ask_person` for a fact, which has no page and stops at
 once) and holds the page for a few minutes, under the 300 seconds a tool call may wait.
-Whoever comes types a code that goes straight into the page; it never reaches the model.
+Whoever comes types a code that goes straight into the page; nothing hands it to the
+model, though browser snapshots stay unfiltered here as for any Vault fill (§6).
 Nobody came: a Run pauses as itself (`pauseReason: "person"`, `waitingOnInputRequestId`
 keeps the queue off it, counted in `personPauses` and never toward the restart cap) and a
 Todo waits (`input_request`), both costing nothing, and reminders back off from an hour
