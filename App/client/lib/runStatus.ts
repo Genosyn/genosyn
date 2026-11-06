@@ -29,19 +29,26 @@ export function runExplanationPrompt(status: RunStatus): string {
  * Model was unavailable — waits in the queue with its transcript and progress,
  * and the same Run continues once Genosyn or the model is back. Its chip reads
  * "resuming", never "paused": a Paused Routine is one switched off, and the
- * chip sits beside that Routine's Active / Paused toggle.
+ * chip sits beside that Routine's Active / Paused toggle. One waiting on a person
+ * says that instead, since it isn't going to resume until someone does something.
  */
 export function isRunPaused(run: { status: RunStatus; pauseCount?: number | null }): boolean {
   return run.status === "queued" && (run.pauseCount ?? 0) > 0;
 }
 
-export function runStatusLabel(status: RunStatus, paused = false): string {
+export function runStatusLabel(
+  status: RunStatus,
+  paused = false,
+  pauseReason?: RunPauseReason | null,
+): string {
+  if (status === "queued" && paused && pauseReason === "person") return "waiting on a person";
   if (status === "queued") return paused ? "resuming" : "pending";
   return isRunError(status) ? "error" : status;
 }
 
 /** Why a paused Run waits, in a phrase: "while its AI Model was unavailable". */
 export function runPauseWhy(pauseReason?: RunPauseReason | null): string {
+  if (pauseReason === "person") return "waiting for a person";
   return pauseReason === "outage" ? "while its AI Model was unavailable" : "while Genosyn restarted";
 }
 
@@ -51,6 +58,8 @@ export function runStatusHint(
   paused = false,
   pauseReason?: RunPauseReason | null,
 ): string | undefined {
+  if (status === "queued" && paused && pauseReason === "person")
+    return "Paused waiting for a person. It keeps its work so far, costs nothing while it waits, and continues where it stopped as soon as they come.";
   if (status === "queued" && paused && pauseReason === "outage")
     return "Paused while its AI Model was unavailable. It keeps its work so far and continues where it stopped once the AI Model answers again.";
   if (status === "queued" && paused)

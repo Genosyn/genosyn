@@ -1,3 +1,4 @@
+import { InputRequestsForWork } from "@/components/inputRequests/InputRequests";
 import React from "react";
 import { Select } from "@/components/ui/Select";
 import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
@@ -947,6 +948,13 @@ export default function EmployeeChat() {
           )}
         </div>
 
+        {activeConvId && (
+          <InputRequestsForWork
+            companyId={company.id}
+            work={{ conversationId: activeConvId }}
+            className="border-t border-slate-200 bg-slate-50/50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40 sm:px-8"
+          />
+        )}
         {!activeConv?.legacyUnclaimed && (
           <Composer
             inputRef={inputRef}

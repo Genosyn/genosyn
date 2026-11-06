@@ -1,3 +1,4 @@
+import { InputRequestsForWork } from "@/components/inputRequests/InputRequests";
 import React from "react";
 import { RunResumeButton } from "@/components/routines/RunResumeButton";
 import { isRunError, isRunPaused } from "@/lib/runStatus";
@@ -1359,6 +1360,7 @@ function RunsTab({
           pauseReason={log?.pauseReason ?? activeRun.pauseReason}
         />
       )}
+      {activeRun && <InputRequestsForWork companyId={company.id} work={{ runId: activeRun.id }} />}
       <RunContinuationNotice
         continuationPending={activeRun?.continuationPending}
         continuationStopReason={activeRun?.continuationStopReason}
@@ -1451,9 +1453,11 @@ function RunsTab({
                   <div className="text-slate-400 dark:text-slate-500">
                     {r.status === "queued"
                       ? isRunPaused(r)
-                        ? r.pauseReason === "outage"
-                          ? "Paused for its AI Model"
-                          : "Paused for a restart"
+                        ? r.pauseReason === "person"
+                          ? "Waiting on a person"
+                          : r.pauseReason === "outage"
+                            ? "Paused for its AI Model"
+                            : "Paused for a restart"
                         : "Waiting to start"
                       : formatDuration(r.startedAt, r.finishedAt)}
                   </div>
