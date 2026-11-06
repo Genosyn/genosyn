@@ -12,7 +12,7 @@ import { nextRoutineRun } from "./routineSchedule.js";
 import { employeeTimeZone } from "./companyTimeZone.js";
 import { automaticRetryDelayMs, automaticRetryLimit, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
-import { issueMcpToken, resolveMcpToken, revokeMcpToken } from "./mcpTokens.js";
+import { isTokenTainted, issueMcpToken, resolveMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { routineDeliveryPolicy, routineNeedsWorkReview } from "./proactive/policy.js";
 import type { MailDeliveryMode } from "./mail/deliveryPolicy.js";
 import { createPrivilegedMemberToolAuthorizer } from "./memberTurnAuthority.js";
@@ -437,6 +437,7 @@ async function prepareRoutineRun(
       pauseReason: queued.pauseReason,
       outagePauses: queued.outagePauses,
       personPauses: queued.personPauses,
+      tainted: queued.tainted,
     });
   }
   let saved: Run;
@@ -635,6 +636,9 @@ async function prepareRoutineRun(
     let mcpToken: string | null = null;
     let interrupted = false;
     const deadlineReached = (): boolean => Date.now() >= deadlineAtMs;
+    /** A turn's taint dies with its token, and a Run that pauses comes back with a new one. */
+    const staysTainted = (): boolean =>
+      saved.tainted === true || (mcpToken !== null && isTokenTainted(mcpToken));
     const finalizeTimedOutRun = async (): Promise<Run> => {
       saved.finishedAt = new Date();
       log.line(
@@ -722,6 +726,7 @@ async function prepareRoutineRun(
           pauseCount: (saved.pauseCount ?? 0) + 1,
           pauseRemainingMs: remainingMs,
           pauseReason: request?.reason === "upgrade" ? "upgrade" : "restart",
+          tainted: staysTainted(),
         },
       );
       releaseBrowserRecordingRunFinalizing(saved.id);
@@ -798,6 +803,7 @@ async function prepareRoutineRun(
           pauseRemainingMs: remainingMs,
           pauseReason: "outage",
           outagePauses: (saved.outagePauses ?? 0) + 1,
+          tainted: staysTainted(),
         },
       );
       releaseBrowserRecordingRunFinalizing(saved.id);
@@ -848,6 +854,7 @@ async function prepareRoutineRun(
           pauseReason: "person",
           personPauses: (saved.personPauses ?? 0) + 1,
           waitingOnInputRequestId: requestId,
+          tainted: staysTainted(),
         },
       );
       releaseBrowserRecordingRunFinalizing(saved.id);
@@ -890,6 +897,7 @@ async function prepareRoutineRun(
         proactiveReview,
         mailThreadId: proactiveApproval?.payload.origin.mailThreadId ?? null,
         mailHandoverId: proactiveApproval?.payload.origin.mailHandoverId ?? null,
+        tainted: saved.tainted === true,
       });
       // No model connected → skip cleanly.
       // Work already under way — a continuation, or a Run resuming after a
