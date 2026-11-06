@@ -7,6 +7,7 @@ import type { IncomingMessage } from "node:http";
 import type archiver from "archiver";
 import * as archiverRuntime from "archiver";
 import cron, { ScheduledTask } from "node-cron";
+import { In } from "typeorm";
 import { readZipFile, ZipReadError } from "../lib/zipFile.js";
 import { AppDataSource, optimizeSqliteStatistics } from "../db/datasource.js";
 import { bootMailSearchIndex, stopMailSearchIndex } from "./mail/searchIndex.js";
@@ -20,6 +21,7 @@ import {
   deliverBackupToDestinations,
   isBackupBeingCopied,
   isDeliveryRunning,
+  localFreeBytes,
   OffBoxRetention,
   releaseBackupCopy,
 } from "./backupDestinations.js";
@@ -29,6 +31,7 @@ import {
   copiesByBackup,
   deleteCopiesOfBackups,
   failCopiesInFlight,
+  formatBytes,
   markCopiesPending,
   recoverInterruptedCopies,
   serializeCopy,
@@ -868,6 +871,7 @@ async function runBackupInner(
   activeStagingPaths.add(stagingDbPath);
 
   try {
+    if (kind === "scheduled") await assertRoomForScheduledBackup();
     const snapshot = await snapshotSqlite(stagingDbPath);
     await writeZip(outPath, snapshot);
     // The archive is written and renamed into place, and nothing below reads
@@ -942,6 +946,45 @@ async function runBackupInner(
   }
 
   return row;
+}
+
+/**
+ * Refuse an automatic backup that can't fit, before it starts. One that ran out
+ * of room used to write for two hours and then fail, having filled the disk the
+ * database writes to in the meantime. A run needs room for a copy of the
+ * database and for its archive; the last archive stands in for the new one, so
+ * this only catches what clearly won't fit, and a backup can still run out of
+ * room part-way while the data grows.
+ *
+ * Only automatic backups ask. That last size goes stale after a clean-up, and
+ * an estimate must never stand between a person and a backup, or a restore and
+ * the safety snapshot it takes: Back up now tries regardless, and what it
+ * writes corrects the estimate.
+ */
+async function assertRoomForScheduledBackup(): Promise<void> {
+  const free = await localFreeBytes(backupDir());
+  if (free === null) return;
+  const last = await AppDataSource.getRepository(Backup).findOne({
+    where: { status: "completed", kind: In(["scheduled", "manual"]) },
+    order: { createdAt: "DESC" },
+  });
+  const needed = liveDatabaseBytes() + (last?.sizeBytes ?? 0);
+  if (free >= needed) return;
+  throw new Error(
+    `This server has ${formatBytes(free)} free, but this backup needs about ${formatBytes(needed)}, ` +
+      "going by the size of the database and of the last backup. " +
+      "Free some space, or keep fewer backups here under Advanced. Back up now tries regardless.",
+  );
+}
+
+/** The size of the SQLite file a snapshot copies page for page; 0 when there is none. */
+function liveDatabaseBytes(): number {
+  if (config.db.driver !== "sqlite") return 0;
+  try {
+    return fs.statSync(path.resolve(config.db.sqlitePath)).size;
+  } catch {
+    return 0;
+  }
 }
 
 /** How far better-sqlite3's backup has got: pages in the source, pages still to copy. */

@@ -21,6 +21,7 @@ import {
   resetInstanceSecretsCacheForTests,
 } from "../lib/instanceSecrets.js";
 import { AppDataSource } from "../db/datasource.js";
+import { Backup } from "../db/entities/Backup.js";
 import { BackupError } from "./backupErrors.js";
 import {
   backupDir,
@@ -121,6 +122,53 @@ describe("backup archive generation", () => {
       names.filter((name) => name.includes(".genosyn-git-fetch-") || name.endsWith("ssh-key")),
       [],
     );
+  });
+});
+
+describe("an automatic backup that can't fit", () => {
+  const LAST_ARCHIVE = "backup-2026-01-01-060000.zip";
+
+  /** A finished backup too large for any disk this test runs on. */
+  async function lastBackupLargerThanAnyDisk(kind: Backup["kind"] = "scheduled"): Promise<void> {
+    await AppDataSource.getRepository(Backup).save(
+      AppDataSource.getRepository(Backup).create({
+        filename: LAST_ARCHIVE,
+        kind,
+        status: "completed",
+        sizeBytes: 2 ** 52,
+        errorMessage: "",
+        completedAt: new Date(),
+      }),
+    );
+  }
+
+  test("fails at once, saying how much room it needs, and writes nothing", async () => {
+    await lastBackupLargerThanAnyDisk();
+    await assert.rejects(runBackup("scheduled"), /free, but this backup needs about/);
+
+    const failed = await AppDataSource.getRepository(Backup).findOneByOrFail({ status: "failed" });
+    assert.equal(failed.kind, "scheduled");
+    assert.match(failed.errorMessage, /This server has .* free, but this backup needs about/);
+    assert.match(failed.errorMessage, /Back up now tries regardless/);
+    assert.deepEqual(await fs.readdir(backupDir()), []);
+  });
+
+  test("Back up now tries regardless: that size goes stale after a clean-up", async () => {
+    await lastBackupLargerThanAnyDisk();
+    const backup = await runBackup("manual");
+    assert.equal(backup.status, "completed");
+    assert.ok(fsSync.existsSync(backupFilePath(backup.filename)));
+  });
+
+  test("an uploaded archive says nothing about the size of the next backup", async () => {
+    await lastBackupLargerThanAnyDisk("uploaded");
+    const backup = await runBackup("scheduled");
+    assert.equal(backup.status, "completed");
+  });
+
+  test("the first backup, with nothing to go by, runs", async () => {
+    const backup = await runBackup("scheduled");
+    assert.equal(backup.status, "completed");
   });
 });
 

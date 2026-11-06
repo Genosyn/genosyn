@@ -67,7 +67,9 @@ export function Backups() {
         <Code>Save</Code>. The hour is in the server&apos;s time zone, which the field names, and
         the card says when the next backup runs. Every automatic backup is copied to your off-box
         destinations as soon as it is written. If the server was down when one was due, it runs
-        when the server comes back.
+        when the server comes back. An automatic backup that clearly won&apos;t fit, going by the
+        size of the database and the last backup, fails straight away and says how much room it
+        needs; <Code>Back up now</Code> always tries.
       </P>
 
       <H2 id="off-box-destinations">Off-box destinations</H2>
