@@ -5,12 +5,12 @@
  * it and returns focus to the row, pushing back puts the cursor in the
  * comment box; a new project lands ready for its first todo; the board's `c`
  * no longer swallows `G` `C`; List/Board is remembered (never Board on a
- * phone); Enter in the project filter and in Notes' Quick find opens the top
+ * phone); Enter in the project filter and in Notes' Search pages opens the top
  * match; ⌥T creates a task from anywhere, a field or an open modal included,
- * and puts the cursor back; a new note page arrives with its title selected and
- * Enter moves to the body; the sidebar's + is reachable from the keyboard; a
- * work-session starter selects the part to fill in; and Enter adds a URL
- * resource. Each flow counts its clicks. Run with `npm run test:clicks-tasks`.
+ * and puts the cursor back; a new note page arrives with the caret in its empty
+ * title and Enter moves to the body; the sidebar's + is reachable from the
+ * keyboard; a work-session starter selects the part to fill in; and Enter adds a
+ * URL resource. Each flow counts its clicks. Run with `npm run test:clicks-tasks`.
  */
 import assert from "node:assert/strict";
 import type { Locator, Page } from "playwright-core";
@@ -677,6 +677,8 @@ function noteRoutes() {
   const routes: ApiRoute[] = [
     ["GET", `${API}/notebooks`, () => [handbook]],
     ["GET", `${API}/notes`, () => notes],
+    // Page text. Search pages matches titles by itself, which is all these flows use.
+    ["GET", `${API}/notes/search`, () => []],
     [
       "GET",
       /^\/api\/companies\/company\/notes\/([^/]+)$/,
@@ -703,28 +705,25 @@ function noteRoutes() {
     ["GET", /^\/api\/companies\/company\/notes\/([^/]+)\/(grants|access)$/, () => []],
     ["GET", /^\/api\/companies\/company\/tags.*/, () => []],
     ["GET", /^\/api\/companies\/company\/resource-tags.*/, () => []],
+    ["GET", /^\/api\/companies\/company\/history\/.*/, () => ({ items: [], nextCursor: null })],
   ];
   return { routes, notes };
 }
 
 await app.check(
-  "a new note page arrives with its title selected; type it, Enter, and keep writing",
+  "a new note page arrives with the caret in its empty title; type it, Enter, and keep writing",
   async () => {
     const { routes } = noteRoutes();
     const view = await app.open({ path: "/c/acme/notes/handbook", routes });
     const { page } = view;
     await page.getByText("Onboarding checklist").first().waitFor();
-    await view.click(page.getByRole("button", { name: "New page in this notebook" }).first());
+    await view.click(page.getByRole("button", { name: "New page in Handbook" }).first());
     const title = page.getByRole("textbox", { name: "Page title" });
     await waitForFocus(title, "the new page's title has focus");
-    assert.deepEqual(
-      await title.evaluate((el) => {
-        const input = el as HTMLInputElement;
-        return [input.selectionStart, input.selectionEnd, input.value.length];
-      }),
-      [0, "Untitled".length, "Untitled".length],
-      "the whole placeholder title is selected",
-    );
+    // The page is saved as "Untitled", but that is only a hint on screen: typing
+    // names it with nothing to select or clear first.
+    assert.equal(await title.inputValue(), "", "the title starts empty");
+    assert.equal(await title.getAttribute("placeholder"), "Untitled");
     await page.keyboard.type("Travel policy");
     await page.keyboard.press("Enter");
     await page.waitForFunction(
@@ -737,12 +736,14 @@ await app.check(
   },
 );
 
-await app.check("Quick find: type and press Enter to open the best match", async () => {
+await app.check("Search pages: type and press Enter to open the best match", async () => {
   const { routes } = noteRoutes();
   const view = await app.open({ path: "/c/acme/notes/handbook", routes });
   const { page } = view;
-  const find = page.getByRole("textbox", { name: "Quick find" });
+  const find = page.getByRole("textbox", { name: "Search pages" });
   await find.fill("expense");
+  // The field is there before the rail's pages load; Enter opens what is listed.
+  await page.getByRole("option").filter({ hasText: "Expense policy" }).waitFor();
   await find.press("Enter");
   await view.landedOn("/c/acme/notes/handbook/expenses");
   await page.getByRole("textbox", { name: "Page title" }).waitFor();
@@ -753,7 +754,7 @@ await app.check("Quick find: type and press Enter to open the best match", async
 await app.check("the sidebar's + is reachable from the keyboard and shown on touch", async () => {
   const { routes } = noteRoutes();
   const view = await app.open({ path: "/c/acme/notes/handbook", routes });
-  const add = view.page.getByRole("button", { name: "New page in this notebook" }).first();
+  const add = view.page.getByRole("button", { name: "New page in Handbook" }).first();
   // Hidden from the eye until hovered, but always in the tab order.
   assert.equal(await add.evaluate((el) => getComputedStyle(el).opacity), "0");
   await add.focus();
@@ -768,7 +769,7 @@ await app.check("the sidebar's + is reachable from the keyboard and shown on tou
     width: 1024,
     height: 768,
   });
-  const touchAdd = tablet.page.getByRole("button", { name: "New page in this notebook" }).first();
+  const touchAdd = tablet.page.getByRole("button", { name: "New page in Handbook" }).first();
   await touchAdd.waitFor({ state: "attached" });
   assert.equal(await touchAdd.evaluate((el) => getComputedStyle(el).opacity), "1");
   await tablet.page.close();
@@ -920,6 +921,8 @@ await app.check("Add resource: paste a URL and press Enter", async () => {
     bodyLength: 28,
     tags: [],
     tagList: [],
+    folderId: null,
+    folderPath: null,
     bytes: 2048,
     status: "ready",
     errorMessage: "",
@@ -931,9 +934,11 @@ await app.check("Add resource: paste a URL and press Enter", async () => {
   };
   const routes: ApiRoute[] = [
     ["GET", `${API}/resources`, () => []],
+    ["GET", `${API}/resource-folders`, () => ({ folders: [], unfiledCount: 0, maxDepth: 5 })],
     ["POST", `${API}/resources`, () => created],
     ["GET", /^\/api\/companies\/company\/resources\/pricing-guide.*/, () => created],
     ["GET", /^\/api\/companies\/company\/tags.*/, () => []],
+    ["GET", /^\/api\/companies\/company\/history\/.*/, () => ({ items: [], nextCursor: null })],
   ];
   const view = await app.open({ path: "/c/acme/resources", routes });
   const { page } = view;
@@ -948,6 +953,8 @@ await app.check("Add resource: paste a URL and press Enter", async () => {
     sourceKind: "url",
     url: "https://example.com/pricing",
     tagIds: [],
+    // Added from All resources, so it lands in no folder.
+    folderId: null,
   });
   assert.equal(view.clicks(), 1, "Paste a URL, paste, Enter: no Add click");
   await page.close();
