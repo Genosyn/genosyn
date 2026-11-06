@@ -359,6 +359,10 @@ export function Tasks() {
             def: "If it started a Repository work session and is waiting on that, the todo picks up when the session's turn ends, told how it went and about any pull request. A session that failed wakes it too.",
           },
           {
+            term: "A code or a fact only you have",
+            def: "If it needs something only a person has, like a code from your phone, the todo waits for you. It picks up when you press I'm ready or answer, with what it could already do. See When AI needs a person.",
+          },
+          {
             term: "A Decision or a review",
             def: "Raising a Decision, or proposing an email or work for review, makes the todo wait on it. When you answer, send, discard or decline, the same todo carries on and reports on its own thread. A sent email moves it on to waiting for the reply.",
           },
