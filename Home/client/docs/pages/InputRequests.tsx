@@ -113,7 +113,9 @@ export function InputRequests() {
           <Strong>Your code goes to one place.</Strong> The card shows the page&apos;s real address,
           read from the browser rather than written by the AI Employee. The code goes to that
           address and nowhere else. If the page has moved to another site by the time you answer,
-          it isn&apos;t typed.
+          it isn&apos;t typed. A box in a frame from another site is refused before anyone is asked,
+          and if anything takes the keyboard while your code is going in, typing stops there and
+          nothing is submitted.
         </LI>
         <LI>
           <Strong>It isn&apos;t kept.</Strong> A code waits, encrypted, only until the session
@@ -129,8 +131,9 @@ export function InputRequests() {
         </LI>
         <LI>
           <Strong>Answering grants nothing.</Strong> The work carries on with what it could already
-          do. Approvals, Grants and Policies apply as before, and a{" "}
-          <DocLink to="/docs/standdowns">Standdown</DocLink> still holds everything: pressing
+          do. Approvals, Grants and Policies apply as before, a Run that had read something from
+          outside your company still needs an Approval for its high-risk tools when it comes back,
+          and a <DocLink to="/docs/standdowns">Standdown</DocLink> still holds everything: pressing
           I&apos;m ready doesn&apos;t start work a Standdown has stopped.
         </LI>
         <LI>

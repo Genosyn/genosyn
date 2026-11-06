@@ -253,6 +253,9 @@ trusted-origin check, is in `App/server/index.ts`.
   the page and nothing else: the server must never put it in a model's tool result, a
   transcript, an audit row, a notification, a log, or any response, and it must go only to
   the origin the server read from the browser, shown to the person before they typed. A
+  key goes to whatever holds focus and a frame from another site can take focus, so a code
+  is typed a key at a time with the keyboard checked before each one: the single key that
+  raced a check reaching that frame is the limit, and more than that is a vulnerability. A
   page that displays a typed code back can show it in a browser snapshot, which is
   unfiltered by design, as for a Vault fill. An AI Employee can write what
   the card says and could try to talk a person into giving it a code for another site,

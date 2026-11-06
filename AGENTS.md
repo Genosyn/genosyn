@@ -555,8 +555,11 @@ waiting (`answerInputRequest` refuses, since it could only be a dead code); a co
 encrypted on the row only until the session holding the page takes it, is cleared by the
 sweep otherwise, and is never in a reply, transcript, audit row, notification or log; it
 goes only to the origin read from the browser when the page asked, never one the model
-named; answering grants nothing, so the work comes back with what it had (`authorityOf`,
-`ceilingOf`), and a Standdown still holds it; answering takes a person at a browser
+named, with its frame asked of the browser and not of the element, whose `ownerDocument`
+the page can redefine, and it's typed only through `humanTypeGuarded`, because a key goes
+to whatever holds focus; answering grants nothing, so the work comes back with what it
+had (`authorityOf`, `ceilingOf`, `Run.tainted`), and a Standdown still holds it; answering
+takes a person at a browser
 (`requireBrowserSession`), with no AI tool and no API key, since something that answers
 its own request has defeated the only reason to ask; and a browser needing Approval to
 submit takes an owner or admin. It is not a Decision or an Approval. Don't hold a code
