@@ -187,7 +187,9 @@ export function Backups() {
         <Strong>Technical detail</Strong>. A backup Genosyn was writing when it stopped — a
         restart, an upgrade, the server running out of memory — fails with that reason the next
         time Genosyn starts, instead of staying &quot;running&quot;; one that writes nothing for half
-        an hour is stopped as stuck.
+        an hour is stopped as stuck. A scheduled backup that didn&apos;t finish is tried again the
+        next time Genosyn starts, but it is started at most twice for each scheduled time; after
+        that it waits for the next one.
       </P>
       <P>
         A backup that is only on this server shows <Code>Copy off-box now</Code> right under it,

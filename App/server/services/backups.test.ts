@@ -32,6 +32,7 @@ import {
   runBackup,
   setSnapshotBusyLimitForTests,
   sweepOrphanedStagingArtifacts,
+  writeCentralDirectoryInSteps,
 } from "./backups.js";
 
 type MutableConfig = {
@@ -99,25 +100,32 @@ describe("backup archive generation", () => {
   });
 });
 
+/** An archive that only queues what it is handed, so a test decides when each file is read and written. */
+function queueingArchive() {
+  const queued: Array<{ name: string; source: Readable }> = [];
+  const entryListeners: Array<() => void> = [];
+  const archive = {
+    append(source: unknown, data?: { name?: string }) {
+      queued.push({ name: data?.name ?? "", source: source as Readable });
+      return archive as never;
+    },
+    on(_event: "entry", listener: () => void) {
+      entryListeners.push(listener);
+    },
+  };
+  const writeOne = () => {
+    for (const listener of entryListeners) listener();
+  };
+  return { archive, queued, writeOne };
+}
+
+async function readAll(source: Readable): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of source) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 describe("files that change while a backup is written", () => {
-  /** An archive that only queues what it is handed, so a test decides when each file is read. */
-  function queueingArchive() {
-    const queued: Array<{ name: string; source: Readable }> = [];
-    const archive = {
-      append(source: unknown, data?: { name?: string }) {
-        queued.push({ name: data?.name ?? "", source: source as Readable });
-        return archive as never;
-      },
-    };
-    return { archive, queued };
-  }
-
-  async function readAll(source: Readable): Promise<string> {
-    const chunks: Buffer[] = [];
-    for await (const chunk of source) chunks.push(chunk as Buffer);
-    return Buffer.concat(chunks).toString("utf8");
-  }
-
   test("leaves out a file deleted before its turn, and archives one deleted after it was opened", async () => {
     const dir = path.join(tempDir, "companies", "release-lab");
     const [recording, reflog, notes] = ["recording.mp4.part", "reflog", "notes.txt"].map((name) =>
@@ -126,7 +134,7 @@ describe("files that change while a backup is written", () => {
     await fs.writeFile(recording, "recording");
     await fs.writeFile(reflog, "reflog");
     await fs.writeFile(notes, "notes");
-    const { archive, queued } = queueingArchive();
+    const { archive, queued, writeOne } = queueingArchive();
     const files = openFilesAhead(archive, 2);
 
     await files.add(recording, "recording.mp4.part");
@@ -143,6 +151,7 @@ describe("files that change while a backup is written", () => {
     assert.equal(thirdAdded, false);
 
     assert.equal(await readAll(queued[0].source), "recording");
+    writeOne();
     await third;
 
     assert.deepEqual(
@@ -208,6 +217,153 @@ describe("files that change while a backup is written", () => {
     );
     assert.equal(queued[0].source.destroyed, true);
   });
+});
+
+/**
+ * What a backup holds in memory.
+ *
+ * One install restarted every 90 minutes for a week, with `JavaScript heap out
+ * of memory`, and every Run in flight ended in error each time. The archive was
+ * nearly written when it happened, and each boot started the backup again. Two
+ * things grew with the number of files, and only their sum hit the limit: the
+ * walk ran ahead of the compressor without bound, because a small file is read
+ * whole and closes long before it is written; and ending the archive queued
+ * about 20 small writes per file in one synchronous loop.
+ */
+describe("the memory a backup holds", () => {
+  function newArchive(options?: archiver.ArchiverOptions): archiver.Archiver {
+    return new (
+      archiverRuntime as unknown as {
+        ZipArchive: new (options?: archiver.ArchiverOptions) => archiver.Archiver;
+      }
+    ).ZipArchive(options);
+  }
+
+  /** Pipe `archive` to a file at `zipPath`; settles once the file is closed. */
+  function writeTo(archive: archiver.Archiver, zipPath: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const output = fsSync
+        .createWriteStream(zipPath)
+        .on("close", () => resolve())
+        .on("error", reject);
+      archive.on("error", reject);
+      archive.pipe(output);
+    });
+  }
+
+  test("a small file keeps its place until the archive has written it", async () => {
+    const dir = path.join(tempDir, "companies", "release-lab");
+    const [first, second] = ["first.txt", "second.txt"].map((name) => path.join(dir, name));
+    await fs.writeFile(first, "first");
+    await fs.writeFile(second, "second");
+    const { archive, queued, writeOne } = queueingArchive();
+    const files = openFilesAhead(archive, 1);
+
+    await files.add(first, "first.txt");
+    // Read whole and closed, which is all the archive's buffers need of a small
+    // file: it is still only in memory, waiting for its turn to be compressed.
+    assert.equal(await readAll(queued[0].source), "first");
+    assert.equal(queued[0].source.destroyed, true);
+
+    let secondAdded = false;
+    const next = files.add(second, "second.txt").then(() => {
+      secondAdded = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(secondAdded, false, "the walk ran ahead of what the archive had written");
+
+    writeOne();
+    await next;
+    assert.equal(queued.length, 2);
+  });
+
+  test("the walk stays within the limit of a real archive", async () => {
+    const dir = path.join(tempDir, "companies", "release-lab", "checkout");
+    await fs.mkdir(dir, { recursive: true });
+    const count = 300;
+    await Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        fs.writeFile(path.join(dir, `file-${i}.txt`), `file ${i}`),
+      ),
+    );
+    const zipPath = path.join(tempDir, "checkout.zip");
+    const archive = newArchive();
+    const written = writeTo(archive, zipPath);
+    let handedOver = 0;
+    let archived = 0;
+    let furthestAhead = 0;
+    const append = archive.append.bind(archive);
+    archive.append = ((...args: Parameters<typeof append>) => {
+      handedOver += 1;
+      furthestAhead = Math.max(furthestAhead, handedOver - archived);
+      return append(...args);
+    }) as typeof archive.append;
+    archive.on("entry", () => {
+      archived += 1;
+    });
+    const ahead = 4;
+    const files = openFilesAhead(archive, ahead);
+
+    for (let i = 0; i < count; i += 1) {
+      await files.add(path.join(dir, `file-${i}.txt`), `file-${i}.txt`);
+    }
+    await archive.finalize();
+    await written;
+
+    assert.ok(furthestAhead <= ahead, `the walk got ${furthestAhead} files ahead of the archive`);
+    assert.equal((await archiveEntries(zipPath)).length, count);
+    assert.equal(await archiveText(zipPath, `file-${count - 1}.txt`), `file ${count - 1}`);
+  });
+
+  for (const forceZip64 of [false, true]) {
+    test(`writes the central directory only as fast as the disk takes it${forceZip64 ? ", in zip64" : ""}`, async () => {
+      const zipPath = path.join(tempDir, "many.zip");
+      // A smaller buffer than the 1 MB default, so that a few thousand entries
+      // are many times what the stream is meant to hold.
+      const archive = newArchive({ store: true, forceZip64, highWaterMark: 4 * 1024 });
+      writeCentralDirectoryInSteps(archive);
+      // The private names writeCentralDirectoryInSteps relies on: this is the
+      // test that fails if an upgrade of archiver changes them.
+      const engine = (
+        archive as unknown as {
+          _module: {
+            engine: {
+              isZip64(): boolean;
+              writableLength: number;
+              writableHighWaterMark: number;
+              _writeCentralFileHeader(entry: unknown): void;
+            };
+          };
+        }
+      )._module.engine;
+      let headers = 0;
+      let mostQueued = 0;
+      const writeHeader = engine._writeCentralFileHeader.bind(engine);
+      engine._writeCentralFileHeader = (entry) => {
+        writeHeader(entry);
+        headers += 1;
+        mostQueued = Math.max(mostQueued, engine.writableLength);
+      };
+      const written = writeTo(archive, zipPath);
+      const count = 3000;
+      for (let i = 0; i < count; i += 1) {
+        archive.append(Buffer.from(`file ${i}`), { name: `dir/file-${i}.txt` });
+      }
+
+      await archive.finalize();
+      await written;
+
+      assert.equal(headers, count);
+      assert.equal(engine.isZip64(), forceZip64);
+      assert.ok(
+        mostQueued <= 2 * engine.writableHighWaterMark,
+        `${mostQueued} bytes of central directory queued at once`,
+      );
+      const entries = await archiveEntries(zipPath);
+      assert.equal(entries.length, count);
+      assert.equal(await archiveText(zipPath, `dir/file-${count - 1}.txt`), `file ${count - 1}`);
+    });
+  }
 });
 
 /**

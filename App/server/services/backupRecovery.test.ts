@@ -6,15 +6,20 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { Backup } from "../db/entities/Backup.js";
+import { BackupSchedule } from "../db/entities/BackupSchedule.js";
 import { resetInstanceSecretsCacheForTests } from "../lib/instanceSecrets.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import {
   BACKUP_INTERRUPTED_MESSAGE,
   INTERRUPTED_UNREADABLE_MESSAGE,
   UPLOAD_INTERRUPTED_MESSAGE,
+  applyBackupSchedule,
   backupFilePath,
   bootBackups,
+  getBackupSchedule,
+  isBackupRunning,
   listBackupHistory,
+  previousScheduledFireTime,
   runBackup,
   watchForStall,
 } from "./backups.js";
@@ -87,7 +92,11 @@ function archiveName(at: Date): string {
 
 /** A row left `running` by a process that stopped, `daysAgo` days ago. */
 async function zombie(daysAgo: number, values: Partial<Backup> = {}): Promise<Backup> {
-  const at = new Date(Date.now() - daysAgo * DAY_MS);
+  return zombieFrom(new Date(Date.now() - daysAgo * DAY_MS), values);
+}
+
+/** A row left `running` by a process that stopped, started at `at`. */
+async function zombieFrom(at: Date, values: Partial<Backup> = {}): Promise<Backup> {
   const row = await insert(Backup, {
     filename: archiveName(at),
     kind: "scheduled",
@@ -280,5 +289,75 @@ describe("a write that stops moving is stopped", () => {
     const backup = await runBackup("manual");
     assert.equal(backup.status, "completed");
     assert.equal(backup.errorMessage, "");
+  });
+});
+
+/**
+ * Only a backup that finishes moves `lastRunAt`, so one that took the process
+ * down with it was started again by every boot: one install restarted every 90
+ * minutes for a week, and every Run in flight ended in error each time.
+ */
+describe("a scheduled backup that does not finish", () => {
+  /** A daily schedule last met days ago. Resolves to the run boot finds missed. */
+  async function overdueSchedule(): Promise<Date> {
+    const sched = await getBackupSchedule();
+    Object.assign(sched, {
+      enabled: true,
+      frequency: "daily",
+      hour: 3,
+      lastRunAt: new Date(Date.now() - 3 * DAY_MS),
+    });
+    await AppDataSource.getRepository(BackupSchedule).save(sched);
+    return previousScheduledFireTime(sched, new Date());
+  }
+
+  /** Boot, and wait for any catch-up backup it starts. Resolves to how many ran. */
+  async function bootAndCount(): Promise<number> {
+    const repo = AppDataSource.getRepository(Backup);
+    const before = await repo.countBy({ kind: "scheduled" });
+    try {
+      await withSqlite(async () => {
+        await bootBackups();
+        while (isBackupRunning()) await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+    } finally {
+      applyBackupSchedule({ enabled: false } as BackupSchedule);
+    }
+    return (await repo.countBy({ kind: "scheduled" })) - before;
+  }
+
+  test("is started again after a restart interrupts it", async () => {
+    const dueAt = await overdueSchedule();
+    // At the very moment it was due, which is when the schedule starts it.
+    const interrupted = await zombieFrom(dueAt);
+
+    assert.equal(await bootAndCount(), 1);
+    assert.equal((await reload(interrupted)).errorMessage, BACKUP_INTERRUPTED_MESSAGE);
+  });
+
+  test("waits for the next scheduled run once it has been started twice", async () => {
+    const dueAt = await overdueSchedule();
+    await zombieFrom(dueAt);
+    await zombieFrom(new Date(dueAt.getTime() + 60_000));
+
+    assert.equal(await bootAndCount(), 0);
+  });
+
+  test("attempts at an earlier run, and backups nobody scheduled, don't count", async () => {
+    const dueAt = await overdueSchedule();
+    await zombieFrom(new Date(dueAt.getTime() - DAY_MS));
+    await zombieFrom(new Date(dueAt.getTime() - 60_000));
+    await zombieFrom(new Date(dueAt.getTime() + 60_000), { kind: "manual" });
+
+    assert.equal(await bootAndCount(), 1);
+  });
+
+  test("a new day's run is started as usual after the last day's stopped twice", async () => {
+    const dueAt = await overdueSchedule();
+    await zombieFrom(new Date(dueAt.getTime() - DAY_MS));
+    await zombieFrom(new Date(dueAt.getTime() - DAY_MS + 60_000));
+    await zombieFrom(dueAt);
+
+    assert.equal(await bootAndCount(), 1);
   });
 });
