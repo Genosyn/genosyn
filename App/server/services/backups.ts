@@ -663,6 +663,26 @@ async function pruneOldBackupsInner(): Promise<number> {
 }
 
 /**
+ * How many times one scheduled backup is started before it waits for the next.
+ * A restart that merely interrupts a backup gets it taken again, but only a
+ * backup that finishes moves `lastRunAt`, so one that takes the process down
+ * with it would otherwise be started by every boot for as long as it kept doing
+ * so: one install restarted every 90 minutes for a week, losing the Runs in
+ * flight each time.
+ */
+const MAX_ATTEMPTS_PER_SCHEDULED_BACKUP = 2;
+
+/** How many scheduled backups have started since the one due at `dueAt`, up to the limit. */
+async function attemptsSince(dueAt: Date): Promise<number> {
+  const latest = await AppDataSource.getRepository(Backup).find({
+    where: { kind: "scheduled" },
+    order: { createdAt: "DESC" },
+    take: MAX_ATTEMPTS_PER_SCHEDULED_BACKUP,
+  });
+  return latest.filter((row) => row.createdAt.getTime() >= dueAt.getTime()).length;
+}
+
+/**
  * If the schedule was supposed to fire while the server was down, run a
  * catch-up backup now. Compares the most recent expected fire time against
  * `lastRunAt` (or `updatedAt` for a freshly-enabled schedule that has never
@@ -675,6 +695,13 @@ async function maybeRunMissedBackup(sched: BackupSchedule): Promise<void> {
   const expected = previousScheduledFireTime(sched, now);
   const baseline = sched.lastRunAt ?? sched.updatedAt;
   if (!baseline || expected.getTime() <= baseline.getTime()) return;
+  if ((await attemptsSince(expected)) >= MAX_ATTEMPTS_PER_SCHEDULED_BACKUP) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[backups] the backup due at ${expected.toISOString()} was started ${MAX_ATTEMPTS_PER_SCHEDULED_BACKUP} times without finishing; waiting for the next scheduled run`,
+    );
+    return;
+  }
   // eslint-disable-next-line no-console
   console.log(
     `[backups] missed scheduled run at ${expected.toISOString()}; running catch-up backup`,
@@ -1037,6 +1064,7 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
     const partPath = `${outPath}${PART_SUFFIX}`;
     const output = createWriteStream(partPath, { mode: 0o600 });
     const archive = new ZipArchive({ zlib: { level: 9 } });
+    writeCentralDirectoryInSteps(archive);
     const files = openFilesAhead(archive);
     const walked = { entries: 0 };
 
@@ -1175,12 +1203,21 @@ export type FilesAhead = {
  * fetch` pruning a ref in an AI Employee's checkout. Opened here instead, a
  * file already gone is left out, like one deleted before the backup began,
  * and one that is open stays readable to the end whatever happens to its name.
+ *
+ * A file keeps its place in the limit until the archive has written it, not
+ * until its stream closes. A file small enough for the buffers between it and
+ * the archive is read whole and closes at once, which is nearly every file in a
+ * checkout, so counting open streams bounded nothing: the walk ran tens of
+ * thousands of files ahead of the compressor, each one's contents in memory.
  */
 export function openFilesAhead(
-  archive: Pick<archiver.Archiver, "append">,
+  archive: Pick<archiver.Archiver, "append"> & {
+    on(event: "entry", listener: () => void): unknown;
+  },
   ahead = FILES_OPENED_AHEAD,
 ): FilesAhead {
-  const waiting = new Set<fs.ReadStream>();
+  const open = new Set<fs.ReadStream>();
+  let unwritten = 0;
   let wake: (() => void) | null = null;
   let closed = false;
   const resume = () => {
@@ -1188,12 +1225,17 @@ export function openFilesAhead(
     wake = null;
     next?.();
   };
+  archive.on("entry", () => {
+    // The database snapshot is queued without coming through here.
+    unwritten = Math.max(0, unwritten - 1);
+    resume();
+  });
   return {
     get closed() {
       return closed;
     },
     async add(absPath, name) {
-      while (waiting.size >= ahead && !closed) {
+      while (unwritten >= ahead && !closed) {
         await new Promise<void>((resolve) => {
           wake = resolve;
         });
@@ -1219,19 +1261,79 @@ export function openFilesAhead(
         return;
       }
       const stream = handle.createReadStream();
-      waiting.add(stream);
-      stream.once("close", () => {
-        waiting.delete(stream);
-        resume();
-      });
+      open.add(stream);
+      stream.once("close", () => open.delete(stream));
+      unwritten += 1;
       archive.append(stream, { name, stats });
     },
     close() {
       closed = true;
-      for (const stream of waiting) stream.destroy();
-      waiting.clear();
+      for (const stream of open) stream.destroy();
+      open.clear();
       resume();
     },
+  };
+}
+
+/** What {@link writeCentralDirectoryInSteps} uses of archiver's zip engine. */
+type ZipEngine = {
+  _archive: {
+    centralOffset: number;
+    centralLength: number;
+    processing: boolean;
+    finish: boolean;
+    finished: boolean;
+  };
+  _entries: unknown[];
+  offset: number;
+  writableNeedDrain: boolean;
+  isZip64(): boolean;
+  _finish(): void;
+  _writeCentralFileHeader(entry: unknown): void;
+  _writeCentralDirectoryZip64(): void;
+  _writeCentralDirectoryEnd(): void;
+  once(event: "drain", listener: () => void): unknown;
+  end(): unknown;
+};
+
+/**
+ * Has `archive` write its central directory a step at a time.
+ *
+ * archiver's zip engine ends an archive with one synchronous loop of about 20
+ * small writes for each file, however full the stream behind them is. Nothing
+ * can drain until the loop returns, so every write stays on the heap: about
+ * 4 KB a file. Past roughly 800,000 files that is all the heap Node gives a
+ * process, so the last moment of the backup killed the app, and every Run in
+ * flight with it, and the next boot started the backup again.
+ *
+ * This is the method it replaces, in the same order, waiting whenever the stream
+ * asks it to. The names are private to compress-commons, whose version the
+ * lockfile pins; backups.test.ts fails if they change.
+ */
+export function writeCentralDirectoryInSteps(archive: archiver.Archiver): void {
+  const engine = (archive as unknown as { _module: { engine: ZipEngine } })._module.engine;
+  engine._finish = () => {
+    const state = engine._archive;
+    state.centralOffset = engine.offset;
+    let next = 0;
+    const writeMore = () => {
+      while (next < engine._entries.length) {
+        engine._writeCentralFileHeader(engine._entries[next]);
+        next += 1;
+        if (engine.writableNeedDrain) {
+          engine.once("drain", writeMore);
+          return;
+        }
+      }
+      state.centralLength = engine.offset - state.centralOffset;
+      if (engine.isZip64()) engine._writeCentralDirectoryZip64();
+      engine._writeCentralDirectoryEnd();
+      state.processing = false;
+      state.finish = true;
+      state.finished = true;
+      engine.end();
+    };
+    writeMore();
   };
 }
 
