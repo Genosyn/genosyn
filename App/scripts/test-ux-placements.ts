@@ -120,6 +120,7 @@ const SETTINGS_EVERYDAY = [
   "Company",
   "Members",
   "Teams",
+  "AI Models",
   "Policies",
   "Usage",
   "Integrations",
