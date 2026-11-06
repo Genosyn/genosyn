@@ -248,6 +248,16 @@ export function Introduction() {
         <DocLink to="/docs/email">Email</DocLink> section.
       </P>
       <P>
+        <Strong>Each column can be the width you want.</Strong> Drag the right edge of a sidebar,
+        including the conversation lists in Chat, Workspace and Help, to make it wider or narrower.
+        Panels that dock beside a page drag from their left edge: a{" "}
+        <DocLink to="/docs/tasks">todo</DocLink>, <DocLink to="/docs/ask-ai">Ask AI</DocLink>, and
+        the live browser and repository work in chat. Press <Code>Tab</Code> to reach an edge and the
+        arrow keys move it, further with <Code>Shift</Code>. A column stops before the page beside it
+        becomes too narrow to read, gives way when the window gets smaller, and comes back when there
+        is room. This browser remembers each width.
+      </P>
+      <P>
         For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{" "}
         <Code>G H</Code> opens Home, <Code>G E</Code> opens AI Employees, and <Code>G R</Code> opens
         Routines. A few pages use a symbol instead; master admins open Admin with <Code>G =</Code>.

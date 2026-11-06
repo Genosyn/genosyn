@@ -2,37 +2,36 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  clampSidePanelWidth,
-  initialSidePanelWidth,
-  maxSidePanelWidth,
-  nudgedSidePanelWidth,
-  readStoredSidePanelWidth,
-  sidePanelChromeWidth,
-  writeStoredSidePanelWidth,
+  APP_PANEL_MAX_WIDTH,
+  draggedWidth,
+  fitWidth,
+  nudgedWidth,
+  RAIL_DEFAULT_WIDTH,
+  RAIL_MAX_WIDTH,
+  RAIL_MAX_WIDTH_IN_ROW,
+  RAIL_MIN_WIDTH,
+  readStoredWidth,
+  SIDE_PANEL_BESIDE_RAIL_MAX_WIDTH,
   SIDE_PANEL_DEFAULT_WIDTH,
+  SIDE_PANEL_MAX_WIDTH,
   SIDE_PANEL_MIN_COMPANION_WIDTH,
   SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT,
   SIDE_PANEL_MIN_WIDTH,
-  type SidePanelWidthStorage,
+  writeStoredWidth,
+  type WidthStorage,
 } from "./sidePanelWidth";
 
 /**
- * The arithmetic behind a docked panel's width. It is small enough to look
- * obviously right and has been wrong in every one of these ways: a panel that
- * ate the conversation, a stored width from a desktop monitor squashing a
- * laptop, an arrow key that resized the wrong way, and — the one that keeps
- * coming back — measuring against the window rather than against the space
- * the page has actually left over.
- *
- * Chat sits behind two fixed `w-64` rails from `md` up (the app's contextual
- * sidebar and the conversation list), so the numbers below are written out in
- * full rather than derived from the implementation: a test that recomputes the
- * formula it is checking cannot notice the formula being wrong.
+ * The arithmetic behind a column a person drags. It is small enough to look
+ * obviously right and has been wrong in these ways: a stored width from a
+ * desktop monitor squashing a laptop, an arrow key that resized the wrong way,
+ * and — the one that keeps coming back — measuring against the window rather
+ * than against the space the page has actually left over. That last one is why
+ * the limits are CSS: `scripts/test-panel-widths.ts` drags the real thing in
+ * Chrome, and these pin the expressions it depends on.
  */
 
-const RAILS = 512;
-
-function fakeStorage(initial: Record<string, string> = {}): SidePanelWidthStorage & {
+function fakeStorage(initial: Record<string, string> = {}): WidthStorage & {
   values: Record<string, string>;
 } {
   const values = { ...initial };
@@ -45,7 +44,7 @@ function fakeStorage(initial: Record<string, string> = {}): SidePanelWidthStorag
   };
 }
 
-function hostileStorage(): SidePanelWidthStorage {
+function hostileStorage(): WidthStorage {
   return {
     getItem() {
       throw new Error("storage is disabled");
@@ -56,202 +55,166 @@ function hostileStorage(): SidePanelWidthStorage {
   };
 }
 
-describe("sidePanelChromeWidth", () => {
-  test("counts both of chat's rails once they are showing", () => {
-    assert.equal(sidePanelChromeWidth(1440), RAILS);
-    assert.equal(sidePanelChromeWidth(768), RAILS);
-  });
-
-  test("counts nothing below the breakpoint that shows them", () => {
-    assert.equal(sidePanelChromeWidth(767), 0);
-    assert.equal(sidePanelChromeWidth(375), 0);
-  });
-});
-
-describe("maxSidePanelWidth", () => {
-  test("leaves the rails and a readable conversation alone", () => {
-    assert.equal(maxSidePanelWidth(1920), 1048); // 1920 - 512 - 360
-    assert.equal(maxSidePanelWidth(1440), 568);
-    assert.equal(maxSidePanelWidth(1280), 408);
-  });
-
-  test("stops counting the rails once chat has stopped showing them", () => {
-    assert.equal(maxSidePanelWidth(767), 407); // 767 - 0 - 360
-  });
-
-  test("never returns less than a usable panel", () => {
-    assert.equal(maxSidePanelWidth(1024), SIDE_PANEL_MIN_WIDTH);
-    assert.equal(maxSidePanelWidth(900), SIDE_PANEL_MIN_WIDTH);
-    assert.equal(maxSidePanelWidth(375), SIDE_PANEL_MIN_WIDTH);
-  });
-});
-
 describe("SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT", () => {
-  test("is the narrowest window where everything fits at its minimum", () => {
-    assert.equal(SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT, 1232); // 512 + 360 + 360
+  test("is the narrowest window where everything fits at its usual size", () => {
+    assert.equal(SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT, 1232); // 256 + 256 + 360 + 360
   });
 
-  test("is exactly where the panel stops having to be squeezed", () => {
-    // At the threshold the panel gets its minimum and the conversation gets
-    // its minimum. One pixel below, something would have to give.
-    assert.equal(maxSidePanelWidth(SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT), SIDE_PANEL_MIN_WIDTH);
+  test("is exactly where Ask AI stops having to be squeezed beside a usual rail", () => {
+    // At the threshold, what Ask AI's max-width leaves is its minimum.
     assert.equal(
-      SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT - RAILS - SIDE_PANEL_MIN_WIDTH,
-      SIDE_PANEL_MIN_COMPANION_WIDTH,
+      SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT -
+        RAIL_DEFAULT_WIDTH -
+        (RAIL_DEFAULT_WIDTH + SIDE_PANEL_MIN_COMPANION_WIDTH),
+      SIDE_PANEL_MIN_WIDTH,
     );
   });
 });
 
-describe("clampSidePanelWidth", () => {
-  test("leaves a comfortable width alone", () => {
-    assert.equal(clampSidePanelWidth(520, 1920), 520);
+describe("the limits a column meets on screen", () => {
+  test("a panel leaves the page beside it a readable column", () => {
+    assert.equal(SIDE_PANEL_MAX_WIDTH, "calc(100% - 360px)");
   });
 
-  test("never takes the conversation below its minimum", () => {
-    assert.equal(clampSidePanelWidth(1200, 1280), 408);
-    assert.equal(clampSidePanelWidth(700, 1440), 568);
+  test("a panel sharing its row with a rail leaves room for the rail as well", () => {
+    assert.equal(SIDE_PANEL_BESIDE_RAIL_MAX_WIDTH, "calc(100% - var(--rail-width, 0px) - 360px)");
   });
 
-  test("a width remembered from a wide monitor does not squash a laptop", () => {
-    assert.equal(clampSidePanelWidth(900, 1280), 408);
+  test("Ask AI also leaves room for a column inside the page", () => {
+    assert.equal(APP_PANEL_MAX_WIDTH, "calc(100% - var(--rail-width, 0px) - 616px)");
   });
 
-  test("never shrinks below a usable panel", () => {
-    assert.equal(clampSidePanelWidth(80, 1920), SIDE_PANEL_MIN_WIDTH);
-    assert.equal(clampSidePanelWidth(-10, 1920), SIDE_PANEL_MIN_WIDTH);
+  test("a rail stops at its maximum, or sooner on a narrow window", () => {
+    assert.equal(RAIL_MAX_WIDTH_IN_ROW, "min(480px, calc(100% - 360px))");
   });
 
-  test("keeps the panel usable when the window cannot fit both", () => {
-    // Better one readable column than two slivers; at these sizes the caller
-    // takes the whole screen anyway.
-    assert.equal(clampSidePanelWidth(500, 900), SIDE_PANEL_MIN_WIDTH);
-    assert.equal(clampSidePanelWidth(200, 375), SIDE_PANEL_MIN_WIDTH);
-  });
-
-  test("is exact at the boundary", () => {
-    const viewport = SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT;
-    assert.equal(clampSidePanelWidth(SIDE_PANEL_MIN_WIDTH, viewport), SIDE_PANEL_MIN_WIDTH);
-    assert.equal(clampSidePanelWidth(SIDE_PANEL_MIN_WIDTH + 1, viewport), SIDE_PANEL_MIN_WIDTH);
-  });
-
-  test("leaves the width alone when there is no window to measure", () => {
-    assert.equal(clampSidePanelWidth(9000, null), 9000);
-    assert.equal(clampSidePanelWidth(9000, Number.NaN), 9000);
+  test("a rail's usual width is inside the range it can be dragged across", () => {
+    assert.ok(RAIL_MIN_WIDTH < RAIL_DEFAULT_WIDTH && RAIL_DEFAULT_WIDTH < RAIL_MAX_WIDTH);
   });
 });
 
-describe("readStoredSidePanelWidth", () => {
+describe("fitWidth", () => {
+  test("leaves a width in range alone", () => {
+    assert.equal(fitWidth(300, RAIL_MIN_WIDTH, RAIL_MAX_WIDTH), 300);
+  });
+
+  test("stops at either end", () => {
+    assert.equal(fitWidth(80, RAIL_MIN_WIDTH, RAIL_MAX_WIDTH), RAIL_MIN_WIDTH);
+    assert.equal(fitWidth(-10, RAIL_MIN_WIDTH, RAIL_MAX_WIDTH), RAIL_MIN_WIDTH);
+    assert.equal(fitWidth(900, RAIL_MIN_WIDTH, RAIL_MAX_WIDTH), RAIL_MAX_WIDTH);
+  });
+
+  test("has no ceiling of its own unless given one", () => {
+    assert.equal(fitWidth(9000, SIDE_PANEL_MIN_WIDTH), 9000);
+    assert.equal(fitWidth(80, SIDE_PANEL_MIN_WIDTH), SIDE_PANEL_MIN_WIDTH);
+  });
+});
+
+describe("readStoredWidth", () => {
+  const read = (storage: WidthStorage | null | undefined) =>
+    readStoredWidth(storage, "w", SIDE_PANEL_DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH);
+
   test("returns the remembered width", () => {
-    assert.equal(readStoredSidePanelWidth(fakeStorage({ w: "640" }), "w"), 640);
+    assert.equal(read(fakeStorage({ w: "640" })), 640);
   });
 
   test("falls back when nothing has been stored", () => {
-    assert.equal(readStoredSidePanelWidth(fakeStorage(), "w"), SIDE_PANEL_DEFAULT_WIDTH);
-    assert.equal(readStoredSidePanelWidth(fakeStorage({ w: "" }), "w"), SIDE_PANEL_DEFAULT_WIDTH);
+    assert.equal(read(fakeStorage()), SIDE_PANEL_DEFAULT_WIDTH);
+    assert.equal(read(fakeStorage({ w: "" })), SIDE_PANEL_DEFAULT_WIDTH);
   });
 
   test("ignores a value that is not a width", () => {
     for (const raw of ["wide", "NaN", "{}", "-40"]) {
-      assert.equal(
-        readStoredSidePanelWidth(fakeStorage({ w: raw }), "w"),
-        SIDE_PANEL_DEFAULT_WIDTH,
-        raw,
-      );
+      assert.equal(read(fakeStorage({ w: raw })), SIDE_PANEL_DEFAULT_WIDTH, raw);
     }
   });
 
-  test("ignores a stored width narrower than a panel should be", () => {
-    assert.equal(readStoredSidePanelWidth(fakeStorage({ w: "40" }), "w"), SIDE_PANEL_DEFAULT_WIDTH);
+  test("ignores a stored width narrower than the column should be", () => {
+    assert.equal(read(fakeStorage({ w: "40" })), SIDE_PANEL_DEFAULT_WIDTH);
+  });
+
+  test("a minimum is the column's own: a rail may be narrower than a panel", () => {
+    const storage = fakeStorage({ w: "220" });
+    assert.equal(read(storage), SIDE_PANEL_DEFAULT_WIDTH);
+    assert.equal(readStoredWidth(storage, "w", RAIL_DEFAULT_WIDTH, RAIL_MIN_WIDTH), 220);
+  });
+
+  test("brings a width past the column's maximum back to it", () => {
+    assert.equal(
+      readStoredWidth(
+        fakeStorage({ w: "900" }),
+        "w",
+        RAIL_DEFAULT_WIDTH,
+        RAIL_MIN_WIDTH,
+        RAIL_MAX_WIDTH,
+      ),
+      RAIL_MAX_WIDTH,
+    );
   });
 
   test("honours a caller's own fallback", () => {
-    assert.equal(readStoredSidePanelWidth(fakeStorage(), "w", 700), 700);
+    assert.equal(readStoredWidth(fakeStorage(), "w", 700, SIDE_PANEL_MIN_WIDTH), 700);
   });
 
   test("survives storage being unavailable or disabled", () => {
-    assert.equal(readStoredSidePanelWidth(null, "w"), SIDE_PANEL_DEFAULT_WIDTH);
-    assert.equal(readStoredSidePanelWidth(undefined, "w"), SIDE_PANEL_DEFAULT_WIDTH);
-    assert.equal(readStoredSidePanelWidth(hostileStorage(), "w"), SIDE_PANEL_DEFAULT_WIDTH);
+    assert.equal(read(null), SIDE_PANEL_DEFAULT_WIDTH);
+    assert.equal(read(undefined), SIDE_PANEL_DEFAULT_WIDTH);
+    assert.equal(read(hostileStorage()), SIDE_PANEL_DEFAULT_WIDTH);
   });
 
   test("reads back what was written", () => {
     const storage = fakeStorage();
-    writeStoredSidePanelWidth(storage, "w", 612.6);
-    assert.equal(readStoredSidePanelWidth(storage, "w"), 613);
+    writeStoredWidth(storage, "w", 612.6);
+    assert.equal(read(storage), 613);
   });
 });
 
-describe("initialSidePanelWidth", () => {
-  test("opens at the width it was left at when that still fits", () => {
-    assert.equal(
-      initialSidePanelWidth(fakeStorage({ w: "700" }), "w", SIDE_PANEL_DEFAULT_WIDTH, 1920),
-      700,
-    );
-  });
-
-  test("fits a width remembered from a bigger monitor to this one", () => {
-    // The whole point of the mount-time fit: 900 was legal on 1920 and is not
-    // on 1280, and the panel must not open squashing the conversation.
-    assert.equal(
-      initialSidePanelWidth(fakeStorage({ w: "900" }), "w", SIDE_PANEL_DEFAULT_WIDTH, 1280),
-      408,
-    );
-  });
-
-  test("fits the default too, on a window the default does not suit", () => {
-    assert.equal(initialSidePanelWidth(fakeStorage(), "w", SIDE_PANEL_DEFAULT_WIDTH, 1280), 408);
-    assert.equal(initialSidePanelWidth(fakeStorage(), "w", SIDE_PANEL_DEFAULT_WIDTH, 1920), 520);
-  });
-
-  test("falls back to the default when storage is unusable", () => {
-    assert.equal(
-      initialSidePanelWidth(hostileStorage(), "w", SIDE_PANEL_DEFAULT_WIDTH, 1920),
-      SIDE_PANEL_DEFAULT_WIDTH,
-    );
-    assert.equal(
-      initialSidePanelWidth(null, "w", SIDE_PANEL_DEFAULT_WIDTH, null),
-      SIDE_PANEL_DEFAULT_WIDTH,
-    );
-  });
-});
-
-describe("writeStoredSidePanelWidth", () => {
+describe("writeStoredWidth", () => {
   test("stores whole pixels", () => {
     const storage = fakeStorage();
-    writeStoredSidePanelWidth(storage, "w", 480.4);
+    writeStoredWidth(storage, "w", 480.4);
     assert.equal(storage.values.w, "480");
   });
 
   test("does not throw when storage refuses", () => {
-    assert.doesNotThrow(() => writeStoredSidePanelWidth(hostileStorage(), "w", 480));
-    assert.doesNotThrow(() => writeStoredSidePanelWidth(null, "w", 480));
+    assert.doesNotThrow(() => writeStoredWidth(hostileStorage(), "w", 480));
+    assert.doesNotThrow(() => writeStoredWidth(null, "w", 480));
   });
 });
 
-describe("nudgedSidePanelWidth", () => {
-  test("grows towards the left, the way dragging that edge does", () => {
-    assert.equal(nudgedSidePanelWidth(520, "ArrowLeft", false, 1920), 544);
+describe("draggedWidth", () => {
+  test("a panel's left edge grows it as the pointer moves left", () => {
+    assert.equal(draggedWidth(460, -200, "left"), 660);
+    assert.equal(draggedWidth(460, 60, "left"), 400);
   });
 
-  test("shrinks towards the right", () => {
-    assert.equal(nudgedSidePanelWidth(520, "ArrowRight", false, 1920), 496);
+  test("a rail's right edge grows it as the pointer moves right", () => {
+    assert.equal(draggedWidth(256, 100, "right"), 356);
+    assert.equal(draggedWidth(256, -40, "right"), 216);
+  });
+});
+
+describe("nudgedWidth", () => {
+  test("on a left edge, ← grows and → shrinks, the way dragging that edge does", () => {
+    assert.equal(nudgedWidth(520, "ArrowLeft", false, "left"), 544);
+    assert.equal(nudgedWidth(520, "ArrowRight", false, "left"), 496);
+  });
+
+  test("on a right edge, → grows and ← shrinks", () => {
+    assert.equal(nudgedWidth(256, "ArrowRight", false, "right"), 280);
+    assert.equal(nudgedWidth(256, "ArrowLeft", false, "right"), 232);
   });
 
   test("takes bigger steps with shift held", () => {
-    assert.equal(nudgedSidePanelWidth(520, "ArrowLeft", true, 1920), 600);
-    assert.equal(nudgedSidePanelWidth(520, "ArrowRight", true, 1920), 440);
+    assert.equal(nudgedWidth(520, "ArrowLeft", true, "left"), 600);
+    assert.equal(nudgedWidth(520, "ArrowRight", true, "left"), 440);
+    assert.equal(nudgedWidth(256, "ArrowRight", true, "right"), 336);
   });
 
-  test("stops at the same bounds a drag does", () => {
-    assert.equal(
-      nudgedSidePanelWidth(SIDE_PANEL_MIN_WIDTH, "ArrowRight", true, 1920),
-      SIDE_PANEL_MIN_WIDTH,
-    );
-    assert.equal(nudgedSidePanelWidth(560, "ArrowLeft", true, 1440), 568);
-  });
-
-  test("a nudge and its opposite cancel out in open water", () => {
-    const grown = nudgedSidePanelWidth(520, "ArrowLeft", false, 1920);
-    assert.equal(nudgedSidePanelWidth(grown, "ArrowRight", false, 1920), 520);
+  test("a nudge and its opposite cancel out", () => {
+    for (const edge of ["left", "right"] as const) {
+      const moved = nudgedWidth(320, "ArrowLeft", false, edge);
+      assert.equal(nudgedWidth(moved, "ArrowRight", false, edge), 320);
+    }
   });
 });

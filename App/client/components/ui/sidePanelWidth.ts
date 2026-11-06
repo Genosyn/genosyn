@@ -1,91 +1,99 @@
 /**
- * Width arithmetic for the panels that dock beside a page — the live browser
- * in chat, and the repository work session it now sits alongside.
+ * Width rules for the columns a person can drag: the panels that dock on the
+ * right of a page (a Todo beside its board, Ask AI, the live browser and
+ * repository work in chat) and the rails down its left (the app's sidebar, and
+ * the conversation lists in Chat, Workspace and Help).
  *
- * Kept out of the components because it is the part with rules: a panel may
- * never squeeze what it is docked next to below a usable column, a stored
- * width from a wider monitor must not survive onto a narrow one, and a
- * keyboard nudge has to move the same edge the pointer does.
+ * What a column may take right now is left to the browser, through the
+ * `max-width`s below. They resolve against the column's own flex row, so they
+ * measure the space the page really has, on every frame: with the sidebar
+ * dragged wide, with Ask AI open beside the board, in a window that just
+ * shrank. Arithmetic over the window and fixed rail widths kept getting that
+ * wrong, and it threw away what the person asked for as well: a panel squeezed
+ * by a smaller window now comes back to its width when there is room again.
+ *
+ * What stays here is the part with rules of its own: the numbers, what a stored
+ * width may be, and which way a drag or an arrow key moves an edge.
  */
 
 /** Nothing narrower than this is a panel; it is a squashed sliver. */
 export const SIDE_PANEL_MIN_WIDTH = 360;
 
-/** What the page beside the panel always keeps for itself. */
+/** What the page beside a panel keeps for itself. */
 export const SIDE_PANEL_MIN_COMPANION_WIDTH = 360;
 
 /** Enough for a diff without taking over the window. */
 export const SIDE_PANEL_DEFAULT_WIDTH = 520;
 
+/** Narrower than this, a rail's labels are all truncation. */
+export const RAIL_MIN_WIDTH = 200;
+
+export const RAIL_DEFAULT_WIDTH = 256;
+
+/** Wider than this, a rail is taking room from the page and giving nothing back. */
+export const RAIL_MAX_WIDTH = 480;
+
 /**
- * Chrome that is already spoken for before a panel takes anything.
- *
- * Both panels dock in chat, and chat sits behind two fixed `w-64` rails from
- * the `md` breakpoint up: the app's contextual sidebar (`AppShell`) and the
- * conversation list (`EmployeeChat`). The window is not the space the panel is
- * competing for — counting it as such is how a panel that looked reasonable on
- * a 1440 monitor left a 150 px conversation on a 1100 px one.
+ * A rail's width, published on the flex row it sits in, for a panel in the same
+ * row to leave room for. A variable rather than React state so that dragging a
+ * rail re-renders nothing but the rail.
  */
-const APP_SIDEBAR_WIDTH = 256;
-const CHAT_RAIL_WIDTH = 256;
-const RAILS_FROM_VIEWPORT = 768;
-
-/** Width the page has already committed to chrome at this viewport. */
-export function sidePanelChromeWidth(viewportWidth: number): number {
-  return viewportWidth >= RAILS_FROM_VIEWPORT ? APP_SIDEBAR_WIDTH + CHAT_RAIL_WIDTH : 0;
-}
+export const RAIL_WIDTH_VARIABLE = "--rail-width";
 
 /**
- * The narrowest window on which a panel can sit *beside* the conversation
- * rather than on top of it: both rails, a readable conversation, and a
- * readable panel. Derived rather than picked, so it cannot drift away from the
- * clamp below.
+ * The narrowest window on which a panel docks beside the page rather than
+ * covering it: two rails at their usual width, a readable column and a readable
+ * panel. Derived rather than picked, so it cannot drift from the limits below.
  */
 export const SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT =
-  APP_SIDEBAR_WIDTH + CHAT_RAIL_WIDTH + SIDE_PANEL_MIN_COMPANION_WIDTH + SIDE_PANEL_MIN_WIDTH;
+  RAIL_DEFAULT_WIDTH + RAIL_DEFAULT_WIDTH + SIDE_PANEL_MIN_COMPANION_WIDTH + SIDE_PANEL_MIN_WIDTH;
 
-/** The widest a panel may be on this viewport, before the floor is applied. */
-export function maxSidePanelWidth(viewportWidth: number): number {
-  return Math.max(
-    SIDE_PANEL_MIN_WIDTH,
-    viewportWidth - sidePanelChromeWidth(viewportWidth) - SIDE_PANEL_MIN_COMPANION_WIDTH,
-  );
-}
+/** A panel with only the page beside it in its row: a Todo next to its board. */
+export const SIDE_PANEL_MAX_WIDTH = `calc(100% - ${SIDE_PANEL_MIN_COMPANION_WIDTH}px)`;
+
+/** A panel whose row also holds a rail: chat's panels, past its conversation list. */
+export const SIDE_PANEL_BESIDE_RAIL_MAX_WIDTH = `calc(100% - var(${RAIL_WIDTH_VARIABLE}, 0px) - ${SIDE_PANEL_MIN_COMPANION_WIDTH}px)`;
+
+/**
+ * Ask AI, which docks beside the whole page. The page may hold a second column
+ * of its own (chat's conversation list, a Todo beside its board), so it keeps
+ * room for that next to a readable one.
+ */
+export const APP_PANEL_MAX_WIDTH = `calc(100% - var(${RAIL_WIDTH_VARIABLE}, 0px) - ${
+  RAIL_DEFAULT_WIDTH + SIDE_PANEL_MIN_COMPANION_WIDTH
+}px)`;
+
+/** A rail stops at its own maximum, or sooner where the page would lose its column. */
+export const RAIL_MAX_WIDTH_IN_ROW = `min(${RAIL_MAX_WIDTH}px, calc(100% - ${SIDE_PANEL_MIN_COMPANION_WIDTH}px))`;
+
+/** Which side of a column its handle sits on, which decides the way it grows. */
+export type ResizeEdge = "left" | "right";
 
 /** Only the two methods these helpers use, so a test can pass a fake. */
-export type SidePanelWidthStorage = Pick<Storage, "getItem" | "setItem">;
+export type WidthStorage = Pick<Storage, "getItem" | "setItem">;
 
-/**
- * Fit a width to the window, keeping a usable column for the page beside it.
- *
- * A viewport too small for both loses the argument in the panel's favour —
- * clamping below the minimum would produce the sliver this exists to prevent —
- * and a viewport we cannot measure is left alone.
- */
-export function clampSidePanelWidth(width: number, viewportWidth: number | null): number {
-  if (viewportWidth === null || !Number.isFinite(viewportWidth)) return width;
-  const max = maxSidePanelWidth(viewportWidth);
-  if (width > max) return max;
-  if (width < SIDE_PANEL_MIN_WIDTH) return SIDE_PANEL_MIN_WIDTH;
-  return width;
+export function fitWidth(width: number, minWidth: number, maxWidth = Infinity): number {
+  return Math.min(maxWidth, Math.max(minWidth, width));
 }
 
 /**
- * The width this panel was last left at. Anything unreadable, unparseable, or
- * narrower than a panel should be falls back to the default — a stored value
+ * The width a column was last left at. Anything unreadable, unparseable, or
+ * narrower than the column should be falls back to its default — a stored value
  * is a convenience, never a constraint worth honouring when it is nonsense.
  */
-export function readStoredSidePanelWidth(
-  storage: SidePanelWidthStorage | null | undefined,
+export function readStoredWidth(
+  storage: WidthStorage | null | undefined,
   key: string,
-  fallback: number = SIDE_PANEL_DEFAULT_WIDTH,
+  fallback: number,
+  minWidth: number,
+  maxWidth = Infinity,
 ): number {
   if (!storage) return fallback;
   try {
     const raw = storage.getItem(key);
     if (!raw) return fallback;
     const parsed = Number.parseInt(raw, 10);
-    if (Number.isFinite(parsed) && parsed >= SIDE_PANEL_MIN_WIDTH) return parsed;
+    if (Number.isFinite(parsed) && parsed >= minWidth) return Math.min(parsed, maxWidth);
   } catch {
     // Storage can be disabled outright. A remembered width is not worth an
     // exception on the way to rendering.
@@ -93,24 +101,8 @@ export function readStoredSidePanelWidth(
   return fallback;
 }
 
-/**
- * The width a panel opens at: what it was left at, fitted to this window.
- *
- * Pure and separate from the hook because the fitting is the part that is easy
- * to leave out — a remembered width from a large monitor is exactly the case
- * where opening unclamped is worst.
- */
-export function initialSidePanelWidth(
-  storage: SidePanelWidthStorage | null | undefined,
-  key: string,
-  defaultWidth: number,
-  viewportWidth: number | null,
-): number {
-  return clampSidePanelWidth(readStoredSidePanelWidth(storage, key, defaultWidth), viewportWidth);
-}
-
-export function writeStoredSidePanelWidth(
-  storage: SidePanelWidthStorage | null | undefined,
+export function writeStoredWidth(
+  storage: WidthStorage | null | undefined,
   key: string,
   width: number,
 ): void {
@@ -123,17 +115,25 @@ export function writeStoredSidePanelWidth(
 }
 
 /**
- * Keyboard resizing. The handle is on the panel's left edge, so ← grows the
- * panel and → shrinks it, matching what dragging that edge does. Shift takes
+ * How wide a drag makes a column. Moving a left edge left grows it, and moving
+ * a right edge right does, so the edge stays under the pointer either way.
+ */
+export function draggedWidth(startWidth: number, pointerDelta: number, edge: ResizeEdge): number {
+  return edge === "left" ? startWidth - pointerDelta : startWidth + pointerDelta;
+}
+
+/**
+ * Keyboard resizing moves the same edge a drag does: ← grows a column whose
+ * handle is on its left, → grows one whose handle is on its right. Shift takes
  * bigger steps for anyone crossing a wide monitor.
  */
-export function nudgedSidePanelWidth(
+export function nudgedWidth(
   width: number,
   key: "ArrowLeft" | "ArrowRight",
   shiftKey: boolean,
-  viewportWidth: number | null,
+  edge: ResizeEdge,
 ): number {
   const step = shiftKey ? 80 : 24;
-  const delta = key === "ArrowLeft" ? step : -step;
-  return clampSidePanelWidth(width + delta, viewportWidth);
+  const grows = key === (edge === "left" ? "ArrowLeft" : "ArrowRight");
+  return grows ? width + step : width - step;
 }

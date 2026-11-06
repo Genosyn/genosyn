@@ -50,6 +50,11 @@ import { Menu, MenuHeader, MenuItem, MenuSeparator } from "@/components/ui/Menu"
 import { useBackgroundAction } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
+import {
+  SidePanelResizeHandle,
+  useSidePanelWidth,
+  useWideViewport,
+} from "@/components/ui/SidePanel";
 import { ButtonSpinner, Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
 import { api } from "@/lib/api";
@@ -443,6 +448,43 @@ export function todoPagePath(companySlug: string, projectSlug: string, number: n
  * project page has always had. Home skips this and renders `TodoDetailBody`
  * inside a `<Modal>`, which supplies its own title bar and action tray.
  */
+const PANEL_WIDTH_STORAGE_KEY = "genosyn.todoPanel.width";
+const PANEL_DEFAULT_WIDTH = 460;
+
+/**
+ * The panel's chrome and width, apart from what it shows, so a drag re-renders
+ * this and not a whole thread of comments on every pointer move. On a phone
+ * there is no board to sit beside, so it takes the screen under the top nav.
+ */
+function TodoPanelFrame({ children }: { children: React.ReactNode }) {
+  const { style, resizing, startResize, onResizeKeyDown } = useSidePanelWidth(
+    PANEL_WIDTH_STORAGE_KEY,
+    { defaultWidth: PANEL_DEFAULT_WIDTH },
+  );
+  const wide = useWideViewport();
+  return (
+    <aside
+      className={
+        wide
+          ? "relative flex shrink-0 flex-col border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" +
+            (resizing ? "" : " transition-[width] duration-200")
+          : "fixed inset-x-0 bottom-0 top-14 z-40 flex min-h-0 flex-col bg-white dark:bg-slate-900"
+      }
+      style={wide ? style : undefined}
+    >
+      {wide && (
+        <SidePanelResizeHandle
+          label="Resize the todo panel"
+          onPointerDown={startResize}
+          onKeyDown={onResizeKeyDown}
+          active={resizing}
+        />
+      )}
+      {children}
+    </aside>
+  );
+}
+
 export function TodoDetailPanel(props: {
   canCreateFinance?: boolean;
   todo: Todo;
@@ -463,7 +505,7 @@ export function TodoDetailPanel(props: {
 }) {
   const { todo, project, canEdit, onClose, onDelete } = props;
   return (
-    <aside className="flex w-[460px] shrink-0 flex-col border-l border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700">
+    <TodoPanelFrame>
       <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
         <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
           {project.key}-{todo.number}
@@ -507,7 +549,7 @@ export function TodoDetailPanel(props: {
           </Button>
         )}
       </div>
-    </aside>
+    </TodoPanelFrame>
   );
 }
 

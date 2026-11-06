@@ -1,118 +1,209 @@
 import * as React from "react";
+import { flushSync } from "react-dom";
+import { clsx } from "./clsx";
 import {
-  clampSidePanelWidth,
-  initialSidePanelWidth,
-  nudgedSidePanelWidth,
-  writeStoredSidePanelWidth,
+  draggedWidth,
+  fitWidth,
+  nudgedWidth,
+  RAIL_DEFAULT_WIDTH,
+  RAIL_MAX_WIDTH,
+  RAIL_MAX_WIDTH_IN_ROW,
+  RAIL_MIN_WIDTH,
+  RAIL_WIDTH_VARIABLE,
+  readStoredWidth,
   SIDE_PANEL_DEFAULT_WIDTH,
+  SIDE_PANEL_MAX_WIDTH,
+  SIDE_PANEL_MIN_WIDTH,
+  writeStoredWidth,
+  type ResizeEdge,
 } from "./sidePanelWidth";
 
 /**
- * The shared behaviour of a panel docked to the right of a page: a width the
- * reader sets by dragging its left edge, remembered per panel, kept sensible
- * when the window changes size, and reachable from the keyboard.
+ * The shared behaviour of a column a person can drag: a panel docked to the
+ * right of a page or a rail down its left. Its width is set by dragging its
+ * inner edge, remembered per column in this browser, and reachable from the
+ * keyboard.
  *
- * Two surfaces use it — the live browser and repository work, side by side in
- * chat — and they must feel like the same object. See `sidePanelWidth.ts` for
- * the arithmetic.
+ * Every panel and every rail uses it, and they must feel like the same object.
+ * See `sidePanelWidth.ts` for the rules.
  */
 
-function viewportWidth(): number | null {
-  return typeof window === "undefined" ? null : window.innerWidth;
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
-export function useSidePanelWidth(storageKey: string, defaultWidth = SIDE_PANEL_DEFAULT_WIDTH) {
-  // Fitted at mount, not only on resize: a width dragged out on a large
-  // monitor is remembered, and seeding it raw would open the panel far too
-  // wide the next time the same person opens chat on a laptop.
+/**
+ * The drag itself, for a column whose resize handle is a direct child of it.
+ * `width` is what the person asked for; a `max-width` on the column may be
+ * holding it narrower for now, which is why both gestures start from what is on
+ * screen.
+ */
+function useDraggableWidth({
+  storageKey,
+  defaultWidth,
+  minWidth,
+  maxWidth,
+  edge,
+}: {
+  storageKey: string;
+  defaultWidth: number;
+  minWidth: number;
+  maxWidth?: number;
+  edge: ResizeEdge;
+}) {
   const [width, setWidth] = React.useState<number>(() =>
-    initialSidePanelWidth(
-      typeof window === "undefined" ? null : window.localStorage,
-      storageKey,
-      defaultWidth,
-      viewportWidth(),
-    ),
+    readStoredWidth(browserStorage(), storageKey, defaultWidth, minWidth, maxWidth),
   );
   const [resizing, setResizing] = React.useState(false);
 
-  // Re-clamp whenever the window resizes, so a once-comfortable panel doesn't
-  // end up squeezing the page after the viewport shrinks.
-  React.useEffect(() => {
-    function onResize() {
-      setWidth((current) => clampSidePanelWidth(current, viewportWidth()));
+  function startResize(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+    const handle = e.currentTarget;
+    const column = handle.parentElement;
+    if (!column) return;
+    e.preventDefault();
+    const { pointerId, clientX: startX } = e;
+    const startWidth = column.getBoundingClientRect().width;
+    handle.setPointerCapture(pointerId);
+    setResizing(true);
+    /** Stays null through a press that never moves, which changes nothing. */
+    let dragged: number | null = null;
+
+    function onMove(ev: PointerEvent) {
+      if (ev.pointerId !== pointerId) return;
+      dragged = fitWidth(draggedWidth(startWidth, ev.clientX - startX, edge), minWidth, maxWidth);
+      setWidth(dragged);
     }
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  const persist = React.useCallback(
-    (next: number) => {
-      writeStoredSidePanelWidth(
-        typeof window === "undefined" ? null : window.localStorage,
-        storageKey,
-        next,
-      );
-    },
-    [storageKey],
-  );
-
-  /**
-   * Drag to resize. The handle sits on the panel's left edge, so as the cursor
-   * moves left the panel grows; the math is just `panelRight - cursorX`.
-   */
-  const startResize = React.useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const target = e.currentTarget;
-      target.setPointerCapture(e.pointerId);
-      setResizing(true);
-
-      function onMove(ev: PointerEvent) {
-        setWidth(clampSidePanelWidth(window.innerWidth - ev.clientX, viewportWidth()));
+    function onEnd(ev: PointerEvent) {
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      try {
+        handle.releasePointerCapture(pointerId);
+      } catch {
+        // capture may already be gone; harmless.
       }
-      function onUp(ev: PointerEvent) {
-        setResizing(false);
-        try {
-          target.releasePointerCapture(ev.pointerId);
-        } catch {
-          // capture may already be gone; harmless.
-        }
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        window.removeEventListener("pointercancel", onUp);
-        setWidth((current) => {
-          const clamped = clampSidePanelWidth(current, viewportWidth());
-          persist(clamped);
-          return clamped;
-        });
+      if (dragged !== null && column?.isConnected) {
+        // Keep where the column stopped, not how far the pointer went past
+        // that, so nothing is remembered wider than anyone saw it.
+        const last = dragged;
+        flushSync(() => setWidth(last));
+        const settled = Math.round(column.getBoundingClientRect().width);
+        setWidth(settled);
+        writeStoredWidth(browserStorage(), storageKey, settled);
       }
+      setResizing(false);
+    }
 
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("pointercancel", onUp);
-    },
-    [persist],
-  );
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+  }
 
-  const onResizeKeyDown = React.useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      e.preventDefault();
-      setWidth((current) => {
-        const next = nudgedSidePanelWidth(
-          current,
-          e.key as "ArrowLeft" | "ArrowRight",
-          e.shiftKey,
-          viewportWidth(),
-        );
-        persist(next);
-        return next;
-      });
-    },
-    [persist],
-  );
+  function onResizeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    // Narrower than `width` means the layout is holding the column there,
+    // unless the last key press is still animating its way to `width`.
+    const column = e.currentTarget.parentElement;
+    const onScreen =
+      column && column.getAnimations().length === 0 ? column.getBoundingClientRect().width : width;
+    const next = fitWidth(
+      nudgedWidth(Math.min(width, onScreen), e.key, e.shiftKey, edge),
+      minWidth,
+      maxWidth,
+    );
+    setWidth(next);
+    writeStoredWidth(browserStorage(), storageKey, next);
+  }
 
   return { width, resizing, startResize, onResizeKeyDown };
+}
+
+/**
+ * A panel docked to the right of a page. Spread `style` on it while it is
+ * docked and give it a `SidePanelResizeHandle`. `maxWidth` says what it must
+ * leave for the rest of its flex row (see `sidePanelWidth.ts`).
+ */
+export function useSidePanelWidth(
+  storageKey: string,
+  {
+    defaultWidth = SIDE_PANEL_DEFAULT_WIDTH,
+    maxWidth = SIDE_PANEL_MAX_WIDTH,
+  }: { defaultWidth?: number; maxWidth?: string } = {},
+) {
+  const { width, resizing, startResize, onResizeKeyDown } = useDraggableWidth({
+    storageKey,
+    defaultWidth,
+    minWidth: SIDE_PANEL_MIN_WIDTH,
+    edge: "left",
+  });
+  const style: React.CSSProperties = { width, minWidth: SIDE_PANEL_MIN_WIDTH, maxWidth };
+  return { style, resizing, startResize, onResizeKeyDown };
+}
+
+/**
+ * A rail down the left of a page or section, with a handle on its right edge.
+ * The rail itself is the child, filling this column with `w-full`, so a rail
+ * that scrolls cannot clip the handle. `className` says when it shows.
+ *
+ * The width lives here rather than in the page, so dragging re-renders this
+ * frame and not the rail's contents, and it is read back from storage whenever
+ * a page mounts a rail of its own, so moving between sections doesn't move it.
+ */
+export function ResizableRail({
+  storageKey,
+  label,
+  defaultWidth = RAIL_DEFAULT_WIDTH,
+  className,
+  children,
+}: {
+  storageKey: string;
+  /** Named for the rail it resizes, so screen readers say which one. */
+  label: string;
+  defaultWidth?: number;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const { width, resizing, startResize, onResizeKeyDown } = useDraggableWidth({
+    storageKey,
+    defaultWidth,
+    minWidth: RAIL_MIN_WIDTH,
+    maxWidth: RAIL_MAX_WIDTH,
+    edge: "right",
+  });
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useLayoutEffect(() => {
+    const row = ref.current?.parentElement;
+    if (!row) return;
+    row.style.setProperty(RAIL_WIDTH_VARIABLE, `${width}px`);
+    return () => {
+      row.style.removeProperty(RAIL_WIDTH_VARIABLE);
+    };
+  }, [width]);
+
+  return (
+    <div
+      ref={ref}
+      className={clsx("relative shrink-0", className)}
+      style={{ width, minWidth: RAIL_MIN_WIDTH, maxWidth: RAIL_MAX_WIDTH_IN_ROW }}
+    >
+      {children}
+      <SidePanelResizeHandle
+        label={label}
+        edge="right"
+        onPointerDown={startResize}
+        onKeyDown={onResizeKeyDown}
+        active={resizing}
+      />
+    </div>
+  );
 }
 
 /**
@@ -154,12 +245,15 @@ export function SidePanelCollapseIcon() {
 
 export function SidePanelResizeHandle({
   label,
+  edge = "left",
   onPointerDown,
   onKeyDown,
   active,
 }: {
   /** Named for the panel it resizes, so screen readers say which one. */
   label: string;
+  /** The side of the column it sits on. */
+  edge?: ResizeEdge;
   onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   active: boolean;
@@ -172,15 +266,18 @@ export function SidePanelResizeHandle({
       tabIndex={0}
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
-      className={
-        "group absolute left-0 top-0 z-10 flex h-full w-2 -translate-x-1/2 cursor-col-resize select-none items-center justify-center focus:outline-none " +
-        (active ? "bg-indigo-500/20" : "")
-      }
+      className={clsx(
+        "touch-target group absolute top-0 z-10 flex h-full w-2 cursor-col-resize touch-none select-none items-center justify-center",
+        edge === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2",
+        active && "bg-indigo-500/20",
+      )}
       title="Drag to resize"
     >
+      {/* Sticky both ways: a panel can be taller than the page that scrolls it,
+          and the grip stays in view on its whole length. */}
       <span
         className={
-          "pointer-events-none h-12 w-0.5 rounded-full transition-colors " +
+          "pointer-events-none sticky bottom-1/2 top-1/2 h-12 w-0.5 rounded-full transition-colors " +
           (active
             ? "bg-indigo-500"
             : "bg-slate-300 group-hover:bg-indigo-400 group-focus-visible:bg-indigo-400 dark:bg-slate-700")

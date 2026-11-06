@@ -65,8 +65,10 @@ export function Tasks() {
       />
 
       <P>
-        Clicking a todo opens it beside the board. <Strong>Open full page</Strong> gives it a page of
-        its own, with an address you can share and room for a long thread.
+        Clicking a todo opens it beside the board. Drag the panel&apos;s left edge to make it wider
+        or narrower, and every todo you open stays that width; on a phone it takes the screen.{" "}
+        <Strong>Open full page</Strong> gives it a page of its own, with an address you can share and
+        room for a long thread.
       </P>
 
       <H2 id="create-anywhere">Create a task from anywhere</H2>

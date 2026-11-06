@@ -8,6 +8,7 @@ import {
   type BrowserLivePanelMemory,
 } from "../lib/chatPanelMemory";
 import { SidePanelCollapseIcon, SidePanelResizeHandle, useSidePanelWidth } from "./ui/SidePanel";
+import { SIDE_PANEL_BESIDE_RAIL_MAX_WIDTH } from "./ui/sidePanelWidth";
 
 /**
  * Live-view panel for the built-in `browser` MCP server. Polls the server
@@ -97,8 +98,10 @@ export function BrowserLivePanel(props: Props) {
   const [session, setSession] = React.useState<BrowserSessionDto | null>(null);
   const [dismissed, setDismissed] = React.useState<string[]>([]);
   const [collapsed, setCollapsed] = React.useState(false);
-  const { width, resizing, startResize, onResizeKeyDown } =
-    useSidePanelWidth(PANEL_WIDTH_STORAGE_KEY);
+  const { style, resizing, startResize, onResizeKeyDown } = useSidePanelWidth(
+    PANEL_WIDTH_STORAGE_KEY,
+    { maxWidth: SIDE_PANEL_BESIDE_RAIL_MAX_WIDTH },
+  );
 
   /**
    * What this panel's state is remembered against. A browser session belongs
@@ -208,7 +211,7 @@ export function BrowserLivePanel(props: Props) {
         "relative flex shrink-0 flex-col border-l border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900" +
         (resizing ? "" : " transition-[width] duration-200")
       }
-      style={{ width: collapsed ? 44 : width }}
+      style={collapsed ? { width: 44 } : style}
       aria-hidden={hidden || undefined}
       aria-label="Live browser"
     >
