@@ -57,10 +57,12 @@ import {
   snapshotManagedInstanceSecrets,
 } from "../lib/instanceSecrets.js";
 import { bindInstanceSecretsToDatabase } from "./instanceSecretsDatabase.js";
+import { PRIVATE_GIT_ROOT_PREFIX } from "./workspaceGitRemote.js";
 
 /**
  * Install-wide backup service. Each backup zips `<dataDir>` (excluding the
- * `Backup/` folder itself and any staging artifact) into
+ * `Backup/` folder itself, any staging artifact, and the private workspaces of
+ * clones and fetches) into
  * `<dataDir>/Backup/backup-YYYY-MM-DD-HHMMSS.zip`. The SQLite file is first
  * snapshotted with SQLite's online backup API so the archive captures a
  * consistent view even while the app is writing.
@@ -1041,9 +1043,9 @@ function assertCompleteSnapshot(dest: string, pages: number, handle: SqliteBacku
 
 /**
  * Write the zip archive to `outPath`. Everything under `dataDir` is
- * included except for the `Backup/` folder (so backups don't recurse) and
- * the live SQLite files (the snapshot at `sqliteSnapshot` is substituted
- * in as `app.sqlite` if present).
+ * included except for the `Backup/` folder (so backups don't recurse), the
+ * private workspaces of clones and fetches, and the live SQLite files (the
+ * snapshot at `sqliteSnapshot` is substituted in as `app.sqlite` if present).
  *
  * The bytes go to a `.part` sibling and are renamed into place only once the
  * stream closes cleanly, so `outPath` never exists in a half-written state.
@@ -1165,6 +1167,9 @@ async function walkAndAppend(
     if (relPrefix === "" && entry.name === BACKUP_DIR_NAME) continue;
 
     if (entry.isDirectory()) {
+      // A clone or fetch under way, or what a stopped one left: part of a remote
+      // and perhaps its SSH key. Nothing a restore wants, and as large as a repo.
+      if (entry.name.startsWith(PRIVATE_GIT_ROOT_PREFIX)) continue;
       await walkAndAppend(files, absPath, relPath, sqliteSnapshot, walked);
       continue;
     }

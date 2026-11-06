@@ -276,7 +276,10 @@ export function Backups() {
         can&apos;t copy the database fails with the reason instead of saving an archive without it.
         Work carries on while a backup is written, so a file deleted or renamed before its turn
         comes — a browser recording finishing, a branch pruned in an AI Employee&apos;s checkout
-        — is left out of that backup rather than failing it.
+        — is left out of that backup rather than failing it. Folders named{" "}
+        <Code>.genosyn-git-fetch-*</Code>, which only exist while a clone or fetch runs, are left
+        out of every backup, and any that a stopped server left behind are removed the next time
+        it starts.
       </P>
       <Callout kind="warn" title="Treat every backup like the live Vault">
         Every backup holds both the encrypted credentials and the key that decrypts them, so

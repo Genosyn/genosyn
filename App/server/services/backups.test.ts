@@ -98,6 +98,30 @@ describe("backup archive generation", () => {
       "release proof",
     );
   });
+
+  test("leaves out a clone's or fetch's private workspace, and the SSH key in it", async () => {
+    const employees = path.join(tempDir, "companies", "release-lab", "employees");
+    const repositories = path.join(tempDir, ".private", "repositories", "company-1");
+    const workspaces = [
+      path.join(employees, ".genosyn-git-fetch-aB3dE6"),
+      path.join(repositories, ".genosyn-git-fetch-fG7hI9"),
+    ];
+    for (const workspace of workspaces) {
+      await fs.mkdir(path.join(workspace, "remote.git"), { recursive: true });
+      await fs.writeFile(path.join(workspace, "ssh-key"), "private key");
+      await fs.writeFile(path.join(workspace, "remote.git", "HEAD"), "ref: refs/heads/main\n");
+    }
+    await fs.mkdir(path.join(employees, "jamie", "repos"), { recursive: true });
+    await fs.writeFile(path.join(employees, "jamie", "repos", "kept.txt"), "kept");
+
+    const backup = await runBackup("manual");
+    const names = (await archiveEntries(backupFilePath(backup.filename))).map((e) => e.path);
+    assert.ok(names.includes("companies/release-lab/employees/jamie/repos/kept.txt"));
+    assert.deepEqual(
+      names.filter((name) => name.includes(".genosyn-git-fetch-") || name.endsWith("ssh-key")),
+      [],
+    );
+  });
 });
 
 /** An archive that only queues what it is handed, so a test decides when each file is read and written. */

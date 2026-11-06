@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { config } from "../../config.js";
 import { assertSafeGitRemoteUrl } from "./gitCredentialHelper.js";
+import { dataRoot } from "./paths.js";
 import { runWorkspaceGit } from "./workspaceGit.js";
 import type { WorkspaceGitOptions } from "./workspaceGit.js";
 import {
@@ -12,6 +14,12 @@ import {
   openPinnedDirectory,
 } from "./safeWorkspaceFs.js";
 import type { PinnedDirectory } from "./safeWorkspaceFs.js";
+
+/** What a clone's or fetch's private network workspace is named: this, then a random suffix. */
+export const PRIVATE_GIT_ROOT_PREFIX = ".genosyn-git-fetch-";
+
+/** Older than any clone or fetch still running, whose Git commands get five minutes each. */
+const ORPHANED_PRIVATE_ROOT_AGE_MS = 6 * 60 * 60_000;
 
 export type WorkspaceRemoteFetchOptions = Omit<WorkspaceGitOptions, "args" | "stdin"> & {
   /** Exact server-configured URL. Repository-local remotes are never read. */
@@ -256,9 +264,64 @@ function createPrivateGitRoot(workspaceRoot: string): string {
   if (workspaceParent === workspaceRoot) {
     throw new Error("Git workspace root must not be the filesystem root.");
   }
-  const privateRoot = fs.mkdtempSync(path.join(workspaceParent, ".genosyn-git-fetch-"));
+  const privateRoot = fs.mkdtempSync(path.join(workspaceParent, PRIVATE_GIT_ROOT_PREFIX));
   fs.chmodSync(privateRoot, 0o700);
   return privateRoot;
+}
+
+/** The folders directly inside `dir`, symlinks aside; none when it doesn't exist. */
+async function foldersIn(dir: string): Promise<string[]> {
+  try {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Remove the private workspaces stopped processes left behind. A clone or fetch
+ * removes its own in a `finally`, which a crash, an out-of-memory kill or an
+ * upgrade never reaches, and nothing else ever looked at them: one install that
+ * kept crashing collected 48, holding 25 GB, one with a copy of an SSH private
+ * key still in it.
+ *
+ * Runs at boot, before anything can start a clone or fetch. Under SQLite this is
+ * the only process, so every one it finds is dead. Under Postgres replicas share
+ * the volume, so only one older than any fetch can run is. Never throws: what
+ * can't be removed is tried again next boot.
+ */
+export async function sweepOrphanedPrivateGitRoots(): Promise<number> {
+  const cutoff =
+    config.db.driver === "sqlite" ? Infinity : Date.now() - ORPHANED_PRIVATE_ROOT_AGE_MS;
+  const companies = path.join(dataRoot(), "companies");
+  const repositories = path.join(dataRoot(), ".private", "repositories");
+  // A workspace's parent: `createPrivateGitRoot` puts each one beside its root.
+  const parents = [
+    ...(await foldersIn(companies)).map((company) => path.join(companies, company, "employees")),
+    ...(await foldersIn(repositories)).map((company) => path.join(repositories, company)),
+  ];
+
+  let removed = 0;
+  for (const parent of parents) {
+    for (const name of await foldersIn(parent)) {
+      if (!name.startsWith(PRIVATE_GIT_ROOT_PREFIX)) continue;
+      const privateRoot = path.join(parent, name);
+      try {
+        if ((await fs.promises.lstat(privateRoot)).mtimeMs >= cutoff) continue;
+        await fs.promises.rm(privateRoot, { recursive: true, force: true });
+        removed += 1;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`[git] could not remove ${privateRoot}:`, (err as Error).message);
+      }
+    }
+  }
+  if (removed > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[git] removed ${removed} private workspace(s) left by a stopped process`);
+  }
+  return removed;
 }
 
 function preparePrivateNetwork(
