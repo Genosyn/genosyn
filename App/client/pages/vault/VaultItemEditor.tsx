@@ -1,10 +1,11 @@
 import React from "react";
-import { Check, Copy, Eye, EyeOff, RefreshCw, Smartphone } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, QrCode, RefreshCw, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
+import { readAuthenticatorQr, type MigratedAuthenticator } from "@/lib/authenticatorQr";
 import { copyToClipboard } from "@/lib/clipboard";
 import { errorMessage } from "@/lib/errors";
 import {
@@ -46,6 +47,11 @@ export function VaultItemEditor({
   const [showSecret, setShowSecret] = React.useState(false);
   const [totpSetupKey, setTotpSetupKey] = React.useState("");
   const [showTotpSetupKey, setShowTotpSetupKey] = React.useState(false);
+  const qrInput = React.useRef<HTMLInputElement>(null);
+  const [readingQr, setReadingQr] = React.useState(false);
+  const [qrRead, setQrRead] = React.useState(false);
+  const [qrError, setQrError] = React.useState<string | null>(null);
+  const [qrChoices, setQrChoices] = React.useState<MigratedAuthenticator[] | null>(null);
   const [generated, setGenerated] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -60,6 +66,9 @@ export function VaultItemEditor({
       setShowSecret(false);
       setTotpSetupKey("");
       setShowTotpSetupKey(false);
+      setQrRead(false);
+      setQrError(null);
+      setQrChoices(null);
       setGenerated(false);
       setCopied(false);
       return;
@@ -75,11 +84,44 @@ export function VaultItemEditor({
     setShowSecret(false);
     setTotpSetupKey("");
     setShowTotpSetupKey(false);
+    setQrRead(false);
+    setQrError(null);
+    setQrChoices(null);
     setGenerated(false);
     setCopied(false);
     setBusy(false);
     setError(null);
   }, [item, open]);
+
+  async function readQrImage(image: Blob) {
+    setReadingQr(true);
+    setQrError(null);
+    setQrChoices(null);
+    setQrRead(false);
+    try {
+      const found = await readAuthenticatorQr(image);
+      if (found.length === 1) {
+        setTotpSetupKey(found[0].uri);
+        setQrRead(true);
+      } else {
+        setQrChoices(found);
+      }
+    } catch (cause) {
+      setQrError(errorMessage(cause, "Could not read that image."));
+    } finally {
+      setReadingQr(false);
+    }
+  }
+
+  /** A screenshot of the QR is the quickest way to get it here. */
+  function handleQrPaste(event: React.ClipboardEvent) {
+    const image = Array.from(event.clipboardData.files).find((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (!image) return;
+    event.preventDefault();
+    void readQrImage(image);
+  }
 
   async function copyGeneratedSecret() {
     if (!secret) return;
@@ -322,13 +364,14 @@ export function VaultItemEditor({
                   Authenticator code <span className="font-normal text-slate-400">(optional)</span>
                 </div>
                 <p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                  Paste the Base32 setup key or full otpauth:// URI. Genosyn encrypts it with this
-                  login so a granted AI Employee can fill current codes without seeing the setup
+                  Upload the QR code the site shows, or paste its setup key. A QR from Google
+                  Authenticator&apos;s Transfer accounts works too. Genosyn encrypts it with this
+                  login, so a granted AI Employee can sign in by itself and never sees the setup
                   key.
                 </p>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2" onPaste={handleQrPaste}>
               <input
                 id="vault-totp-setup-key"
                 type={showTotpSetupKey ? "text" : "password"}
@@ -356,7 +399,62 @@ export function VaultItemEditor({
               >
                 {showTotpSetupKey ? <EyeOff size={14} /> : <Eye size={14} />}
               </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                loading={readingQr}
+                onClick={() => qrInput.current?.click()}
+                aria-label="Upload an image of the QR code"
+                title="Upload an image of the QR code"
+              >
+                <QrCode size={14} />
+                <span className="hidden sm:inline">QR</span>
+              </Button>
+              <input
+                ref={qrInput}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                aria-hidden
+                tabIndex={-1}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void readQrImage(file);
+                }}
+              />
             </div>
+            {qrChoices && (
+              <div className="mt-2 space-y-1">
+                <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  That QR holds {qrChoices.length} accounts. Which one is this login?
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {qrChoices.map((choice) => (
+                    <Button
+                      key={choice.uri}
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setTotpSetupKey(choice.uri);
+                        setQrChoices(null);
+                      }}
+                    >
+                      {choice.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {qrError && <FormError message={qrError} className="mt-2" />}
+            {!qrChoices && !qrError && qrRead && totpSetupKey && (
+              <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">
+                Read the QR code. It&apos;s saved when you save this login.
+              </p>
+            )}
             {persistedItem?.hasTotp && totpSetupKey.trim() && (
               <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
                 Saving replaces the Vault setup key only. Make this change after replacing the

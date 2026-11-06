@@ -1,5 +1,5 @@
 import React from "react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useSearchParams } from "react-router-dom";
 import {
   Bot,
   Building2,
@@ -43,6 +43,9 @@ export default function Vault() {
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<VaultItem | null>(null);
   const [selected, setSelected] = React.useState<VaultItem | null>(null);
+  // An Input request links here, to save the authenticator a person just had to type.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedItem = searchParams.get("item");
 
   const reload = React.useCallback(async () => {
     setError(null);
@@ -80,6 +83,20 @@ export default function Vault() {
     await reload();
     setSelected(saved);
   }
+
+  React.useEffect(() => {
+    if (!linkedItem || !items) return;
+    const item = items.find((candidate) => candidate.id === linkedItem);
+    if (item) setSelected(item);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("item");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [linkedItem, items, setSearchParams]);
 
   return (
     <div className="page-shell p-4 pb-14 sm:p-8">
