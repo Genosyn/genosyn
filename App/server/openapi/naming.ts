@@ -136,6 +136,8 @@ export const OPERATION_ID_OVERRIDES: Record<string, string> = {
   "GET /api/help/{companySlug}/articles": "listHelpCenterArticles",
   "GET /api/help/{companySlug}/articles/{articleId}": "getHelpCenterArticle",
   "GET /api/help/{companySlug}/search": "searchHelpCenter",
+  "GET /api/dashboards/{token}": "getSharedDashboard",
+  "GET /api/dashboards/{token}/charts/{chartId}/result": "getSharedDashboardChartResult",
   "GET /api/room/{token}": "getGuestDataRoom",
   "POST /api/room/{token}/visit": "recordGuestDataRoomVisit",
   "POST /api/room/{token}/terms": "acceptGuestDataRoomTerms",

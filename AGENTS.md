@@ -271,6 +271,7 @@ code, UI copy, commits, and docs.
 | **Careers site** (where a company's Openings are listed and applications taken — on the install at `/careers/<company-slug>`, on a verified custom domain, or internal to Members) | Job board, Portal, ATS (in product copy) |
 | **Data room** (a private, tracked set of documents shared with people outside the company — investors, a buyer, auditors, a partner — `DataRoom`) | Deal room, VDR, Space, Portal, Share (in product copy) |
 | **Guest** (one person outside the company invited to one Data room through their own private link — `DataRoomGuest`) | Visitor, Viewer, User, Member (Members are the company's own people) |
+| **Dashboard link** (one unguessable URL that shows one Explore Dashboard to whoever holds it, made for a TV — `Dashboard.linkTokenHash`, `services/dashboardLinks.ts`) | Public dashboard, Embed, Share link, TV mode (as the record's name) |
 | **Ticket** (one customer's request to the company, handled in Support — `SupportTicket`; the customer who wrote is its **requester**) | Case, Issue, Conversation, Inquiry; never "Task" |
 | **Support inbox** (a mailbox and the addresses on it that count as support — `SupportInbox`, holding no credential of its own) | Queue, Channel, Connection, Shared inbox |
 | **Chat widget** (the web chat a company embeds on its own site, one per Support inbox — `SupportChatWidget`; whoever writes through it is a **visitor** — `SupportChatVisitor` — and the words open and continue a Ticket) | Live chat, Messenger, Chat surface (Slack, Teams and the like own that), Bot, Conversation |
@@ -854,6 +855,21 @@ draft. An AI Employee's own tools answer to `EmployeeDataRoomGrant`
 delivery tools, and no tool ever returns a guest's link. Keep those
 boundaries: do not let an answer read beyond its guest's folders, publish an
 unchecked quote, or hand a link to a model.
+
+**A Dashboard link shows one Dashboard to whoever holds it, and nothing else.**
+`services/dashboardLinks.ts` keeps the boundary. Owners and admins make, reset and turn
+off a link from a browser session; no API key, connected app or AI tool reads or writes
+one, because the URL publishes company data outside the company. The token is hashed for
+lookup and encrypted so it can be copied again: turning a link off keeps it, so the same
+URL comes back on every screen, and only a reset replaces it. A link answers as the owner
+or admin who shared it, read again on every view, and stops once they leave the company.
+`routes/publicDashboards.ts` answers the layout field by field and a Chart's rows only for
+a Chart on that Dashboard, cut to the columns its visualization names, with a failure in
+fixed words; one answer per Chart serves every screen for 30 seconds. The page
+(`pages/PublicDashboard.tsx`) is built to be left on a TV: it fits the screen, refreshes
+on the link's own timer, and keeps its last numbers through an outage. Do not add a tool
+that returns a link, answer a Chart that is not on the Dashboard, or send a query, a
+source or a database's own error to the page.
 
 **A customer is a stranger, and a reply reads only what it may repeat.** Anyone
 can email a support address and From is spoofable, so everything a customer writes

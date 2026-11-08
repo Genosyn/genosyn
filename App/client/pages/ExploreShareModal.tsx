@@ -3,6 +3,7 @@ import { Select } from "@/components/ui/Select";
 import { Check, X } from "lucide-react";
 import { api } from "../lib/api";
 import { Modal } from "../components/ui/Modal";
+import { clsx } from "../components/ui/clsx";
 import { useBackgroundAction } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { errorMessage } from "../lib/errors";
@@ -53,6 +54,7 @@ export function ExploreShareModal({
   kind,
   slug,
   rowTitle,
+  linkPanel,
 }: {
   open: boolean;
   onClose: () => void;
@@ -61,6 +63,8 @@ export function ExploreShareModal({
   kind: GrantKind;
   slug: string;
   rowTitle: string;
+  /** A Dashboard's "Share with a link" section, shown above AI Employee access. */
+  linkPanel?: React.ReactNode;
 }) {
   const background = useBackgroundAction();
   const [grants, setGrants] = React.useState<Grant[]>([]);
@@ -160,7 +164,15 @@ export function ExploreShareModal({
   return (
     <Modal open={open} onClose={onClose} title={`Share "${rowTitle}"`} size="lg">
       <div className="flex flex-col gap-5">
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        {linkPanel && (
+          <>
+            {linkPanel}
+            <h3 className="border-t border-slate-200 pt-5 text-sm font-semibold text-slate-900 dark:border-slate-800 dark:text-slate-100">
+              AI Employee access
+            </h3>
+          </>
+        )}
+        <p className={clsx("text-xs text-slate-500 dark:text-slate-400", linkPanel ? "-mt-3" : null)}>
           Pick what each AI employee can do with this {noun} through its MCP tools —{" "}
           <span className="font-medium">View only</span> lets the employee list/run it,{" "}
           <span className="font-medium">Can edit</span> also lets them change or remove it.

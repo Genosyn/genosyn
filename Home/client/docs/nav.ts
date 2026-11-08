@@ -142,6 +142,11 @@ export const DOCS_NAV: DocsSection[] = [
         title: "Explore",
         blurb: "Self-serve BI — Charts and Dashboards over your database integrations.",
       },
+      {
+        path: "/docs/dashboard-links",
+        title: "Dashboards on a TV",
+        blurb: "Share a Dashboard by link and leave it on a screen that keeps itself current.",
+      },
     ],
   },
   {

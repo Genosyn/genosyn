@@ -68,6 +68,7 @@ import { todoPickupsRouter } from "../routes/todoPickups.js";
 import { publicFormsRouter } from "../routes/publicForms.js";
 import { publicSignaturesRouter } from "../routes/publicSignatures.js";
 import { publicDataRoomsRouter } from "../routes/publicDataRooms.js";
+import { publicDashboardsRouter } from "../routes/publicDashboards.js";
 import { dataRoomsRouter } from "../routes/dataRooms.js";
 import { supportRouter } from "../routes/support.js";
 import { publicSupportRouter } from "../routes/publicSupport.js";
@@ -295,6 +296,11 @@ export const AREAS: readonly Area[] = [
   },
   { name: "Public forms", description: "Published forms anyone with the link can fill in." },
   {
+    name: "Dashboard links",
+    description:
+      "A Dashboard shown to anyone holding its link, such as a TV, authenticated by the link itself.",
+  },
+  {
     name: "Guest data rooms",
     description:
       "The data room a guest reads and asks questions in, authenticated by their private link.",
@@ -446,6 +452,7 @@ function areaRules(): AreaRule[] {
     { router: publicSignaturesRouter, area: "Public signing" },
     { router: publicFormsRouter, area: "Public forms" },
     { router: publicDataRoomsRouter, area: "Guest data rooms" },
+    { router: publicDashboardsRouter, area: "Dashboard links" },
     { router: publicSupportRouter, area: "Customer feedback" },
     { router: publicSupportChatRouter, area: "Customer chat" },
     { router: publicHelpCenterRouter, area: "Help center" },

@@ -243,6 +243,8 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     await m.update(RevenueDocument, { createdByUserId: userId }, { createdByUserId: null });
     await m.update(RevenueImportBatch, { createdByUserId: userId }, { createdByUserId: null });
     await m.update(Dashboard, { createdById: userId }, { createdById: null });
+    // A Dashboard link they shared stops answering: it needs a sharer in the company.
+    await m.update(Dashboard, { linkEnabledById: userId }, { linkEnabledById: null });
     await m.update(Estimate, { createdById: userId }, { createdById: null });
     await m.update(Invoice, { createdById: userId }, { createdById: null });
     await m.update(InvoicePayment, { createdById: userId }, { createdById: null });

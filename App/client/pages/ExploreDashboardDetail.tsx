@@ -18,6 +18,8 @@ import {
   X,
 } from "lucide-react";
 import { ExploreShareModal } from "./ExploreShareModal";
+import { DashboardLinkPanel } from "@/components/explore/DashboardLinkPanel";
+import { Badge } from "@/components/ui/Badge";
 import { api, Company } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
@@ -74,6 +76,8 @@ type DashboardDetail = {
   createdAt?: string;
   cards: CardDTO[];
   charts: ChartDTO[];
+  /** Whether anyone holding the Dashboard's link can open it. */
+  link?: { enabled: boolean };
 };
 
 export default function ExploreDashboardDetail({ company }: { company: Company }) {
@@ -314,13 +318,24 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
           <ChevronLeft size={16} />
         </Link>
         <div className="min-w-[180px] flex-1">
-          <button
-            onClick={() => setEditingDetails(true)}
-            className="block max-w-full truncate text-left text-base font-semibold text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-300"
-            title="Rename dashboard"
-          >
-            {data.title}
-          </button>
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              onClick={() => setEditingDetails(true)}
+              className="block min-w-0 max-w-full truncate text-left text-base font-semibold text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-300"
+              title="Rename dashboard"
+            >
+              {data.title}
+            </button>
+            {data.link?.enabled && (
+              <Badge
+                tone="info"
+                dot
+                title="Anyone with this dashboard's link can see it. Manage it from Share."
+              >
+                Shared by link
+              </Badge>
+            )}
+          </div>
           {data.description && (
             <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
               {data.description}
@@ -578,6 +593,20 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
         kind="dashboard"
         slug={data.slug}
         rowTitle={data.title}
+        linkPanel={
+          <DashboardLinkPanel
+            open={sharing}
+            companyId={company.id}
+            slug={data.slug}
+            canManage={company.role === "owner" || company.role === "admin"}
+            enabled={Boolean(data.link?.enabled)}
+            onChanged={(state) =>
+              setData((current) =>
+                current ? { ...current, link: { enabled: state.enabled } } : current,
+              )
+            }
+          />
+        }
       />
       <ExploreDashboardDetailsModal
         open={editingDetails}

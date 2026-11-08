@@ -111,6 +111,14 @@ trusted-origin check, is in `App/server/index.ts`.
      as untrusted data (the room's restricted answer turn in
      `App/server/services/dataRooms/ai.ts`, shown only the documents that guest
      can open, and `list_data_room_questions`, a taint source).
+   - **Dashboard links**: `/dashboards/<token>` and `/api/dashboards/<token>`
+     (`App/server/routes/publicDashboards.ts`,
+     `App/server/services/dashboardLinks.ts`). The token in the link is its only
+     credential, kept as a hash and encrypted so owners and admins can copy it
+     again. Reads only: one Dashboard's layout, and the rows of a Chart on that
+     Dashboard cut to the columns its visualization names, answered as the owner
+     or admin who shared it and shared by every screen for 30 seconds. Guessing is
+     throttled by source address.
    - **Customer ratings**: `/feedback/<token>` and `/api/feedback/<token>`
      (`App/server/routes/publicSupport.ts`, `App/server/services/support/ratings.ts`).
      The token in the link a customer was emailed is their only credential, kept
@@ -371,6 +379,14 @@ trusted-origin check, is in `App/server/index.ts`.
   shown on a screen can be captured. Reaching another guest's folders or
   questions, another room, or a room's documents without a link is a finding.
   Data rooms are owners' and admins' alone; a Member reading one is a finding.
+- **A Dashboard link is a bearer credential by design.** Anyone holding it sees
+  that Dashboard's cards and their numbers until an owner or admin turns the link
+  off or resets it; that is what sharing it means. Reaching a Chart that is not on
+  that Dashboard, a Chart's query, Connection or Base, a column its visualization
+  does not name, another Dashboard, or anything while the link is off or after its
+  sharer left the company, is a finding. So is making, reading or changing a link
+  with an API key, a connected app or an AI Employee tool, or as a Member who is not
+  an owner or admin.
 - **A reply on a Ticket can go out with nobody looking**, when owners set an inbox
   to reply on its own and every server-side check holds
   (`App/server/services/support/holds.ts`). A customer's email changing which
@@ -505,7 +521,7 @@ Most, roughly in order:
    returning it), `App/server/services/memberBrowsers.ts`, and
    `App/server/services/browserRequestBoundary.ts` (the App refuses its own
    API to the AI's browser, even with a Member's cookies).
-9. **Public routes**: forms, signing, data room guests, webhooks, chat
+9. **Public routes**: forms, signing, data room guests, Dashboard links, webhooks, chat
    surfaces, the Chat widget, phone number webhooks, unsubscribe, the careers site and its
    custom-domain host guard, the help center, and OAuth callbacks (listed above).
 10. **Files and parsers**: upload limits and types, how stored files are

@@ -221,6 +221,11 @@ export function Explore() {
           as the editor.
         </LI>
       </OL>
+      <P>
+        To keep a Dashboard on the office TV, share it with a link from <Code>Share</Code>: anyone
+        holding the link sees it full screen, without signing in, and it refreshes on its own. See{" "}
+        <DocLink to="/docs/dashboard-links">Dashboards on a TV</DocLink>.
+      </P>
 
       <H3 id="formula-widgets">Combining widgets with a formula</H3>
       <OL>
@@ -268,7 +273,8 @@ export function Explore() {
       </P>
       <P>
         Open the <Code>Share</Code> menu on any Chart or Dashboard to change a teammate&apos;s
-        level, revoke a grant, or invite an employee who didn&apos;t default to access. Manage a
+        level, revoke a grant, or invite an employee who didn&apos;t default to access. No AI
+        Employee can make or read a Dashboard&apos;s link. Manage a
         database Connection Grant from <Code>Build with AI</Code>, the Connection&apos;s{" "}
         <Code>Manage access</Code> view, or the employee&apos;s{" "}
         <Strong>Settings → Connections</Strong>. Give a Base Grant from <Code>Build with AI</Code>{" "}
@@ -381,7 +387,8 @@ GROUP BY plan;`}</Pre>
           <Strong>Scheduled deliveries</Strong> — email a dashboard PNG at 9am.
         </LI>
         <LI>
-          <Strong>Embedded views</Strong> — public read-only links, signed.
+          <Strong>Embedded views</Strong> — a Dashboard framed inside another site. Sharing one by
+          link ships today: <DocLink to="/docs/dashboard-links">Dashboards on a TV</DocLink>.
         </LI>
         <LI>
           <Strong>Snowflake / BigQuery / Redshift</Strong> connectors.

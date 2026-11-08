@@ -78,6 +78,38 @@ html.dark ::selection {
       min-height: 0;
     }
   }
+
+  /* A Dashboard link on a TV (pages/PublicDashboard.tsx): the same 12-column
+     layout, but its rows share out the screen's height so the whole Dashboard
+     fits without scrolling. A layout too tall to stay legible keeps rows of at
+     least 2.25rem and scrolls instead. A phone stacks the cards like the App. */
+  .explore-tv-grid {
+    @apply grid grid-cols-1 gap-3;
+  }
+
+  .explore-tv-card {
+    min-height: 15rem;
+  }
+
+  @media (min-width: 768px) {
+    .explore-tv-grid {
+      height: 100%;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      grid-template-rows: repeat(var(--explore-tv-rows, 1), minmax(2.25rem, 1fr));
+    }
+
+    .explore-tv-card {
+      grid-column: var(--explore-card-column);
+      grid-row: var(--explore-card-row);
+      min-height: 0;
+    }
+  }
+
+  @media (min-width: 1536px) {
+    .explore-tv-grid {
+      @apply gap-4;
+    }
+  }
 }
 
 @layer utilities {

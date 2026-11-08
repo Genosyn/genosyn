@@ -22,6 +22,7 @@ import { Browser } from "@/docs/pages/Browser";
 import { MemberBrowsers } from "@/docs/pages/MemberBrowsers";
 import { Repositories } from "@/docs/pages/Repositories";
 import { Explore } from "@/docs/pages/Explore";
+import { DashboardLinks } from "@/docs/pages/DashboardLinks";
 import { Marketing } from "@/docs/pages/Marketing";
 import { Revenue } from "@/docs/pages/Revenue";
 import { RevenueOperations } from "@/docs/pages/RevenueOperations";
@@ -102,6 +103,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/member-browsers": MemberBrowsers,
   "/docs/repositories": Repositories,
   "/docs/explore": Explore,
+  "/docs/dashboard-links": DashboardLinks,
   "/docs/marketing": Marketing,
   "/docs/revenue": Revenue,
   "/docs/revenue-operations": RevenueOperations,

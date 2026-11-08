@@ -14,7 +14,20 @@ import {
 } from "../db/entities/EmployeeChartGrant.js";
 import { EmployeeDashboardGrant } from "../db/entities/EmployeeDashboardGrant.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireBrowserSession,
+  requireCompanyMember,
+  requireCompanyRole,
+} from "../middleware/auth.js";
+import {
+  dashboardLinkState,
+  disableDashboardLink,
+  enableDashboardLink,
+  rotateDashboardLink,
+  setDashboardLinkRefresh,
+} from "../services/dashboardLinks.js";
+import { DASHBOARD_LINK_REFRESH_CHOICES } from "../../shared/dashboardLinks.js";
 import { recordAudit } from "../services/audit.js";
 import { recordCoalescedAudit } from "../services/auditCoalesce.js";
 import { params } from "../lib/params.js";
@@ -489,6 +502,8 @@ exploreRouter.get("/explore/dashboards/:slug", async (req, res) => {
     ...serializeDashboard(row),
     cards: cards.map(serializeCard),
     charts: charts.map(serializeChart),
+    // Whether anyone with the link can open it; the link itself is for owners and admins.
+    link: { enabled: row.linkEnabledAt !== null },
   });
 });
 
@@ -544,6 +559,93 @@ exploreRouter.delete("/explore/dashboards/:slug", async (req, res) => {
   });
   res.json({ ok: true });
 });
+
+// ---------- Dashboard link ----------
+//
+// One unguessable URL that shows the Dashboard to anyone holding it, made for
+// a TV (`services/dashboardLinks.ts`). It publishes company data outside the
+// company, so it is an owner's or admin's act at a browser: no API key,
+// connected app or AI Employee reads or changes it, and the URL is never
+// returned to one.
+
+const dashboardLinkGuards = [requireBrowserSession, requireCompanyRole("admin")];
+
+const dashboardLinkParams = z
+  .object({ cid: z.string().uuid(), slug: z.string().min(1).max(200) })
+  .strict();
+
+const emptyLinkBody = z.object({}).strict();
+
+const [firstRefresh, secondRefresh, ...moreRefresh] = DASHBOARD_LINK_REFRESH_CHOICES.map(
+  (seconds) => z.literal(seconds),
+);
+const patchDashboardLinkSchema = z
+  .object({ refreshSeconds: z.union([firstRefresh!, secondRefresh!, ...moreRefresh]) })
+  .strict();
+
+exploreRouter.get(
+  "/explore/dashboards/:slug/link",
+  ...dashboardLinkGuards,
+  validateParams(dashboardLinkParams),
+  async (req, res) => {
+    const { cid, slug } = params(req);
+    const row = await loadDashboard(cid, slug);
+    if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    res.json(await dashboardLinkState(row));
+  },
+);
+
+exploreRouter.post(
+  "/explore/dashboards/:slug/link",
+  ...dashboardLinkGuards,
+  validateParams(dashboardLinkParams),
+  validateBody(emptyLinkBody),
+  async (req, res) => {
+    const { cid, slug } = params(req);
+    const row = await loadDashboard(cid, slug);
+    if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    res.json(await enableDashboardLink(row, { userId: req.userId! }));
+  },
+);
+
+exploreRouter.patch(
+  "/explore/dashboards/:slug/link",
+  ...dashboardLinkGuards,
+  validateParams(dashboardLinkParams),
+  validateBody(patchDashboardLinkSchema),
+  async (req, res) => {
+    const { cid, slug } = params(req);
+    const row = await loadDashboard(cid, slug);
+    if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    const body = req.body as z.infer<typeof patchDashboardLinkSchema>;
+    res.json(await setDashboardLinkRefresh(row, body.refreshSeconds, { userId: req.userId! }));
+  },
+);
+
+exploreRouter.post(
+  "/explore/dashboards/:slug/link/rotate",
+  ...dashboardLinkGuards,
+  validateParams(dashboardLinkParams),
+  validateBody(emptyLinkBody),
+  async (req, res) => {
+    const { cid, slug } = params(req);
+    const row = await loadDashboard(cid, slug);
+    if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    res.json(await rotateDashboardLink(row, { userId: req.userId! }));
+  },
+);
+
+exploreRouter.delete(
+  "/explore/dashboards/:slug/link",
+  ...dashboardLinkGuards,
+  validateParams(dashboardLinkParams),
+  async (req, res) => {
+    const { cid, slug } = params(req);
+    const row = await loadDashboard(cid, slug);
+    if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    res.json(await disableDashboardLink(row, { userId: req.userId! }));
+  },
+);
 
 // ---------- Dashboard cards ----------
 

@@ -109,6 +109,11 @@ const PHRASES: Record<string, string> = {
   run: "ran {noun}",
   "run.manual": "ran {noun} manually",
   "webhook.rotate": "rotated the webhook token",
+  // A Dashboard's link (`server/services/dashboardLinks.ts`).
+  "link.enable": "shared {noun} by link",
+  "link.disable": "turned off the link to {noun}",
+  "link.rotate": "reset the link to {noun}",
+  "link.update": "changed how often the link to {noun} refreshes",
   "soul.update": "edited the Soul",
   "avatar.upload": "changed the avatar",
   "avatar.remove": "removed the avatar",

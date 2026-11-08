@@ -216,6 +216,7 @@ import SupportInsights from "@/pages/SupportInsights";
 import SupportSettingsPage from "@/pages/SupportSettings";
 import SupportAiAccess from "@/pages/SupportAiAccess";
 import PublicForm from "@/pages/PublicForm";
+import PublicDashboard from "@/pages/PublicDashboard";
 import FinanceLayout from "./pages/FinanceLayout";
 import FinanceIndex from "./pages/FinanceIndex";
 import FinanceProducts from "./pages/FinanceProducts";
@@ -272,7 +273,7 @@ function isAnonymousPage(pathname: string): boolean {
 }
 
 function isPublicSurfacePage(pathname: string): boolean {
-  return /^\/(?:sign|forms|room|feedback|help|support-chat)(?:\/|$)/i.test(pathname);
+  return /^\/(?:sign|forms|room|dashboards|feedback|help|support-chat)(?:\/|$)/i.test(pathname);
 }
 
 function FullPageRedirect({ to }: { to: string }) {
@@ -325,6 +326,7 @@ export default function App() {
             <Route path="/sign/:token" element={<PublicSigning />} />
             <Route path="/forms/:token" element={<PublicForm />} />
             <Route path="/room/:token" element={<PublicDataRoom />} />
+            <Route path="/dashboards/:token" element={<PublicDashboard />} />
             <Route path="/feedback/:token" element={<PublicSupportFeedback />} />
             <Route path="/support-chat/confirm/:token" element={<PublicSupportChatConfirm />} />
             <Route path="/help/:companySlug" element={<PublicHelpCenter />} />

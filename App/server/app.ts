@@ -84,6 +84,10 @@ import { contractsRouter } from "./routes/contracts.js";
 import { signaturesRouter } from "./routes/signatures.js";
 import { publicSignaturesRouter, publicSigningSecurityHeaders } from "./routes/publicSignatures.js";
 import { publicFormsRouter, publicFormsSecurityHeaders } from "./routes/publicForms.js";
+import {
+  publicDashboardSecurityHeaders,
+  publicDashboardsRouter,
+} from "./routes/publicDashboards.js";
 import { dataRoomsRouter } from "./routes/dataRooms.js";
 import {
   publicDataRoomSecurityHeaders,
@@ -210,6 +214,9 @@ export function createApp(): express.Express {
   // A guest's data room link is a bearer credential too.
   app.use("/api/room", publicDataRoomSecurityHeaders);
   app.use("/room", publicDataRoomSecurityHeaders);
+  // So is a Dashboard link, the page a TV is left on.
+  app.use("/api/dashboards", publicDashboardSecurityHeaders);
+  app.use("/dashboards", publicDashboardSecurityHeaders);
   // So is a customer's link to rate a ticket.
   app.use("/api/feedback", publicSupportSecurityHeaders);
   app.use("/feedback", publicSupportSecurityHeaders);
@@ -235,6 +242,9 @@ export function createApp(): express.Express {
   // Data room guests: no account, no session — the token in their private
   // link is the credential, checked by the router on every request.
   app.use("/api/room", publicDataRoomsRouter);
+  // A Dashboard shown to whoever holds its link — a TV, a lobby screen. Reads
+  // only, and the token in the path is the credential.
+  app.use("/api/dashboards", publicDashboardsRouter);
   // A customer rating a ticket: no account, no session, just their link.
   app.use("/api/feedback", publicSupportRouter);
   // A visitor on a company's own site: no account and no session, so no Member's
