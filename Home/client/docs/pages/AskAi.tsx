@@ -56,6 +56,38 @@ export function AskAi() {
         conversation stays on whichever model an employee last answered on.
       </P>
 
+      <H2 id="watching">Watching the work</H2>
+      <P>
+        An answer can take a while — reading Bases, building a chart, checking a dozen records — so
+        you never just watch a spinner. As soon as an employee starts, a live card appears under its
+        name. Its top line says what it is doing right now and for how long — <em>Thinking</em>,{" "}
+        <em>Searching Bases</em>, <em>Waiting for the AI Model to start answering</em>,{" "}
+        <em>Writing the reply</em> — and, on the right, how long since you asked. Under that is the
+        evidence read off the AI Model&apos;s own stream (<Strong>Receiving now</Strong> or{" "}
+        <Strong>Last data 12s ago</Strong>, the AI Model, which call this is), the thought it is
+        sharing, its own milestone with a percentage when it reports one, and every step so far,
+        newest last, each with its status and duration. Select a step to see its arguments and what
+        it returned, or its error. The answer streams in beneath the card as it is written.
+      </P>
+      <P>
+        The line beside the message box names the employee, what it is doing and for how long, so
+        it stays in view when you scroll back up the conversation; scrolling up also stops the panel
+        from pulling you down, and <Strong>Jump to the live answer</Strong> brings you back. When several employees answer one message, the one waiting its turn says
+        whom it is waiting for, and the live card says who answers next. The card works the same as
+        in <DocLink to="/docs/chat#live-activity">direct chat</DocLink>.
+      </P>
+      <P>
+        <Strong>Stop</Strong> on the live card ends that answer at once. What it wrote so far stays,
+        marked <Strong>Stopped</Strong>, along with anything it already did; <Strong>Ask again</Strong>{" "}
+        sends the same question to the same employee. When you stop one of several employees, the
+        next one still answers. Once an answer is finished it keeps one quiet line above it, such
+        as <Strong>Worked for 2m 14s · 9 steps</Strong> or <Strong>Stopped after 40s · 3
+        steps</Strong>; select it to open the same steps, with the AI Model, its calls and the
+        tokens it read and wrote. The steps are recorded with the same redaction as{" "}
+        <DocLink to="/docs/chat#privacy">direct chat</DocLink> and, like the conversation, are
+        yours alone.
+      </P>
+
       <H2 id="page-context">What it knows about the page</H2>
       <P>
         Whatever you have open travels with your message. The <Strong>Context</Strong> chips above
@@ -143,9 +175,10 @@ export function AskAi() {
       </P>
       <P>
         A reply belongs to the server, not to your browser tab. Closing the panel, navigating, or
-        reloading is safe; the panel shows <Strong>reconnecting</Strong> and follows the same reply
-        to its end. Answers that genuinely could not run — Genosyn restarted mid-answer, or the
-        employee stayed busy for several minutes — say so plainly.
+        reloading is safe: the panel picks the same answer up where it is — its steps so far and the
+        text already written — and follows it to its end. Answers that genuinely could not run —
+        Genosyn restarted mid-answer, or the employee stayed busy for several minutes — say so
+        plainly, and one cut off by a restart still shows the steps it got through.
       </P>
 
       <H2 id="files">Files and one-click actions</H2>

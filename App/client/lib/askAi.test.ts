@@ -28,6 +28,7 @@ function msg(overrides: Partial<AskAiMessage>): AskAiMessage {
     status: null,
     actions: [],
     suggestions: [],
+    activity: null,
     attachments: [],
     context: null,
     createdAt: "2026-10-05T00:00:00Z",

@@ -8,8 +8,8 @@ export type AssistantChatMessage = {
   role: "user" | "assistant";
   employeeId: string | null;
   content: string;
-  /** `queued` and `working` are both answers still owed. */
-  status: "queued" | "working" | "ok" | "skipped" | "error" | null;
+  /** `queued` and `working` are both answers still owed; `interrupted` was stopped. */
+  status: "queued" | "working" | "ok" | "skipped" | "error" | "interrupted" | null;
   attachments: ChatAttachment[];
 };
 

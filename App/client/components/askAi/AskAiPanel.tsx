@@ -2,11 +2,13 @@ import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
+  ArrowDown,
   AtSign,
   Bot,
   Brain,
   Check,
   ChevronDown,
+  CircleSlash,
   Clock,
   FileText,
   History,
@@ -50,6 +52,15 @@ import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { AssistantMessageQueue, AssistantWorkStatus } from "@/components/chat/AssistantMessageQueue";
 import { ChatAttachments } from "@/components/chat/ChatAttachments";
 import {
+  LiveTurnCard,
+  shouldShowTurnSummary,
+  TurnWorkSummary,
+  useNow,
+} from "@/components/chat/TurnActivity";
+import { useFollowedTurn } from "@/components/chat/useFollowedTurn";
+import { deriveLivePhase, describeLivePhase } from "@/lib/chatLiveness";
+import type { FollowedTurnState } from "@/lib/followedTurn";
+import {
   ResourceReferencePicker,
   insertResourceReference,
   resourceQueryAtCaret,
@@ -57,6 +68,7 @@ import {
   type ChatResourceReference,
 } from "@/components/chat/ResourceReferencePicker";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
+import { Badge } from "@/components/ui/Badge";
 import { useDialog } from "@/components/ui/Dialog";
 import { FormError } from "@/components/ui/FormError";
 import { Select } from "@/components/ui/Select";
@@ -69,7 +81,7 @@ import {
   APP_PANEL_MAX_WIDTH,
   SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT,
 } from "@/components/ui/sidePanelWidth";
-import { Spinner } from "@/components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "@/components/ui/Spinner";
 import { clsx } from "@/components/ui/clsx";
 import {
   ASK_AI_KIND_LABELS,
@@ -97,6 +109,7 @@ const WIDTH_STORAGE_KEY = "genosyn.askAi.width";
 const ACTIVE_STORAGE_PREFIX = "genosyn.askAi.conversation.";
 /** Composer preview refreshes this long after the page or exclusions settle. */
 const PREVIEW_DELAY_MS = 150;
+const NO_ANSWERS: AskAiMessage[] = [];
 
 type Payload = Pick<AskAiSendInput, "page" | "refs" | "exclude"> & {
   /** Chips as they were when sent, for the optimistic bubble. */
@@ -592,6 +605,7 @@ function ConversationPane({
           status: null,
           actions: [],
           suggestions: [],
+          activity: null,
           attachments: item.attachments,
           context: payload
             ? { path: payload.page.path, pageLabel: payload.page.label, items: payload.items }
@@ -614,6 +628,7 @@ function ConversationPane({
     setModelId,
     queuedMessages,
     queuePaused,
+    updateMessage,
   } = session;
   const roster = session.roster.length > 0 ? session.roster : initialRoster;
 
@@ -658,17 +673,101 @@ function ConversationPane({
     return () => cancelAnimationFrame(frame);
   }, [focusKey]);
 
-  React.useEffect(() => {
-    requestAnimationFrame(() => {
-      const el = scrollerRef.current;
-      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    });
-  }, [messages?.length, streaming]);
-
   const workingMessage = React.useMemo(
     () => (messages ?? []).find((m) => m.role === "assistant" && m.status === "working") ?? null,
     [messages],
   );
+
+  // The answer being written, followed over its own stream: its steps, its
+  // text, and what the AI Model is doing right now. A reload, a closed panel
+  // or another tab picks the same answer up where it is.
+  const workingId = workingMessage?.id ?? null;
+  const followUrl = React.useMemo(
+    () =>
+      workingId
+        ? (after: number) => askAiApi.activityStreamUrl(company.id, conversationId, workingId, after)
+        : null,
+    [company.id, conversationId, workingId],
+  );
+  const followed = useFollowedTurn({
+    streamUrl: followUrl,
+    turnId: workingId,
+    startedAt: workingMessage ? Date.parse(workingMessage.createdAt) || null : null,
+    onEnd: (event, data) => {
+      // The finished answer, straight from the stream that watched it.
+      if (event === "assistant" && isAnswer(data)) updateMessage(data);
+    },
+  });
+
+  const [stopping, setStopping] = React.useState<string | null>(null);
+  const [stopError, setStopError] = React.useState<{ id: string; message: string } | null>(null);
+  React.useEffect(() => {
+    // A stop lands when the answer finishes; whatever comes next starts fresh.
+    if (stopping && stopping !== workingId) setStopping(null);
+  }, [stopping, workingId]);
+  const stopAnswer = React.useCallback(
+    async (messageId: string) => {
+      setStopping(messageId);
+      setStopError(null);
+      try {
+        const result = await askAiApi.stop(company.id, conversationId, messageId);
+        // One stopped here finishes in a moment and the stream brings it; one
+        // that had nothing left running is final already.
+        if (!result.stopped || result.message.status !== "working") {
+          updateMessage(result.message);
+          setStopping(null);
+        }
+      } catch (err) {
+        setStopping(null);
+        setStopError({ id: messageId, message: errorMessage(err, "Couldn’t stop this answer") });
+      }
+    },
+    [company.id, conversationId, updateMessage],
+  );
+
+  // Follow the tail while the reader is at the bottom — new messages, the
+  // live card growing, the answer streaming in — and leave them be once they
+  // scroll up to read; "Jump to latest" brings them back.
+  const stickToBottomRef = React.useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = React.useState(false);
+  const followTail = React.useCallback(() => {
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
+    const el = scrollerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+  React.useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [messages, streaming, followed.text, followed.live.events]);
+  const transcriptObserver = React.useRef<ResizeObserver | null>(null);
+  const transcriptRef = React.useCallback((content: HTMLDivElement | null) => {
+    transcriptObserver.current?.disconnect();
+    transcriptObserver.current = null;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    transcriptObserver.current = new ResizeObserver(() => {
+      const el = scrollerRef.current;
+      if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    transcriptObserver.current.observe(content);
+  }, []);
+  const onTranscriptScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const el = event.currentTarget;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    stickToBottomRef.current = atBottom;
+    setShowJumpToLatest(!atBottom);
+  };
+  /** The answers to each message, in order — who an answer waits on, and who is next. */
+  const answersByTurn = React.useMemo(() => {
+    const byTurn = new Map<string, AskAiMessage[]>();
+    for (const m of messages ?? []) {
+      if (m.role !== "assistant" || !m.turnId) continue;
+      const answers = byTurn.get(m.turnId) ?? [];
+      answers.push(m);
+      byTurn.set(m.turnId, answers);
+    }
+    return byTurn;
+  }, [messages]);
   const owedCount = React.useMemo(
     () =>
       (messages ?? []).filter(
@@ -750,6 +849,7 @@ function ConversationPane({
       setMentionQuery(null);
       setResourceQuery(null);
       textareaRef.current?.focus();
+      followTail();
       onSent(conversationId);
     },
     [
@@ -767,6 +867,7 @@ function ConversationPane({
       single,
       selectedModelId,
       clearAttachments,
+      followTail,
       onSent,
       conversationId,
     ],
@@ -913,47 +1014,75 @@ function ConversationPane({
 
   return (
     <>
-      <div ref={scrollerRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
-        {loadError && messages === null ? (
-          <FormError message={loadError} />
-        ) : messages === null ? (
-          <div className="flex h-full items-center justify-center">
-            <Spinner size={18} />
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollerRef}
+          onScroll={onTranscriptScroll}
+          className="h-full overflow-y-auto px-3 py-3"
+        >
+          <div ref={transcriptRef} className="space-y-4">
+            {loadError && messages === null ? (
+              <FormError message={loadError} />
+            ) : messages === null ? (
+              <div className="flex items-center justify-center py-16">
+                <Spinner size={18} />
+              </div>
+            ) : messages.length === 0 && !streaming ? (
+              <IntroTips
+                company={company}
+                roster={roster}
+                focus={focusItem}
+                onPick={(prompt) => {
+                  setDraft(prompt);
+                  textareaRef.current?.focus();
+                }}
+              />
+            ) : (
+              messages.map((m) => {
+                const followedHere = m.id === workingId;
+                return (
+                  <MessageRow
+                    key={m.id}
+                    company={company}
+                    message={m}
+                    roster={roster}
+                    streamingText={followedHere ? streaming : null}
+                    reconnecting={followedHere && reconnecting}
+                    followed={followedHere ? followed : null}
+                    turnmates={(m.turnId && answersByTurn.get(m.turnId)) || NO_ANSWERS}
+                    stopping={stopping === m.id}
+                    stopError={stopError?.id === m.id ? stopError.message : null}
+                    onStop={() => void stopAnswer(m.id)}
+                    onRetry={retryFrom}
+                    onExecuted={updateMessage}
+                    compose={(init) => askAi?.compose(init) ?? false}
+                    navigate={navigate}
+                  />
+                );
+              })
+            )}
           </div>
-        ) : messages.length === 0 && !streaming ? (
-          <IntroTips
-            company={company}
-            roster={roster}
-            focus={focusItem}
-            onPick={(prompt) => {
-              setDraft(prompt);
-              textareaRef.current?.focus();
-            }}
-          />
-        ) : (
-          messages.map((m) => (
-            <MessageRow
-              key={m.id}
-              company={company}
-              message={m}
-              roster={roster}
-              streamingText={m.id === workingMessage?.id ? streaming : null}
-              reconnecting={m.id === workingMessage?.id && reconnecting}
-              onRetry={retryFrom}
-              onExecuted={session.updateMessage}
-              compose={(init) => askAi?.compose(init) ?? false}
-              navigate={navigate}
-            />
-          ))
+        </div>
+        {showJumpToLatest && (
+          <button
+            type="button"
+            onClick={followTail}
+            className="absolute bottom-3 left-1/2 z-10 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            <ArrowDown size={12} aria-hidden="true" />
+            {workingMessage ? "Jump to the live answer" : "Jump to latest"}
+          </button>
         )}
       </div>
 
       <div className="relative shrink-0 border-t border-slate-200 p-3 dark:border-slate-800">
         {turnInFlight && (
-          <AssistantWorkStatus
+          <LiveWorkStatus
             name={workingEmployee?.name ?? "The AI Employee"}
             startedAt={workingMessage?.createdAt}
             reconnecting={reconnecting}
+            followed={workingMessage ? followed : null}
+            stopping={stopping !== null && stopping === workingId}
           />
         )}
         <AssistantMessageQueue
@@ -1361,6 +1490,11 @@ function MessageRow({
   roster,
   streamingText,
   reconnecting,
+  followed,
+  turnmates,
+  stopping,
+  stopError,
+  onStop,
   onRetry,
   onExecuted,
   compose,
@@ -1371,6 +1505,13 @@ function MessageRow({
   roster: AskAiRosterEntry[];
   streamingText: string | null;
   reconnecting: boolean;
+  /** The answer being written, as its own stream tells it; null on every other row. */
+  followed: FollowedTurnState | null;
+  /** Every answer to the same message, this one included, in order. */
+  turnmates: AskAiMessage[];
+  stopping: boolean;
+  stopError: string | null;
+  onStop: () => void;
   onRetry: (message: AskAiMessage) => void;
   onExecuted: (message: AskAiMessage) => void;
   compose: Parameters<typeof MailSuggestionButtons>[0]["compose"];
@@ -1382,7 +1523,7 @@ function MessageRow({
   if (message.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1">
-        <div className="max-w-[85%] break-words rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white [&_a]:text-white [&_a]:underline">
+        <div className="max-w-[85%] break-words rounded-2xl rounded-tr-md bg-indigo-600 px-3.5 py-2 text-sm text-white [&_a]:text-white [&_a]:underline">
           <ChatMarkdown content={message.content} />
         </div>
         {message.attachments.length > 0 && (
@@ -1413,60 +1554,126 @@ function MessageRow({
   const isSkipped = message.status === "skipped";
   const isWorking = message.status === "working";
   const isQueued = message.status === "queued";
+  const isInterrupted = message.status === "interrupted";
   const untargetedNotice = isError && !message.employeeId;
-  const canRetry = (isError || isSkipped) && !untargetedNotice && Boolean(message.turnId);
+  const canRetry =
+    (isError || isSkipped || isInterrupted) && !untargetedNotice && Boolean(message.turnId);
+  const name = emp?.name ?? (untargetedNotice ? "Ask AI" : "The AI Employee");
+  const nameOf = (m: AskAiMessage | undefined) =>
+    m ? (roster.find((r) => r.id === m.employeeId)?.name ?? "The AI Employee") : null;
+  const index = turnmates.findIndex((m) => m.id === message.id);
+  // Who this answer waits on, and who answers after it, among the employees asked together.
+  const before = index > 0 ? turnmates.slice(0, index).find((m) => m.status === "working") : undefined;
+  const after = turnmates.slice(index + 1).find((m) => m.status === "queued");
+
+  const avatar = emp ? (
+    <Avatar
+      name={emp.name}
+      src={employeeAvatarUrl(company.id, emp.id, emp.avatarKey)}
+      kind="ai"
+      size="md"
+    />
+  ) : (
+    <div
+      className={clsx(
+        "flex h-8 w-8 items-center justify-center rounded-full",
+        isError ? "bg-rose-100 dark:bg-rose-500/15" : "bg-violet-100 dark:bg-violet-500/15",
+      )}
+    >
+      {isError ? (
+        <AlertTriangle size={14} className="text-rose-600 dark:text-rose-300" />
+      ) : (
+        <Bot size={14} className="text-violet-600 dark:text-violet-300" />
+      )}
+    </div>
+  );
+
+  if (isWorking && followed) {
+    return (
+      <LiveTurnCard
+        authorName={name}
+        avatar={avatar}
+        live={followed.live}
+        streamingReply={followed.text || streamingText || message.content || null}
+        progress={followed.progress}
+        connectionState={
+          reconnecting && followed.connection !== "streaming" ? "reconnecting" : followed.connection
+        }
+        stopping={stopping}
+        onStop={onStop}
+        companySlug={company.slug}
+        context={after ? `${nameOf(after)} answers next` : null}
+        stopError={stopError}
+      />
+    );
+  }
 
   return (
-    <div className="flex items-start gap-2">
-      {emp ? (
-        <Avatar
-          name={emp.name}
-          src={employeeAvatarUrl(company.id, emp.id, emp.avatarKey)}
-          kind="ai"
-          size="sm"
-          className="mt-0.5"
-        />
-      ) : (
-        <div
-          className={clsx(
-            "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
-            isError ? "bg-rose-100 dark:bg-rose-500/15" : "bg-violet-100 dark:bg-violet-500/15",
-          )}
-        >
-          {isError ? (
-            <AlertTriangle size={12} className="text-rose-600 dark:text-rose-300" />
-          ) : (
-            <Bot size={12} className="text-violet-600 dark:text-violet-300" />
-          )}
-        </div>
-      )}
+    <div className="flex justify-start gap-2.5">
+      <div className="w-9 shrink-0">{avatar}</div>
       <div className="min-w-0 flex-1">
-        <div className="mb-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-          {emp?.name ?? "Ask AI"}
-          {isSkipped ? " · skipped" : ""}
-          {isQueued ? " · waiting" : ""}
-          {isWorking ? (reconnecting ? " · reconnecting" : " · working") : ""}
+        <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="font-medium text-slate-700 dark:text-slate-200">{name}</span>
+          {isQueued && (
+            <Badge tone="neutral" icon={<Clock />}>
+              Waiting
+            </Badge>
+          )}
+          {isWorking && (
+            <Badge tone="accent" icon={<ButtonSpinner size={10} />}>
+              {reconnecting ? "Reconnecting" : "Working"}
+            </Badge>
+          )}
+          {isInterrupted && (
+            <Badge tone="neutral" icon={<CircleSlash />}>
+              Stopped
+            </Badge>
+          )}
+          {isSkipped && (
+            <Badge tone="warning" icon={<CircleSlash />}>
+              Skipped
+            </Badge>
+          )}
+          {isError && !untargetedNotice && (
+            <Badge tone="danger" icon={<AlertTriangle />}>
+              Error
+            </Badge>
+          )}
         </div>
+        {shouldShowTurnSummary(message.activity) && message.activity && (
+          <TurnWorkSummary
+            summary={message.activity}
+            activityUrl={askAiApi.activityUrl(company.id, message.conversationId, message.id)}
+            messageId={message.id}
+            companySlug={company.slug}
+          />
+        )}
         <div
           className={clsx(
-            "rounded-lg px-3 py-2 text-sm",
+            "rounded-2xl rounded-tl-md px-3.5 py-2 text-sm leading-relaxed shadow-sm",
             isError
-              ? "bg-rose-50 text-rose-900 dark:bg-rose-500/10 dark:text-rose-200"
+              ? "border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
               : isSkipped
-                ? "bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
-                : "bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-200",
+                ? "border border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+                : isQueued || isWorking
+                  ? "border border-slate-200 bg-slate-50 text-slate-500 shadow-none dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400"
+                  : isInterrupted
+                    ? "border border-dashed border-slate-300 bg-white text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                    : "border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
           )}
         >
           {isQueued ? (
-            <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-              <Clock size={12} /> Answers after the AI Employee before them.
+            <div className="flex items-center gap-2 text-xs">
+              <Clock size={12} aria-hidden="true" className="shrink-0" />
+              {before
+                ? `Answers once ${nameOf(before)} has finished.`
+                : "Answers after the AI Employee before them."}
             </div>
           ) : isWorking ? (
-            <WorkingBody
-              name={emp?.name ?? "The AI Employee"}
-              text={streamingText ?? (message.content || null)}
-              reconnecting={reconnecting}
-            />
+            <div className="flex items-center gap-2 text-xs">
+              <Spinner size={12} />
+              {`${name} is working on this, and the answer will appear here.`}
+            </div>
           ) : isError || isSkipped ? (
             <div className="whitespace-pre-wrap break-words">{message.content}</div>
           ) : (
@@ -1482,7 +1689,7 @@ function MessageRow({
             onClick={() => onRetry(message)}
             className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-300"
           >
-            <RotateCcw size={11} /> Try again
+            <RotateCcw size={11} /> {isInterrupted ? "Ask again" : "Try again"}
           </button>
         )}
         {message.actions.length > 0 && <ActionPills actions={message.actions} />}
@@ -1500,33 +1707,50 @@ function MessageRow({
   );
 }
 
-function WorkingBody({
+/** A finished answer as the follow stream hands it over. */
+function isAnswer(value: unknown): value is AskAiMessage {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<AskAiMessage>;
+  return typeof row.id === "string" && row.role === "assistant" && typeof row.status === "string";
+}
+
+/**
+ * The line beside the composer while an answer is written: who, what they are
+ * doing this moment, and for how long — still in view when the Member has
+ * scrolled up the conversation.
+ */
+function LiveWorkStatus({
   name,
-  text,
+  startedAt,
   reconnecting,
+  followed,
+  stopping,
 }: {
   name: string;
-  text: string | null;
+  startedAt?: string;
   reconnecting: boolean;
+  followed: FollowedTurnState | null;
+  stopping: boolean;
 }) {
-  if (text) {
-    return (
-      <div>
-        <ChatMarkdown content={text} />
-        <div className="mt-2 flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-300">
-          <Spinner size={12} />
-          {reconnecting ? "Reconnecting…" : "Still working…"}
-        </div>
-      </div>
-    );
+  const clientNow = useNow(Boolean(followed));
+  let doing: string | null = null;
+  if (followed) {
+    const now = clientNow + followed.live.clockOffsetMs;
+    const phase = deriveLivePhase({
+      events: followed.live.events,
+      startedAt: followed.live.startedAt ?? (startedAt ? Date.parse(startedAt) : now),
+      now,
+      lastTextAt: followed.live.lastTextAt,
+      lastSignalAt: followed.live.lastSignalAt,
+      connection: reconnecting ? "reconnecting" : followed.connection,
+      stopping,
+      hasReplyText: Boolean(followed.text),
+      pulse: followed.live.pulse,
+    });
+    doing = describeLivePhase(phase, name, now).title;
   }
   return (
-    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-      <Spinner size={12} />
-      {reconnecting
-        ? `Reconnecting — ${name} is still working on this, and the reply will appear here.`
-        : `${name} is working…`}
-    </div>
+    <AssistantWorkStatus name={name} startedAt={startedAt} reconnecting={reconnecting} doing={doing} />
   );
 }
 

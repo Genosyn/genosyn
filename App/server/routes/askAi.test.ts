@@ -12,6 +12,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AskAiMessage } from "../db/entities/AskAiMessage.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { Company } from "../db/entities/Company.js";
+import { ConversationActivityEvent } from "../db/entities/ConversationActivityEvent.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Membership, type FinanceAccess, type Role } from "../db/entities/Membership.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -291,6 +292,118 @@ describe("conversations are private", () => {
     await AppDataSource.getRepository(AskAiMessage).update({ conversationId: id }, { status: "ok" });
     assert.equal((await call("DELETE", `/ask-ai/conversations/${id}`)).status, 200);
     assert.equal((await call("GET", `/ask-ai/conversations/${id}`)).status, 404);
+  });
+});
+
+describe("an answer's work", () => {
+  /** A finished answer with two recorded steps, in a conversation the acting Member owns. */
+  async function answeredWithSteps(status: "ok" | "working" = "ok") {
+    const id = await newConversation();
+    const answer = await insert(AskAiMessage, {
+      companyId: company.id,
+      conversationId: id,
+      role: "assistant",
+      employeeId: employee.id,
+      content: status === "ok" ? "Added the chart." : "Halfway",
+      status,
+      createdAt: new Date(Date.now() - 60_000),
+    });
+    for (const [ordinal, kind] of [
+      [1, "tool_use"],
+      [2, "tool_result"],
+    ] as const) {
+      await insert(ConversationActivityEvent, {
+        companyId: company.id,
+        conversationId: id,
+        messageId: answer.id,
+        ordinal,
+        kind,
+        name: "list_bases",
+        callId: "call-1",
+        summary: "Listing Bases",
+        occurredAt: new Date(Date.now() - 30_000 + ordinal),
+      });
+    }
+    return { id, answer };
+  }
+
+  async function follow(path: string): Promise<Array<[string, unknown]>> {
+    const response = await fetch(`${baseUrl}/api/companies/${company.id}${path}`);
+    assert.equal(response.status, 200);
+    const events: Array<[string, unknown]> = [];
+    for (const frame of (await response.text()).split("\n\n")) {
+      const lines = frame.split("\n");
+      const name = lines.find((l) => l.startsWith("event:"))?.slice(6).trim();
+      const data = lines.find((l) => l.startsWith("data:"))?.slice(5).trim();
+      if (name) events.push([name, data ? JSON.parse(data) : null]);
+    }
+    return events;
+  }
+
+  test("the Member reads an answer's steps, page by page", async () => {
+    const { id, answer } = await answeredWithSteps();
+
+    const first = await call<{ events: Array<{ ordinal: number }>; more: boolean; status: string }>(
+      "GET",
+      `/ask-ai/conversations/${id}/messages/${answer.id}/activity?limit=1`,
+    );
+    assert.equal(first.status, 200);
+    assert.deepEqual(first.body.events.map((e) => e.ordinal), [1]);
+    assert.equal(first.body.more, true);
+    assert.equal(first.body.status, "ok");
+    const rest = await call<{ events: Array<{ ordinal: number }>; more: boolean }>(
+      "GET",
+      `/ask-ai/conversations/${id}/messages/${answer.id}/activity?after=1`,
+    );
+    assert.deepEqual(rest.body.events.map((e) => e.ordinal), [2]);
+    assert.equal(rest.body.more, false);
+  });
+
+  test("following a finished answer replays its steps, then the answer", async () => {
+    const { id, answer } = await answeredWithSteps();
+
+    const events = await follow(`/ask-ai/conversations/${id}/messages/${answer.id}/activity/stream`);
+
+    const names = events.map(([name]) => name).filter((name) => name !== "heartbeat");
+    assert.deepEqual(names, ["turn", "activity", "activity", "assistant", "done"]);
+    const final = events.find(([name]) => name === "assistant")?.[1] as { id: string; content: string };
+    assert.equal(final.id, answer.id);
+    assert.equal(final.content, "Added the chart.");
+  });
+
+  test("Stop finishes an answer left running, keeping its text", async () => {
+    const { id, answer } = await answeredWithSteps("working");
+
+    const stopped = await call<{ stopped: boolean; message: { status: string; content: string } }>(
+      "POST",
+      `/ask-ai/conversations/${id}/messages/${answer.id}/stop`,
+      {},
+    );
+    assert.equal(stopped.status, 200);
+    assert.equal(stopped.body.stopped, true);
+    assert.equal(stopped.body.message.status, "interrupted");
+    assert.equal(stopped.body.message.content, "Halfway");
+
+    const again = await call<{ stopped: boolean }>(
+      "POST",
+      `/ask-ai/conversations/${id}/messages/${answer.id}/stop`,
+      {},
+    );
+    assert.equal(again.body.stopped, false, "nothing was left to stop");
+  });
+
+  test("nobody else reads, follows or stops another Member's answer", async () => {
+    const { id, answer } = await answeredWithSteps("working");
+    const base = `/ask-ai/conversations/${id}/messages/${answer.id}`;
+
+    actingUserId = other.id;
+    assert.equal((await call("GET", `${base}/activity`)).status, 404);
+    assert.equal((await call("GET", `${base}/activity/stream`)).status, 404);
+    assert.equal((await call("POST", `${base}/stop`, {})).status, 404);
+
+    actingUserId = member.id;
+    const row = await AppDataSource.getRepository(AskAiMessage).findOneByOrFail({ id: answer.id });
+    assert.equal(row.status, "working", "a refused Stop changes nothing");
   });
 });
 

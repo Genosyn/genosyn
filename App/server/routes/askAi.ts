@@ -12,11 +12,17 @@ import {
   MAX_ASK_AI_CONTEXT_REFS,
 } from "../../shared/askAi.js";
 import {
+  followAskAiAnswer,
+  listAskAiAnswerActivity,
+  stopAskAiAnswer,
+} from "../services/askAi/answerActivity.js";
+import {
   askAiMessageAttachments,
   askAiRoster,
   askAiTurnInFlight,
   createAskAiConversation,
   deleteAskAiConversation,
+  getAskAiAnswer,
   getAskAiConversation,
   lastAskAiModelId,
   listAskAiConversations,
@@ -349,6 +355,135 @@ askAiRouter.post(
       }
     } finally {
       clearInterval(heartbeat);
+    }
+  },
+);
+
+// ───────────────────────────── an answer's work ─────────────────────────────
+
+const answerParamsSchema = z
+  .object({
+    cid: z.string().min(1),
+    conversationId: z.string().uuid(),
+    messageId: z.string().uuid(),
+  })
+  .strict();
+const activityQuerySchema = z
+  .object({
+    /** The last ordinal the reader already holds; 0 reads from the start. */
+    after: z.coerce.number().int().min(0).optional().default(0),
+    limit: z.coerce.number().int().min(1).max(1_000).optional().default(500),
+  })
+  .strict();
+const activityStreamQuerySchema = z
+  .object({ after: z.coerce.number().int().min(0).optional().default(0) })
+  .strict();
+
+/** An answer in one of the Member's own conversations; anyone else's is not found. */
+async function findOwnedAnswer(req: Request) {
+  const { cid, conversationId, messageId } = req.params as Record<string, string>;
+  const conversation = await getAskAiConversation(cid, req.userId!, conversationId);
+  if (!conversation) return null;
+  const answer = await getAskAiAnswer(conversation.id, messageId);
+  return answer ? { conversation, answer } : null;
+}
+
+/**
+ * What an AI Employee did while it wrote one answer, step by step: each tool
+ * call and its result, the AI Model's thinking summary, the reasons it waited.
+ * Read when the Member opens a finished answer's "Worked for …" line; `after`
+ * pages through a long one. Redacted when it was recorded.
+ */
+askAiRouter.get(
+  "/ask-ai/conversations/:conversationId/messages/:messageId/activity",
+  requireBrowserSession,
+  validateParams(answerParamsSchema),
+  validateQuery(activityQuerySchema),
+  async (req, res, next) => {
+    try {
+      const found = await findOwnedAnswer(req);
+      if (!found) return res.status(404).json({ error: "Answer not found" });
+      const query = req.query as unknown as z.infer<typeof activityQuerySchema>;
+      res.json(await listAskAiAnswerActivity(found.answer, query.after, query.limit));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * Follow one answer live, from the reader's cursor to its end — its steps, its
+ * text as it is written, and what the AI Model is doing this moment. How the
+ * panel watches an answer, and how a reload, another tab or a dropped
+ * connection picks it up again. Server-Sent Events, as `followChatTurn`
+ * (`services/chatTurnFollow.ts`) describes them; a finished answer replays
+ * what the reader has not seen, sends the answer as `assistant`, and ends.
+ */
+askAiRouter.get(
+  "/ask-ai/conversations/:conversationId/messages/:messageId/activity/stream",
+  requireBrowserSession,
+  validateParams(answerParamsSchema),
+  validateQuery(activityStreamQuerySchema),
+  async (req, res, next) => {
+    let found: Awaited<ReturnType<typeof findOwnedAnswer>>;
+    try {
+      found = await findOwnedAnswer(req);
+    } catch (error) {
+      return next(error);
+    }
+    if (!found) return res.status(404).json({ error: "Answer not found" });
+    const query = req.query as unknown as z.infer<typeof activityStreamQuerySchema>;
+
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+    const writeEvent = (event: string, data: unknown) => {
+      if (res.writableEnded || res.destroyed) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const stop = new AbortController();
+    res.on("close", () => stop.abort());
+    try {
+      await followAskAiAnswer({
+        messageId: found.answer.id,
+        after: query.after,
+        send: writeEvent,
+        signal: stop.signal,
+        loadFinal: async (row) => {
+          const attachments = await askAiMessageAttachments([row]);
+          return serializeAskAiMessage(row, attachments.get(row.id) ?? []);
+        },
+      });
+    } catch (error) {
+      console.error(`[ask-ai] following answer ${found.answer.id} failed`, error);
+      writeEvent("error", { message: "Lost track of this answer. It continues on the server." });
+    } finally {
+      if (!res.writableEnded && !res.destroyed) res.end();
+    }
+  },
+);
+
+/**
+ * Stop an answer the Member is waiting on. What it wrote so far is kept, and
+ * so is whatever it already did. One still waiting behind another AI Employee
+ * never starts. `stopped` is false when it had already finished.
+ */
+askAiRouter.post(
+  "/ask-ai/conversations/:conversationId/messages/:messageId/stop",
+  requireBrowserSession,
+  validateParams(answerParamsSchema),
+  validateBody(z.object({}).strict()),
+  async (req, res, next) => {
+    try {
+      const found = await findOwnedAnswer(req);
+      if (!found) return res.status(404).json({ error: "Answer not found" });
+      const outcome = await stopAskAiAnswer(found.answer);
+      const row = (await getAskAiAnswer(found.conversation.id, found.answer.id)) ?? found.answer;
+      res.json({ stopped: outcome === "stopped", message: serializeAskAiMessage(row) });
+    } catch (error) {
+      next(error);
     }
   },
 );

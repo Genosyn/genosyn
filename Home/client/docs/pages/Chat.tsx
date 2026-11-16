@@ -317,7 +317,7 @@ export function Chat() {
       </P>
       <P>
         The same live card and <Strong>Worked for</Strong> line appear wherever an AI Employee
-        answers in Genosyn: a{" "}
+        answers in Genosyn: <DocLink to="/docs/ask-ai#watching">Ask AI</DocLink>, a{" "}
         <DocLink to="/docs/decisions#discussing">Decision&apos;s discussion</DocLink>, and
         Workspace channels, DMs and group chats, where everyone in the room watches the work — and
         where only the Member whose access a reply uses sees what each step read and returned (see{" "}

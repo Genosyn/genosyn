@@ -1,7 +1,11 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 import { dateTimeColumnType } from "./columnTypes.js";
 
-export type AskAiMessageStatus = "queued" | "working" | "ok" | "skipped" | "error";
+/**
+ * `queued` and `working` are still owed. `interrupted` is an answer the Member
+ * stopped: whatever it had written by then is kept as its content.
+ */
+export type AskAiMessageStatus = "queued" | "working" | "ok" | "skipped" | "error" | "interrupted";
 
 /**
  * One turn in an {@link AskAiConversation}.
@@ -60,6 +64,17 @@ export class AskAiMessage {
   /** JSON one-click suggestions the employee staged (e.g. on an email). */
   @Column({ type: "text", default: "" })
   suggestionsJson!: string;
+
+  /**
+   * Assistant rows: the summary of what the employee did while it wrote this
+   * answer — a `TurnActivitySummary`, "Worked for 2m 14s · 9 steps" — written
+   * when the answer finishes. Its steps are `ConversationActivityEvent` rows
+   * keyed by this row's id, with the conversation as `conversationId`, read
+   * only when a Member opens them. Empty while the answer is owed, and on
+   * answers written before steps were recorded here.
+   */
+  @Column({ type: "text", default: "" })
+  activityJson!: string;
 
   /**
    * Human rows: the page context snapshot the turn was sent with — the path,

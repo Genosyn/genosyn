@@ -1,6 +1,7 @@
 import { api, type ChatAttachment, type MessageAction } from "./api";
 import type { MailSuggestion } from "./mail";
 import type { AskAiContextKind, AskAiContextRef } from "../../shared/askAi";
+import type { TurnActivitySummary } from "../../shared/chatActivity";
 
 /**
  * Ask AI — the wire types and calls for the chat window in the top nav.
@@ -32,10 +33,15 @@ export type AskAiMessage = {
   employeeId: string | null;
   modelId: string | null;
   content: string;
-  /** `queued` and `working` are answers still owed. */
-  status: "queued" | "working" | "ok" | "skipped" | "error" | null;
+  /**
+   * `queued` and `working` are answers still owed; `interrupted` is one the
+   * Member stopped, keeping what it had written.
+   */
+  status: "queued" | "working" | "ok" | "skipped" | "error" | "interrupted" | null;
   actions: MessageAction[];
   suggestions: MailSuggestion[];
+  /** "Worked for 2m 14s · 9 steps", once an answer whose steps were recorded has finished. */
+  activity: TurnActivitySummary | null;
   attachments: ChatAttachment[];
   /** What was on screen when a human turn was sent. */
   context: AskAiTurnContext | null;
@@ -120,6 +126,21 @@ export const askAiApi = {
     opts?: { signal?: AbortSignal },
   ) =>
     api.stream(`${base(companyId)}/conversations/${conversationId}/messages`, input, onEvent, opts),
+
+  /** An answer's recorded steps, read when the Member opens its "Worked for …" line. */
+  activityUrl: (companyId: string, conversationId: string, messageId: string) =>
+    `${base(companyId)}/conversations/${conversationId}/messages/${messageId}/activity`,
+
+  /** Follow an answer live from the reader's cursor: steps, text, and what the AI Model is doing. */
+  activityStreamUrl: (companyId: string, conversationId: string, messageId: string, after: number) =>
+    `${base(companyId)}/conversations/${conversationId}/messages/${messageId}/activity/stream?after=${after}`,
+
+  /** Stop an answer; what it wrote so far is kept. */
+  stop: (companyId: string, conversationId: string, messageId: string) =>
+    api.post<{ stopped: boolean; message: AskAiMessage }>(
+      `${base(companyId)}/conversations/${conversationId}/messages/${messageId}/stop`,
+      {},
+    ),
 
   upload: (companyId: string, file: File) =>
     api

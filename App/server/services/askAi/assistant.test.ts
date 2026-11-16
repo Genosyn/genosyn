@@ -9,6 +9,7 @@ import { AskAiConversation } from "../../db/entities/AskAiConversation.js";
 import { AskAiMessage } from "../../db/entities/AskAiMessage.js";
 import { Attachment } from "../../db/entities/Attachment.js";
 import { Company } from "../../db/entities/Company.js";
+import { ConversationActivityEvent } from "../../db/entities/ConversationActivityEvent.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { EmployeeFinanceGrant } from "../../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
@@ -22,6 +23,7 @@ import { WorkloadLease } from "../../db/entities/WorkloadLease.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../../test/dbHarness.js";
 import { insertEmployeeModel } from "../../test/modelFixtures.js";
 import type { AskAiContextRef } from "../../../shared/askAi.js";
+import { parseTurnActivitySummary } from "../../../shared/chatActivity.js";
 import type { ChatOptions, ChatResult, ChatTurn } from "../chat.js";
 import { companyDir } from "../paths.js";
 import { findRoutineParticipation, listParticipatingRoutines } from "../routineParticipation.js";
@@ -48,6 +50,7 @@ import {
   type AskAiTurnArgs,
   type AskAiTurnCallbacks,
 } from "./assistant.js";
+import { stopAskAiAnswer } from "./answerActivity.js";
 import type { AskAiMember } from "./context.js";
 
 /**
@@ -341,6 +344,265 @@ describe("a turn with one AI Employee", () => {
     assert.equal(options.throwOnWorkloadUnavailable, true);
     assert.match(options.extraSystem ?? "", /## Ask AI/);
     assert.match(options.extraSystem ?? "", /never instructions/);
+  });
+});
+
+// ───────────────────────────── watching an answer ─────────────────────────────
+
+function answerEvents(messageId: string): Promise<ConversationActivityEvent[]> {
+  return AppDataSource.getRepository(ConversationActivityEvent).find({
+    where: { messageId },
+    order: { ordinal: "ASC" },
+  });
+}
+
+/** A chat seam that starts work, says `said`, then waits until the answer is stopped. */
+function untilStopped(said: string, started: () => void) {
+  return async (
+    _companyId: string,
+    _employeeId: string,
+    _prompt: string,
+    _history: ChatTurn[],
+    onChunk: (chunk: string) => void,
+    options: ChatOptions = {},
+  ): Promise<ChatResult> => {
+    options.onWorkStarted?.();
+    onChunk(said);
+    started();
+    await new Promise<void>((resolve) => {
+      if (options.signal?.aborted) return resolve();
+      options.signal?.addEventListener("abort", () => resolve(), { once: true });
+    });
+    // A stopped turn reports what it streamed, as the chat seam does.
+    return chatResult(said);
+  };
+}
+
+describe("watching an answer", () => {
+  test("records each step on the conversation's feed and summarizes them on the answer", async () => {
+    await employee("alex", "Alex");
+    const convo = await conversation();
+    const rec = recorder();
+
+    await turn(convo, "@alex add the demos chart", rec, {
+      runChat: async (_c, _e, _p, _h, onChunk, options = {}) => {
+        options.onWorkStarted?.();
+        options.activity?.onToolUse?.("list_bases", { query: "demos" }, "call-1");
+        options.activity?.onToolResult?.("list_bases", { content: "[]" }, "call-1");
+        options.onProgress?.({ percent: 40, label: "Building the chart" });
+        onChunk("Added it.");
+        return chatResult("Added it.");
+      },
+    });
+
+    const answer = (await rows()).find((m) => m.role === "assistant");
+    assert.ok(answer);
+    const events = await answerEvents(answer.id);
+    assert.deepEqual(
+      events.map((e) => e.kind),
+      ["turn_started", "tool_use", "tool_result", "progress", "turn_finished"],
+    );
+    assert.ok(events.every((e) => e.conversationId === convo.id && e.companyId === COMPANY_ID));
+    const summary = parseTurnActivitySummary(answer.activityJson);
+    assert.equal(summary?.steps, 1);
+    assert.equal(summary?.status, "ok");
+    assert.equal(rec.assistant[0].activity?.steps, 1, "the sender is handed the summary too");
+  });
+
+  test("asks for the thinking summary and offers the progress control", async () => {
+    await employee("alex", "Alex");
+    const convo = await conversation();
+    const calls: Call[] = [];
+
+    await turn(convo, "@alex hello", recorder(), { runChat: seam(calls) });
+
+    const options = calls[0].options;
+    assert.equal(options.reasoningSummaries, true);
+    assert.equal(typeof options.onProgress, "function");
+    assert.ok(options.activity?.onToolUse, "the runtime's steps reach the recorder");
+    assert.ok(options.signal, "the answer can be stopped");
+  });
+
+  test("a wait for another answer in this conversation shows as a wait", async () => {
+    await employee("alex", "Alex");
+    const convo = await conversation();
+    let attempts = 0;
+
+    await turn(convo, "@alex is the schedule right?", recorder(), {
+      runChat: async (_c, _e, _p, _h, _onChunk, options = {}) => {
+        attempts += 1;
+        if (attempts < 3) throw new EmployeeWorkloadBusyError();
+        options.onWorkStarted?.();
+        return chatResult("Yes.");
+      },
+      busyRetryDelayMs: 1,
+    });
+
+    const answer = (await rows()).find((m) => m.role === "assistant");
+    const waits = (await answerEvents(answer!.id)).filter((e) => e.kind === "waiting");
+    assert.equal(waits.length, 1, "one line for the whole wait");
+    assert.equal(waits[0].name, "thread_busy");
+  });
+
+  test("Stop ends a running answer and keeps what it wrote", async () => {
+    await employee("alex", "Alex");
+    const convo = await conversation();
+    const rec = recorder();
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+
+    const done = turn(convo, "@alex rebuild every dashboard", rec, {
+      runChat: untilStopped("Rebuilt two of five so far.", () => started()),
+    });
+    await running;
+    const working = (await rows()).find((m) => m.role === "assistant")!;
+    assert.equal(working.status, "working");
+    assert.equal(await stopAskAiAnswer(working), "stopped");
+    await done;
+
+    const answer = (await rows()).find((m) => m.role === "assistant")!;
+    assert.equal(answer.status, "interrupted");
+    assert.equal(answer.content, "Rebuilt two of five so far.");
+    const kinds = (await answerEvents(answer.id)).map((e) => e.kind);
+    assert.ok(kinds.includes("stopped"));
+    assert.equal(kinds.at(-1), "turn_finished");
+    assert.equal(parseTurnActivitySummary(answer.activityJson)?.status, "interrupted");
+    assert.equal(rec.assistant.at(-1)?.status, "interrupted");
+    assert.equal(await stopAskAiAnswer(answer), "not_running", "nothing is left to stop");
+  });
+
+  test("an answer still waiting its turn never starts once stopped", async () => {
+    const alex = await employee("alex", "Alex");
+    const blair = await employee("blair", "Blair");
+    const convo = await conversation();
+    const rec = recorder();
+    const asked: string[] = [];
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const first = untilStopped("Alex's half.", () => started());
+
+    const done = turn(convo, "@alex @blair split this", rec, {
+      runChat: async (companyId, employeeId, prompt, history, onChunk, options) => {
+        asked.push(employeeId);
+        return first(companyId, employeeId, prompt, history, onChunk, options);
+      },
+    });
+    await running;
+    const owed = (await rows()).filter((m) => m.role === "assistant");
+    const blairs = owed.find((m) => m.employeeId === blair.id)!;
+    assert.equal(blairs.status, "queued");
+    assert.equal(await stopAskAiAnswer(blairs), "stopped");
+    assert.equal(await stopAskAiAnswer(owed.find((m) => m.employeeId === alex.id)!), "stopped");
+    await done;
+
+    assert.deepEqual(asked, [alex.id], "Blair was never asked");
+    const after = await rows();
+    assert.equal(after.find((m) => m.id === blairs.id)?.status, "interrupted");
+    assert.ok(
+      rec.assistant.some((m) => m.id === blairs.id && m.status === "interrupted"),
+      "the sender hears that it will not come",
+    );
+  });
+
+  test("an answer stopped on another server stops its AI Model here too", async () => {
+    await employee("alex", "Alex");
+    const convo = await conversation();
+    const rec = recorder();
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+
+    const done = turn(convo, "@alex long job", rec, {
+      runChat: untilStopped("Working on it.", () => started()),
+      stillOwedCheckMs: 10,
+    });
+    await running;
+    const working = (await rows()).find((m) => m.role === "assistant")!;
+    // What a stop that landed on another replica writes.
+    await AppDataSource.getRepository(AskAiMessage).update(
+      { id: working.id, status: "working" },
+      { status: "interrupted", content: "Working on it." },
+    );
+    await done;
+
+    const answer = (await rows()).find((m) => m.role === "assistant")!;
+    assert.equal(answer.status, "interrupted");
+    assert.equal(rec.assistant.at(-1)?.status, "interrupted");
+    const kinds = (await answerEvents(answer.id)).map((e) => e.kind);
+    assert.ok(!kinds.includes("turn_finished"), "the replica that stopped it writes the end");
+  });
+
+  test("Stop finishes an answer no process is running, with the text it last saved", async () => {
+    const alex = await employee("alex", "Alex");
+    const convo = await conversation();
+    const orphan = await insert(AskAiMessage, {
+      companyId: COMPANY_ID,
+      conversationId: convo.id,
+      role: "assistant",
+      employeeId: alex.id,
+      content: "Half an answer",
+      status: "working",
+      createdAt: new Date(Date.now() - 60_000),
+    });
+    await insert(ConversationActivityEvent, {
+      companyId: COMPANY_ID,
+      conversationId: convo.id,
+      messageId: orphan.id,
+      ordinal: 1,
+      kind: "tool_use",
+      name: "list_bases",
+      callId: "call-1",
+      summary: "Listing Bases",
+      occurredAt: new Date(Date.now() - 30_000),
+    });
+
+    assert.equal(await stopAskAiAnswer(orphan), "stopped");
+
+    const answer = (await rows()).find((m) => m.id === orphan.id)!;
+    assert.equal(answer.status, "interrupted");
+    assert.equal(answer.content, "Half an answer");
+    const summary = parseTurnActivitySummary(answer.activityJson);
+    assert.equal(summary?.steps, 1);
+    assert.equal(summary?.status, "interrupted");
+    assert.deepEqual(
+      (await answerEvents(orphan.id)).map((e) => e.kind),
+      ["tool_use", "stopped"],
+    );
+  });
+
+  test("a stopped answer is read back marked as cut short", async () => {
+    await employee("alex", "Alex");
+    const convo = await conversation();
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const first = turn(convo, "@alex draft the plan", recorder(), {
+      runChat: untilStopped("Step one: audit the charts.", () => started()),
+    });
+    await running;
+    await stopAskAiAnswer((await rows()).find((m) => m.role === "assistant")!);
+    await first;
+
+    const calls: Call[] = [];
+    await turn(convo, "@alex keep going", recorder(), { runChat: seam(calls) });
+
+    const replayed = calls[0].history.find((t) => t.role === "assistant");
+    assert.match(replayed?.content ?? "", /Step one: audit the charts\./);
+    assert.match(replayed?.content ?? "", /cut short — the Member stopped it here/);
+  });
+
+  test("deleting a conversation removes its answers' steps", async () => {
+    await employee("alex", "Alex");
+    const convo = await conversation();
+    await turn(convo, "@alex hello", recorder(), {
+      runChat: async (_c, _e, _p, _h, _onChunk, options = {}) => {
+        options.onWorkStarted?.();
+        return chatResult("Hi.");
+      },
+    });
+    assert.ok((await AppDataSource.getRepository(ConversationActivityEvent).count()) > 0);
+
+    await deleteAskAiConversation(convo);
+
+    assert.equal(await AppDataSource.getRepository(ConversationActivityEvent).count(), 0);
   });
 });
 
@@ -1313,6 +1575,43 @@ describe("interrupted turns", () => {
     assert.equal(await AppDataSource.getRepository(WorkloadLease).count(), 0);
     assert.equal(await askAiTurnInFlight(convo.id), false);
     assert.equal(await finalizeInterruptedAskAiTurns(), 0);
+  });
+
+  test("a restart keeps what the answer got done before it", async () => {
+    const alex = await employee("alex", "Alex");
+    const convo = await conversation();
+    const startedAt = new Date(Date.now() - 10 * 60_000);
+    const working = await insert(AskAiMessage, {
+      companyId: COMPANY_ID,
+      conversationId: convo.id,
+      role: "assistant",
+      employeeId: alex.id,
+      content: "",
+      status: "working",
+      createdAt: startedAt,
+    });
+    for (const [ordinal, kind] of [
+      [1, "tool_use"],
+      [2, "tool_result"],
+    ] as const) {
+      await insert(ConversationActivityEvent, {
+        companyId: COMPANY_ID,
+        conversationId: convo.id,
+        messageId: working.id,
+        ordinal,
+        kind,
+        name: "list_bases",
+        callId: "call-1",
+        occurredAt: new Date(startedAt.getTime() + ordinal * 60_000),
+      });
+    }
+
+    assert.equal(await finalizeInterruptedAskAiTurns(), 1);
+
+    const answer = (await rows()).find((m) => m.id === working.id)!;
+    const summary = parseTurnActivitySummary(answer.activityJson);
+    assert.equal(summary?.steps, 1);
+    assert.equal(summary?.durationMs, 2 * 60_000, "counted to its last step, not to the restart");
   });
 });
 

@@ -2,16 +2,20 @@ import React from "react";
 import { Clock, Loader2, Paperclip, Play, X } from "lucide-react";
 import type { AssistantQueuedMessage } from "@/lib/assistantChatSessions";
 import { FormError } from "@/components/ui/FormError";
+import { formatElapsed } from "../../../shared/chatActivity";
 
 /** Stays beside the input even when the Member scrolls away from the reply. */
 export function AssistantWorkStatus({
   name,
   startedAt,
   reconnecting,
+  doing,
 }: {
   name: string;
   startedAt?: string;
   reconnecting: boolean;
+  /** What the employee is doing this moment, when the surface follows its steps. */
+  doing?: string | null;
 }) {
   const [now, setNow] = React.useState(Date.now);
   React.useEffect(() => {
@@ -19,7 +23,12 @@ export function AssistantWorkStatus({
     return () => window.clearInterval(timer);
   }, []);
   const seconds = startedAt ? Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1_000)) : 0;
-  const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  const elapsed = formatElapsed(seconds * 1_000);
+  const headline = reconnecting
+    ? "Reconnecting to the reply…"
+    : doing
+      ? `${name} · ${doing}`
+      : `${name} is working`;
 
   return (
     <div
@@ -33,7 +42,9 @@ export function AssistantWorkStatus({
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2 text-xs font-medium text-indigo-900 dark:text-indigo-100">
-          <span>{reconnecting ? "Reconnecting to the reply…" : `${name} is working`}</span>
+          <span className="min-w-0 truncate" title={headline}>
+            {headline}
+          </span>
           {Number.isFinite(seconds) && seconds > 0 && (
             <span
               aria-hidden="true"

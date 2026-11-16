@@ -6,6 +6,7 @@ import { AIModel } from "../../db/entities/AIModel.js";
 import { AskAiConversation } from "../../db/entities/AskAiConversation.js";
 import { AskAiMessage, type AskAiMessageStatus } from "../../db/entities/AskAiMessage.js";
 import { Attachment } from "../../db/entities/Attachment.js";
+import { ConversationActivityEvent } from "../../db/entities/ConversationActivityEvent.js";
 import type { MessageAction } from "../../db/entities/ConversationMessage.js";
 import { WorkloadLease } from "../../db/entities/WorkloadLease.js";
 import {
@@ -14,12 +15,20 @@ import {
   type AskAiContextKind,
   type AskAiContextRef,
 } from "../../../shared/askAi.js";
+import { parseTurnActivitySummary } from "../../../shared/chatActivity.js";
 import { withIndefiniteArticle } from "../../../shared/indefiniteArticle.js";
 import {
   attachmentImageContextForMessages,
   inlineAttachmentsForMessage,
 } from "../attachmentText.js";
-import { CHAT_HARD_TIMEOUT_MS, streamChatWithEmployee, type ChatResult, type ChatTurn } from "../chat.js";
+import {
+  CHAT_HARD_TIMEOUT_MS,
+  INTERRUPTED_BEFORE_REPLY,
+  streamChatWithEmployee,
+  type ChatResult,
+  type ChatTurn,
+} from "../chat.js";
+import { runtimeActivityCallbacks } from "../chatTurnActivity.js";
 import { parseSuggestions, type MailSuggestionRecord } from "../mail/suggestions.js";
 import { attachedModels, attachedModelsByEmployee, resolveChatModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
@@ -39,6 +48,7 @@ import {
   type AskAiGate,
   type AskAiMember,
 } from "./context.js";
+import { AskAiAnswerRun, summarizeAbandonedAnswer } from "./answerActivity.js";
 import { ASK_AI_RESOLVERS } from "./resolvers/index.js";
 
 /**
@@ -63,7 +73,20 @@ import { ASK_AI_RESOLVERS } from "./resolvers/index.js";
  *    model starts — the first `working`, the rest `queued` — and finished in
  *    place, so a dropped stream, a closed panel or a reload follows the same
  *    rows to their real answers, and a restart closes them out honestly.
+ *  - **The work is watched, not waited on.** Each answer records its steps —
+ *    tool calls, thinking, waits, the employee's own milestones — on the same
+ *    feed a direct chat's reply does, and can be stopped (`answerActivity.ts`).
  */
+
+/** Said after an answer the Member stopped, wherever it is read back to a model. */
+const STOPPED_ANSWER_MARK = "[This answer was cut short — the Member stopped it here.]";
+
+/** A stopped answer that had said something before the stop. */
+function isStoppedWithWords(m: Pick<AskAiMessage, "status" | "content">): boolean {
+  return (
+    m.status === "interrupted" && Boolean(m.content.trim()) && m.content !== INTERRUPTED_BEFORE_REPLY
+  );
+}
 
 /** Same shape the workspace chat uses to find `@slug` tokens. */
 const MENTION_RE = /(^|[\s(])@([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)/gi;
@@ -77,13 +100,6 @@ const SIBLING_ANSWER_CHARS_CAP = 6_000;
 
 const BUSY_RETRY_DELAY_MS = 10_000;
 const BUSY_MAX_WAIT_MS = 5 * 60_000;
-
-/** Ref'd on purpose: this timer is the only continuation of an owed answer. */
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
 
 // ───────────────────────────── serialization ─────────────────────────────
 
@@ -162,6 +178,8 @@ export function serializeAskAiMessage(m: AskAiMessage, attachments: Attachment[]
     status: m.status,
     actions: parseActions(m.actionsJson),
     suggestions: parseSuggestions(m.suggestionsJson),
+    /** "Worked for 2m 14s · 9 steps", once a recorded answer has finished. */
+    activity: m.role === "assistant" ? parseTurnActivitySummary(m.activityJson) : null,
     attachments: attachments.map(serializeAttachment),
     context: context
       ? {
@@ -245,6 +263,18 @@ export async function askAiMessageAttachments(
   return attachmentsForMessages(rows.map((r) => r.id));
 }
 
+/** One answer in a conversation, for its steps and its Stop. */
+export async function getAskAiAnswer(
+  conversationId: string,
+  messageId: string,
+): Promise<AskAiMessage | null> {
+  return AppDataSource.getRepository(AskAiMessage).findOneBy({
+    id: messageId,
+    conversationId,
+    role: "assistant",
+  });
+}
+
 /** Answers still owed in a conversation — a delete must wait for them. */
 export async function askAiTurnInFlight(conversationId: string): Promise<boolean> {
   const owed = await AppDataSource.getRepository(AskAiMessage).count({
@@ -269,6 +299,9 @@ export async function deleteAskAiConversation(conversation: AskAiConversation): 
     if (ids.length > 0) {
       await manager.getRepository(Attachment).update({ messageId: In(ids) }, { messageId: null });
     }
+    await manager
+      .getRepository(ConversationActivityEvent)
+      .delete({ conversationId: conversation.id });
     await manager.getRepository(AskAiMessage).delete({ conversationId: conversation.id });
     await manager.getRepository(AskAiConversation).delete({ id: conversation.id });
   });
@@ -609,6 +642,8 @@ export type AskAiTurnArgs = {
   runChat?: typeof streamChatWithEmployee;
   busyRetryDelayMs?: number;
   busyMaxWaitMs?: number;
+  /** How often a running answer checks it was not stopped from elsewhere. */
+  stillOwedCheckMs?: number;
   now?: () => Date;
 };
 
@@ -764,7 +799,11 @@ export async function runAskAiTurn(args: AskAiTurnArgs): Promise<void> {
     if (index > 0) {
       await repo.update({ id: row.id, status: "queued" }, { status: "working" });
       row = await repo.findOneByOrFail({ id: row.id });
-      if (row.status !== "working") continue;
+      if (row.status !== "working") {
+        // Stopped while it waited its turn: it never starts, and says so.
+        callbacks.onAssistant(serializeAskAiMessage(row));
+        continue;
+      }
       callbacks.onWorking(serializeAskAiMessage(row));
     }
     await answerAsEmployee({
@@ -832,7 +871,7 @@ async function replayFor(args: {
       (m) =>
         m.id !== args.userMsgId &&
         m.createdAt.getTime() < cutoff &&
-        (m.role === "user" || m.status === "ok"),
+        (m.role === "user" || m.status === "ok" || isStoppedWithWords(m)),
     )
     .reverse();
   const imageContext = await attachmentImageContextForMessages(
@@ -858,10 +897,13 @@ async function replayFor(args: {
       });
       continue;
     }
+    // A stopped answer is replayed because it is what was said, but it stops
+    // mid-thought; unmarked, the next turn would read it as finished.
+    const said = m.status === "interrupted" ? `${m.content}\n${STOPPED_ANSWER_MARK}` : m.content;
     const attributed =
       m.employeeId && m.employeeId !== args.employee.id
-        ? `[${args.empNames.get(m.employeeId) ?? "Another AI Employee"} answered] ${m.content}`
-        : m.content;
+        ? `[${args.empNames.get(m.employeeId) ?? "Another AI Employee"} answered] ${said}`
+        : said;
     turns.push({ role: "assistant", content: attributed });
   }
   // Keep the newest turns, and never start the replay on an assistant line.
@@ -878,12 +920,13 @@ async function siblingAnswers(args: {
   check: (gate: AskAiGate) => Promise<string | null>;
 }): Promise<string> {
   const answers = await AppDataSource.getRepository(AskAiMessage).find({
-    where: { turnId: args.userMsgId, role: "assistant", status: "ok" },
+    where: { turnId: args.userMsgId, role: "assistant", status: In(["ok", "interrupted"]) },
     order: { createdAt: "ASC" },
   });
   const blocks: string[] = [];
   for (const answer of answers) {
     if (answer.employeeId === args.employee.id) continue;
+    if (answer.status === "interrupted" && !isStoppedWithWords(answer)) continue;
     const name = args.empNames.get(answer.employeeId ?? "") ?? "Another AI Employee";
     if (!(await employeePassesGates(parseShownGates(answer.contextJson), args.check))) {
       blocks.push(`${name} also answered, with records in view you have no Grant to read, so their answer is withheld.`);
@@ -893,7 +936,11 @@ async function siblingAnswers(args: {
       answer.content.length > SIBLING_ANSWER_CHARS_CAP
         ? `${answer.content.slice(0, SIBLING_ANSWER_CHARS_CAP)}\n… (truncated)`
         : answer.content;
-    blocks.push(`${name} already answered this message:\n${text}`);
+    blocks.push(
+      answer.status === "interrupted"
+        ? `${name} started answering this message:\n${text}\n${STOPPED_ANSWER_MARK}`
+        : `${name} already answered this message:\n${text}`,
+    );
   }
   return blocks.length > 0 ? `\n\n---\n${blocks.join("\n\n---\n")}` : "";
 }
@@ -912,6 +959,46 @@ async function answerAsEmployee(input: {
   const { args, employee, row, userMsg } = input;
   const { companyId, callbacks } = args;
   const check = gateChecker(companyId, employee.id);
+  const run = await AskAiAnswerRun.open(row, { stillOwedCheckMs: args.stillOwedCheckMs });
+  // An answer that failed or stopped may still have been written with records
+  // in view; until the rendered context says which, every one of them counts.
+  let shownGates = input.items.map((item) => gateKey(item.gate));
+
+  /**
+   * Finish the row and the record of its steps together, then hand the answer
+   * to whoever sent the message. A row somebody else already finished — a stop
+   * from another replica — is left as they wrote it.
+   */
+  const settle = async (
+    fields: Omit<FinalAnswerFields, "activityJson">,
+    attachmentIds: string[] = [],
+  ): Promise<void> => {
+    const summary = run.recorder.summarize({ status: fields.status, startedAt: row.createdAt });
+    const { row: done, won } = await finalizeAskAiMessage(row.id, {
+      ...fields,
+      activityJson: JSON.stringify(summary),
+    });
+    await run.end(won ? summary : null);
+    // Files it produced are the answer's, whoever wrote the row's end.
+    const attachments =
+      attachmentIds.length > 0
+        ? await bindAttachmentsToMessage(attachmentIds, done.id, companyId)
+        : [];
+    callbacks.onAssistant(serializeAskAiMessage(done, attachments));
+  };
+  const actionsSinceAsked = async (): Promise<MessageAction[]> => {
+    try {
+      return await captureTurnActionsForAuthority({
+        companyId,
+        employeeId: employee.id,
+        since: userMsg.createdAt,
+        authority: "member",
+      });
+    } catch (error) {
+      console.error(`[ask-ai] action capture failed message=${row.id}`, error);
+      return [];
+    }
+  };
 
   try {
     const [rendered, history, siblings] = await Promise.all([
@@ -931,6 +1018,7 @@ async function answerAsEmployee(input: {
       }),
       siblingAnswers({ userMsgId: userMsg.id, employee, empNames: input.empNames, check }),
     ]);
+    shownGates = rendered.shownGates;
     const prompt = [
       rendered.text,
       "",
@@ -957,59 +1045,87 @@ async function answerAsEmployee(input: {
     const waitingSince = Date.now();
     let result: ChatResult | null = null;
     for (;;) {
+      if (run.stopped) break;
       try {
-        result = await runChat(companyId, employee.id, prompt, history, callbacks.onChunk, {
-          images: input.images,
-          extraSystem: `${askAiBriefing(employee, input.others)}${rendered.briefing ? `\n${rendered.briefing}` : ""}`,
-          extraToolset: rendered.tools,
-          mailThreadId,
-          modelId: row.modelId,
-          // A conversation is one thread: its turns serialize against each
-          // other, never against the employee's other work.
-          workloadScope: `ask-ai:${args.conversation.id}`,
-          workloadKey: row.id,
-          throwOnWorkloadUnavailable: true,
-          requesterUserId: args.member.userId,
-          requesterSessionVersion: args.requesterSessionVersion,
-          ...(startTainted ? { startTainted } : {}),
-          ...(held
-            ? {
-                proactiveReview: held.proactiveReview === true,
-                mailDeliveryMode: held.mailDeliveryMode ?? null,
-              }
-            : {}),
-        });
+        result = await runChat(
+          companyId,
+          employee.id,
+          prompt,
+          history,
+          (chunk) => {
+            run.appendText(chunk);
+            callbacks.onChunk(chunk);
+          },
+          {
+            images: input.images,
+            extraSystem: `${askAiBriefing(employee, input.others)}${rendered.briefing ? `\n${rendered.briefing}` : ""}`,
+            extraToolset: rendered.tools,
+            mailThreadId,
+            modelId: row.modelId,
+            // A conversation is one thread: its turns serialize against each
+            // other, never against the employee's other work.
+            workloadScope: `ask-ai:${args.conversation.id}`,
+            workloadKey: row.id,
+            throwOnWorkloadUnavailable: true,
+            requesterUserId: args.member.userId,
+            requesterSessionVersion: args.requesterSessionVersion,
+            // What the Member watches while the answer is written: every step,
+            // the AI Model's thinking, its milestones, and Stop.
+            reasoningSummaries: true,
+            onProgress: (progress) => run.progress(progress),
+            onWorkStarted: () => run.recorder.turnStarted("start"),
+            onSensitiveValues: (values) => run.recorder.setSensitiveValues(values),
+            onPayloadsWithheld: (why) => run.recorder.withholdPayloads(why),
+            activity: runtimeActivityCallbacks(run.recorder),
+            signal: run.signal,
+            wasInterrupted: () => run.stopped,
+            ...(startTainted ? { startTainted } : {}),
+            ...(held
+              ? {
+                  proactiveReview: held.proactiveReview === true,
+                  mailDeliveryMode: held.mailDeliveryMode ?? null,
+                }
+              : {}),
+          },
+        );
         break;
       } catch (error) {
+        // A stop can tear through whatever the agent was doing.
+        if (run.stopped) break;
         if (!(error instanceof EmployeeWorkloadBusyError)) throw error;
+        run.waitForThread();
         if (Date.now() - waitingSince >= busyMaxWaitMs) break;
-        await delay(busyRetryDelayMs);
+        await run.pause(busyRetryDelayMs);
       }
+    }
+
+    if (run.stopped) {
+      // Everything it wrote before the stop is real work; keep it, and what it did.
+      const actions = await actionsSinceAsked();
+      await settle(
+        {
+          content: result?.reply.trim() || run.streamed.trim() || INTERRUPTED_BEFORE_REPLY,
+          status: "interrupted",
+          actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
+          contextJson: JSON.stringify({ shownGates }),
+        },
+        result?.attachmentIds ?? [],
+      );
+      return;
     }
 
     if (!result) {
       const waited = Math.max(1, Math.round(busyMaxWaitMs / 60_000));
-      const done = await finalizeAskAiMessage(row.id, {
+      await settle({
         content:
           `${employee.name} was busy with another message for the whole ${waited} minute${waited === 1 ? "" : "s"} ` +
           "this one waited, so it wasn’t answered. Try again once they are free.",
         status: "skipped",
       });
-      callbacks.onAssistant(serializeAskAiMessage(done));
       return;
     }
 
-    let actions: MessageAction[] = [];
-    try {
-      actions = await captureTurnActionsForAuthority({
-        companyId,
-        employeeId: employee.id,
-        since: userMsg.createdAt,
-        authority: "member",
-      });
-    } catch (error) {
-      console.error(`[ask-ai] action capture failed message=${row.id}`, error);
-    }
+    const actions = await actionsSinceAsked();
     // Buttons render only for a mailbox this employee was shown here; a
     // suggestion about some other mailbox has no context on screen to act in.
     const suggestions = (
@@ -1019,23 +1135,32 @@ async function answerAsEmployee(input: {
     // employee's participation in the Routine — see `routineParticipation.ts`.
     const shownRoutineId = rendered.visible.find((item) => item.routineId)?.routineId ?? null;
     const primaryShown = rendered.visible[0] ?? null;
-    const done = await finalizeAskAiMessage(row.id, {
-      content: result.reply,
-      status: result.status === "busy" ? "skipped" : result.status,
-      actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
-      suggestionsJson: suggestions.length > 0 ? JSON.stringify(suggestions) : "",
-      contextJson: JSON.stringify({ shownGates: rendered.shownGates }),
-      contextKind: shownRoutineId ? "routine" : (primaryShown?.kind ?? null),
-      contextId: shownRoutineId ?? primaryShown?.id ?? null,
-    });
-    const replyAttachments = await bindAttachmentsToMessage(result.attachmentIds, done.id, companyId);
-    callbacks.onAssistant(serializeAskAiMessage(done, replyAttachments));
+    await settle(
+      {
+        content: result.reply,
+        status: result.status === "busy" ? "skipped" : result.status,
+        actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
+        suggestionsJson: suggestions.length > 0 ? JSON.stringify(suggestions) : "",
+        contextJson: JSON.stringify({ shownGates: rendered.shownGates }),
+        contextKind: shownRoutineId ? "routine" : (primaryShown?.kind ?? null),
+        contextId: shownRoutineId ?? primaryShown?.id ?? null,
+      },
+      result.attachmentIds,
+    );
   } catch (error) {
+    if (run.stopped) {
+      await settle({
+        content: run.streamed.trim() || INTERRUPTED_BEFORE_REPLY,
+        status: "interrupted",
+        contextJson: JSON.stringify({ shownGates }),
+      });
+      return;
+    }
     console.error(
       `[ask-ai] turn failed conversation=${args.conversation.id} message=${row.id}`,
       error,
     );
-    const done = await finalizeAskAiMessage(row.id, {
+    await settle({
       content: formatTurnFailure(error),
       status: "error",
       // An answer that failed may still have been written with records in
@@ -1044,28 +1169,34 @@ async function answerAsEmployee(input: {
         shownGates: input.items.map((item) => gateKey(item.gate)),
       }),
     });
-    callbacks.onAssistant(serializeAskAiMessage(done));
+  } finally {
+    run.release();
   }
 }
 
+type FinalAnswerFields = {
+  content: string;
+  status: Exclude<AskAiMessageStatus, "queued" | "working">;
+  actionsJson?: string;
+  suggestionsJson?: string;
+  contextJson?: string;
+  contextKind?: string | null;
+  contextId?: string | null;
+  /** The `TurnActivitySummary` of the steps it took. */
+  activityJson?: string;
+};
+
 /**
- * Close out an owed row. Guarded on it still being owed, so a recovery sweep
- * that already finished it is never overwritten.
+ * Close out an owed row. Guarded on it still being owed, so a row a recovery
+ * sweep or a stop from elsewhere already finished is never overwritten; `won`
+ * says whether this write was the one that finished it.
  */
 async function finalizeAskAiMessage(
   messageId: string,
-  fields: {
-    content: string;
-    status: Exclude<AskAiMessageStatus, "queued" | "working">;
-    actionsJson?: string;
-    suggestionsJson?: string;
-    contextJson?: string;
-    contextKind?: string | null;
-    contextId?: string | null;
-  },
-): Promise<AskAiMessage> {
+  fields: FinalAnswerFields,
+): Promise<{ row: AskAiMessage; won: boolean }> {
   const repo = AppDataSource.getRepository(AskAiMessage);
-  await repo.update(
+  const updated = await repo.update(
     { id: messageId, status: In(["working", "queued"]) },
     {
       content: fields.content,
@@ -1075,9 +1206,10 @@ async function finalizeAskAiMessage(
       ...(fields.contextJson !== undefined ? { contextJson: fields.contextJson } : {}),
       ...(fields.contextKind !== undefined ? { contextKind: fields.contextKind } : {}),
       ...(fields.contextId !== undefined ? { contextId: fields.contextId } : {}),
+      ...(fields.activityJson !== undefined ? { activityJson: fields.activityJson } : {}),
     },
   );
-  return repo.findOneByOrFail({ id: messageId });
+  return { row: await repo.findOneByOrFail({ id: messageId }), won: updated.affected === 1 };
 }
 
 function formatTurnFailure(error: unknown): string {
@@ -1124,6 +1256,15 @@ export async function finalizeInterruptedAskAiTurns(): Promise<number> {
     },
   );
   await AppDataSource.getRepository(WorkloadLease).delete({ ownerKey: In(ids) });
+  // What each one got done before the restart stays readable on it.
+  for (const row of abandoned) {
+    try {
+      const activityJson = await summarizeAbandonedAnswer(row, "error");
+      if (activityJson) await repo.update({ id: row.id }, { activityJson });
+    } catch (error) {
+      console.warn(`[ask-ai] could not summarize interrupted answer ${row.id}`, error);
+    }
+  }
   console.warn(`[ask-ai] closed ${ids.length} interrupted answer(s) after restart`);
   return ids.length;
 }
