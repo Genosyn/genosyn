@@ -76,9 +76,9 @@ export function Tasks() {
         Press <Code>⌥T</Code> on a Mac or <Code>Alt T</Code> on Windows and Linux on any page, even
         in the middle of typing in a field, an open form or an email. <Strong>Create a task</Strong>{" "}
         opens over what you were doing. Write a title and press Enter, and you&apos;re back where
-        you left off with your cursor where it was. On a phone, or if you forget the keys, open the
-        section pill in the top nav (<Code>⌘K</Code>, or <Code>Ctrl K</Code> on Windows and Linux)
-        and choose <Strong>Create a task</Strong>.
+        you left off with your cursor where it was. On a phone, or if you forget the keys, open{" "}
+        <Strong>Search or jump to</Strong> at the top of the page (<Code>⌘K</Code>, or{" "}
+        <Code>Ctrl K</Code> on Windows and Linux) and choose <Strong>Create a task</Strong>.
       </P>
       <UL>
         <LI>

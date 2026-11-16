@@ -193,7 +193,7 @@ await app.check("Settings rail: a Member's Advanced group names only what they c
 await app.check("Settings rail on a phone: the drawer has the same groups and closed Advanced", async () => {
   const view = await app.open({ path: "/c/acme/settings/company", routes: QUIET, touch: true });
   const { page } = view;
-  await page.getByRole("button", { name: "Open sidebar" }).click();
+  await page.getByRole("button", { name: "Settings pages" }).click();
   const drawer = page.locator("div.fixed aside");
   await drawer.getByRole("link", { name: "Notification email" }).waitFor();
   const advanced = railAdvanced(drawer);

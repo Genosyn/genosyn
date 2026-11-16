@@ -202,6 +202,22 @@ export async function startApp(title: string) {
       ],
       ["GET", "/api/companies", () => [company]],
       ["GET", `${API}/notifications/unread-count`, () => ({ count: 0 })],
+      // The app sidebar's number beside the Decision stack: nothing waiting.
+      [
+        "GET",
+        `${API}/navigation/attention`,
+        () => ({
+          decisions: 0,
+          reviews: 0,
+          elsewhere: {
+            approvals: 0,
+            revisions: 0,
+            initiatives: 0,
+            todoReviews: 0,
+            financeProposals: 0,
+          },
+        }),
+      ],
       ["GET", `${API}/notifications`, () => ({ notifications: [] })],
       // The live socket has no server here; a token lets it try and back off quietly.
       ["POST", `${API}/workspace/ws-token`, () => ({ token: "fixture" })],

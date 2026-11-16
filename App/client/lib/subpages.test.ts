@@ -710,12 +710,12 @@ describe("subpage search", () => {
       "/meetings/ai-access",
       "/routines/ai-access",
       "/resources/ai-access",
-      "/marketing/ai-access",
       "/revenue/ai-access",
-      "/signatures/ai-access",
+      "/marketing/ai-access",
       "/support/ai-access",
-      "/data-rooms/ai-access",
       "/finance/ai-access",
+      "/signatures/ai-access",
+      "/data-rooms/ai-access",
       "/recruiting/ai-access",
     ]);
     assert.equal(

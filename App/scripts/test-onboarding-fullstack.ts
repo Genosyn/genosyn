@@ -102,11 +102,8 @@ async function read<T>(route: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 async function logout() {
-  await page!
-    .locator("header")
-    .getByRole("button", { name: /Onboarding Owner/ })
-    .click();
-  await page!.getByRole("button", { name: "Log out", exact: true }).click();
+  await page!.locator("header").getByRole("button", { name: "Your account", exact: true }).click();
+  await page!.getByRole("menuitem", { name: "Log out", exact: true }).click();
   await page!.getByRole("heading", { name: "Welcome back" }).waitFor();
 }
 async function login(secret: string, companyReady = true) {
@@ -114,7 +111,10 @@ async function login(secret: string, companyReady = true) {
   await page!.getByLabel("Password", { exact: true }).fill(secret);
   await page!.getByRole("button", { name: "Sign in", exact: true }).click();
   if (companyReady)
-    await page!.locator("header").getByRole("button", { name: companyName, exact: true }).waitFor();
+    await page!
+      .getByRole("navigation", { name: "Main", exact: true })
+      .getByRole("button", { name: companyName, exact: true })
+      .waitFor();
   else await page!.getByRole("heading", { name: "Set up your company", exact: true }).waitFor();
 }
 try {
@@ -994,8 +994,9 @@ try {
     "Searched and paged Customers with URL state, contacts, navigation, mutations and archives",
   );
 
-  await page.locator("header").getByRole("button", { name: companyName, exact: true }).click();
-  await page.getByRole("button", { name: "+ New company", exact: true }).click();
+  const mainNav = page.getByRole("navigation", { name: "Main", exact: true });
+  await mainNav.getByRole("button", { name: companyName, exact: true }).click();
+  await page.getByRole("menuitem", { name: "New company", exact: true }).click();
   await page.getByRole("dialog").getByRole("textbox").fill("Second QA Company");
   await page.getByRole("dialog").getByRole("button", { name: "Create", exact: true }).click();
   await page.getByRole("heading", { name: "What is your company's Goal?", exact: true }).waitFor();
@@ -1015,11 +1016,8 @@ try {
     ).map((row) => [row.title, row.targetValue, row.unit]),
     [["Ship 12 product releases this year", 12, "product releases"]],
   );
-  await page
-    .locator("header")
-    .getByRole("button", { name: "Second QA Company", exact: true })
-    .click();
-  await page.getByRole("button", { name: companyName, exact: true }).click();
+  await mainNav.getByRole("button", { name: "Second QA Company", exact: true }).click();
+  await page.getByRole("menuitem", { name: companyName, exact: true }).click();
   await page.waitForURL(`${origin}/c/${company.slug}`);
   assert.equal((await read<unknown[]>("/api/companies")).length, 2);
   record("Created a second company and switched back using the company picker");

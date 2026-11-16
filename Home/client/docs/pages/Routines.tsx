@@ -37,7 +37,7 @@ export function Routines() {
 
       <H2 id="where-they-live">Where they live</H2>
       <P>
-        Routines have their own section in the nav, under <Strong>AI → Routines</Strong>, with two
+        Routines have their own section in the sidebar, under <Strong>AI team → Routines</Strong>, with two
         pages at the top of its sidebar: <Strong>Running</Strong>, for the{" "}
         <DocLink to="/docs/routines#recent-runs">Runs under way, waiting, and finished today</DocLink>
         , and <Strong>All routines</Strong>, the list. That list is company-wide: every routine,

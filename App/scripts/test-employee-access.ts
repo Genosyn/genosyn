@@ -187,9 +187,10 @@ try {
   await page.getByLabel("Email", { exact: true }).fill("access-owner@example.test");
   await page.getByLabel("Password", { exact: true }).fill("Access-QA-password-42");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.locator("header").getByRole("button", { name: "Access QA Co", exact: true }).waitFor({
-    timeout: 120_000,
-  });
+  await page
+    .getByRole("navigation", { name: "Main", exact: true })
+    .getByRole("button", { name: "Access QA Co", exact: true })
+    .waitFor({ timeout: 120_000 });
   record("Signed in as the company owner through the UI");
 
   // ── The new employee's Access page, as the hire flow opens it.
@@ -362,7 +363,10 @@ try {
 
   // ── ⌘K reaches the page from anywhere.
   await page.goto(`${origin}/c/${seed.companySlug}/employees`, { waitUntil: "domcontentloaded" });
-  await page.locator("header").getByRole("button", { name: "Access QA Co", exact: true }).waitFor();
+  await page
+    .getByRole("navigation", { name: "Main", exact: true })
+    .getByRole("button", { name: "Access QA Co", exact: true })
+    .waitFor();
   await page.keyboard.press("Control+k");
   const palette = page.getByRole("dialog", { name: "Search" });
   await palette.waitFor();
@@ -416,9 +420,10 @@ try {
   await page.getByLabel("Email", { exact: true }).fill("access-colleague@example.test");
   await page.getByLabel("Password", { exact: true }).fill("Access-QA-password-42");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.locator("header").getByRole("button", { name: "Access QA Co", exact: true }).waitFor({
-    timeout: 120_000,
-  });
+  await page
+    .getByRole("navigation", { name: "Main", exact: true })
+    .getByRole("button", { name: "Access QA Co", exact: true })
+    .waitFor({ timeout: 120_000 });
   await page.goto(`${origin}${accessPath}`, { waitUntil: "domcontentloaded" });
   const mailGroup = page.locator('section[data-access-group="mail"]');
   await mailGroup.getByText("Only owners and admins can grant Mailboxes.", { exact: true }).waitFor();

@@ -217,7 +217,8 @@ export function Decisions() {
         reviews that were sent, discarded, approved or declined. History uses the same one-line
         rows; an answered Decision also says who chose what.{" "}
         <DocLink to="/docs/decisions#settings">Settings</DocLink> decides which questions reach
-        you. On a phone, open the side menu from the top bar, or use the{" "}
+        you. On a phone, tap <Strong>Decision stack</Strong> in the top bar to open its pages, or
+        use the{" "}
         <Strong>Decision history</Strong> link on the Active page.
       </P>
       <UL>

@@ -160,7 +160,7 @@ export function GettingStarted() {
         This step creates only the Routines you select. They start on their displayed schedules and
         use your AI Model. A Routine already added is marked <Strong>Scheduled</Strong> and cannot
         be duplicated. You can read each Run and change or disable schedules in{" "}
-        <Strong>AI → Routines</Strong>.
+        <Strong>AI team → Routines</Strong>.
       </P>
       <P>
         Each of these Routines is graded. It comes with a short, checkable definition of done, its{" "}
@@ -266,7 +266,7 @@ export function GettingStarted() {
         written one. You can also reopen <Code>/c/&lt;company-slug&gt;/onboarding</Code> directly.
       </P>
       <P>
-        Hiring later from <Strong>AI → Employees → Hire AI Employee</Strong> uses the same Goal
+        Hiring later from <Strong>AI team → AI Employees → New employee</Strong> uses the same Goal
         requirement and Routine suggestions. See{" "}
         <DocLink to="/docs/employees">AI Employees</DocLink> to review the Soul, Skills, and
         connections after setup.

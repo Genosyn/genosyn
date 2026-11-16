@@ -854,7 +854,7 @@ describe("section routing and command search", () => {
     assert.equal(SECTION_BY_KEY.decisions.label, "Decision stack");
     assert.equal(
       SECTION_GROUPS.find((group) => group.items.some((item) => item.key === "decisions"))?.label,
-      "Essentials",
+      "Overview",
     );
     assert.equal(searchSections(items, "decision stack")[0]?.item.key, "decisions");
   });

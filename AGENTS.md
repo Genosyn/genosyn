@@ -1509,15 +1509,19 @@ in a Work session instead of leaving them stranded as local commits.
   and then goes in its rail's `ADVANCED_NAV_GROUP`: the rail draws that group
   last, closed, names its pages on hover, and opens it by itself on any of
   them — so tucking a page away never hides it from a deep link or ⌘K.
-- **Sections are listed by use.** The ⌘K palette's browse view and the
-  keyboard guide list the core sections and the ones a company has something
-  in (`shared/navigation.ts`: `CORE_SECTIONS`, `USAGE_SECTIONS`;
-  `services/navigation.ts` probes each usage section with an indexed
-  existence check). A new section goes in one of the two lists — a usage
-  section with its probe — and `client/lib/sectionVisibility.test.ts` fails
-  until it does. Search and the `G` chords always reach every section the
-  person can open. A page that moves keeps its old address working through
-  `LegacyRedirect` in `App.tsx`, query and hash included.
+- **Sections are listed in the sidebar.** `SECTION_GROUPS` in
+  `client/lib/sections.ts` is the one map of the product: the app sidebar
+  (`components/AppSidebar.tsx`), the ⌘K palette's browse view and the keyboard
+  guide all list it, filtered to what the person can open
+  (`lib/sectionVisibility.ts`), so all three teach the same groups in the same
+  order. A new section goes in the group it is for — each group has a stable
+  `id` the sidebar remembers it by, and `startsClosed` for one a new company
+  rarely needs first — with a `G` chord key no other section, Help, Account or
+  Admin holds; `client/lib/appNavigation.test.ts` and
+  `server/client/clientLibs.test.ts` hold the catalogue to that. Settings is
+  drawn at the sidebar's foot. Search and the `G` chords always reach every
+  section the person can open. A page that moves keeps its old address working
+  through `LegacyRedirect` in `App.tsx`, query and hash included.
 - **Imports**: absolute paths from `@/` (set up in `tsconfig.json` +
   `vite.config.ts`).
 - **Lint/format**: project ships with ESLint + Prettier defaults. **Run
@@ -1670,6 +1674,14 @@ holds every text role to WCAG AA on every surface.
   `max-w-3xl`; a grid that names columns only from a breakpoint is given a
   shrinkable single column below it (`styles/index.css`), and wide tables sit
   in `TableCard`, which scrolls sideways instead of cutting columns off.
+- **Chrome.** The app sidebar is the one tinted column (slate-100, dark
+  slate-900): the company switcher on top, every section in its groups, Settings
+  and Help at the foot, collapsible to icons and a drawer on a phone. The row you
+  are on sits on a white tile with an accent icon. The top bar holds only
+  **Search or jump to** (⌘K), Ask AI, the bell and the account menu, which keeps
+  the theme, keyboard shortcuts, Admin and Log out; do not add icons to it. A
+  section's own pages are its rail, beside the sidebar, through
+  `ContextualLayout`.
 - **Columns.** A rail down the left of a page is a `ResizableRail`, and a panel
   docked on its right takes `useSidePanelWidth` and `SidePanelResizeHandle`
   (`components/ui/SidePanel.tsx`), so each can be dragged, moved from the keyboard

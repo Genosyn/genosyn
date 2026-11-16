@@ -64,7 +64,7 @@ export function Employees() {
             term: "routines[]",
             def: (
               <>
-                One-to-many <Code>Routine</Code> rows, managed from the top-level AI → Routines
+                One-to-many <Code>Routine</Code> rows, managed from the top-level AI team → Routines
                 section. See <DocLink to="/docs/routines">Routines</DocLink>.
               </>
             ),
@@ -128,7 +128,7 @@ export function Employees() {
       <OL>
         <LI>
           <Strong>Hire.</Strong> Write the company&apos;s Goal first, then choose{" "}
-          <Strong>AI → Employees → Hire AI Employee</Strong> and answer one question,{" "}
+          <Strong>AI team → AI Employees → New employee</Strong> and answer one question,{" "}
           <Strong>What should they do?</Strong> Pick a role — Executive Assistant, Sales Development
           Rep, Customer Support, Research Analyst, Operations Coordinator, or Software Engineer — or
           open <Strong>More roles</Strong> for the rest, or type your own <Strong>Role</Strong>. A
@@ -190,7 +190,8 @@ export function Employees() {
 
       <Callout kind="tip" title="Routine suggestions appear after every hire.">
         The first-company guide opens them between the AI Employee and Email steps. The regular{" "}
-        <Strong>AI → Employees → Hire AI Employee</Strong> flow opens it right after the AI Model
+        <Strong>AI team → AI Employees → New employee</Strong> flow opens it right after the AI
+        Model
         (or after the Soul review, if you chose <Strong>Customize the Soul first</Strong>). Both
         use the same recommendation rules, and both can be skipped — in the guide with{" "}
         <Strong>Continue without adding them</Strong>. Suggestions never overwrite an existing
@@ -231,7 +232,8 @@ export function Employees() {
 
       <H2 id="surfaces">Surfaces inside the app</H2>
       <P>
-        <Strong>AI → Employees</Strong> lists every AI Employee as a card with their name, role, and
+        <Strong>AI team → AI Employees</Strong> lists every AI Employee as a card with their name,
+        role, and
         team. Open a card to reach that employee, or choose <Strong>New employee</Strong> to hire
         one. An employee with no connected AI Model — who can&apos;t answer a message or run a
         Routine yet — says <Strong>No AI Model connected</Strong> on their card, and their header
@@ -287,7 +289,8 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Settings → Skills / Routines.</Strong> These are company-wide sections, not
-          per-employee ones: they live at AI → <DocLink to="/docs/skills">Skills</DocLink> and AI →{" "}
+          per-employee ones: they live at AI team → <DocLink to="/docs/skills">Skills</DocLink> and
+          AI team →{" "}
           <DocLink to="/docs/routines">Routines</DocLink>. The two entries under Settings open those
           lists filtered to this employee, and are marked with a corner arrow to say so.
         </LI>

@@ -17,7 +17,7 @@ export function Skills() {
 
       <H2 id="where-they-live">Where they live</H2>
       <P>
-        Skills have their own section in the nav, under <Strong>AI → Skills</Strong>. That list is
+        Skills have their own section in the sidebar, under <Strong>AI team → Skills</Strong>. That list is
         company-wide: every skill, every employee, one page — your whole playbook library. Filter it
         by the <DocLink to="/docs/employees">AI Employee</DocLink> that knows a skill, search by
         name, or narrow the list with a reusable company <DocLink to="/docs/tags">Tag</DocLink>.

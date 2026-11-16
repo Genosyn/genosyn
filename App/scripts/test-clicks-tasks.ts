@@ -618,7 +618,7 @@ await app.check("the ⌘K palette offers it, and on a phone that is the way in",
     touch: true,
   });
   await phone.page.getByText("Write the release notes").first().waitFor();
-  await phone.click(phone.page.getByRole("button", { name: /Search sections and pages/ }));
+  await phone.click(phone.page.getByRole("button", { name: /Search or jump to/ }));
   await phone.click(phone.page.getByRole("option", { name: /Create a task/ }));
   await waitForFocus(field(createTask(phone.page), "Title"));
   await noSidewaysScroll(phone.page, "Create a task on a phone");

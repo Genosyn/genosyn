@@ -417,12 +417,12 @@ try {
   await search(owner, "");
   view = await snapshot(owner);
   assert.deepEqual(view.groups, [
-    "Essentials",
-    "AI",
+    "Overview",
+    "Work",
+    "AI team",
     "Knowledge",
     "Engineering",
-    "Money",
-    "People",
+    "Business",
     "System",
     "You",
   ]);

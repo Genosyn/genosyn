@@ -228,8 +228,9 @@ describe("createCompanyAndSwitch", () => {
   });
 
   test("keeps both company-creation entry points wired to sequenced onboarding", () => {
+    // The sidebar's company menu, where "New company" lives.
     const appShell = readFileSync(
-      new URL("../../client/components/AppShell.tsx", import.meta.url),
+      new URL("../../client/components/AppSidebar.tsx", import.meta.url),
       "utf8",
     );
     const app = readFileSync(new URL("../../client/App.tsx", import.meta.url), "utf8");

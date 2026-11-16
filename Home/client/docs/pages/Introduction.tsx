@@ -197,17 +197,31 @@ export function Introduction() {
         peek and go straight to the full page, as you always could.
       </P>
       <P>
-        To get anywhere else, press <Code>⌘K</Code> (<Code>Ctrl K</Code> on Windows and Linux). That
-        opens the command palette — type a few letters, press <Code>↵</Code>, done. It answers to
-        the words you already know, so &ldquo;cron&rdquo; finds{" "}
-        <DocLink to="/docs/routines">Routines</DocLink> and &ldquo;slack&rdquo; finds Workspace. The
-        section pill in the top nav opens the same palette if you&apos;d rather click.
+        <Strong>The sidebar is the map.</Strong> Every section you can open is listed down the left
+        of every page, grouped by what it is for: <Strong>Home</Strong>, the{" "}
+        <DocLink to="/docs/decisions">Decision stack</DocLink>, <Strong>Goals</Strong> and{" "}
+        <Strong>What happened</Strong> at the top, then <Strong>Work</Strong>,{" "}
+        <Strong>AI team</Strong>, <Strong>Knowledge</Strong>, <Strong>Engineering</Strong> and{" "}
+        <Strong>Business</Strong>, with <Strong>Settings</Strong> and <Strong>Help</Strong> at the
+        bottom. The number beside the Decision stack counts everything waiting on you — questions,
+        reviews and Approvals — whichever page you are on. Click a group&apos;s name to open or
+        close it; Knowledge, Engineering and Business start closed and open by themselves when you
+        go to one of their sections. <Strong>Collapse</Strong>, at the bottom, turns the sidebar
+        into a column of icons, which is how it starts in a window narrower than 1280 pixels; hover
+        an icon for its name. This browser remembers both choices. Your company&apos;s name at the
+        top of the sidebar switches companies or creates a new one. On a phone, the menu button at
+        the top left opens the sidebar, and the section&apos;s name beside it opens that
+        section&apos;s own pages.
       </P>
       <P>
-        <Strong>The palette lists every section.</Strong> With nothing typed, it shows each
-        section you can open, grouped the way the catalog reads — from Home and the{" "}
-        <DocLink to="/docs/decisions">Decision stack</DocLink> to Finance and Settings. Typing
-        searches them all, and the <Code>G</Code> shortcuts reach every section too.
+        <Strong>Search or jump to</Strong>, at the top of every page, is the quickest way
+        anywhere: click it or press <Code>⌘K</Code> (<Code>Ctrl K</Code> on Windows and Linux),
+        type a few letters, press <Code>↵</Code>. It answers to the words you already know, so
+        &ldquo;cron&rdquo; finds <DocLink to="/docs/routines">Routines</DocLink> and
+        &ldquo;slack&rdquo; finds Workspace. With nothing typed it lists every section in the
+        sidebar&apos;s groups, and the <Code>G</Code> shortcuts reach every section too. Your
+        avatar, at the top right, holds your account, the theme, the keyboard shortcuts and{" "}
+        <Strong>Log out</Strong>.
       </P>
       <P>
         The palette finds the pages inside each section as well. Type &ldquo;recurring&rdquo; and{" "}

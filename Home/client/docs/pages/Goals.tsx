@@ -36,7 +36,8 @@ export function Goals() {
 
       <H2 id="where-they-live">Where they live</H2>
       <P>
-        Goals have their own section in the nav, under <Strong>AI → Goals</Strong>. Every Member can
+        Goals have their own section near the top of the sidebar, beside Home and the Decision
+        stack. Every Member can
         open it — a Goal is the company&apos;s shared direction, and everyone should see where it
         stands. Creating, editing, archiving, and deleting Goals is owner/admin-only: Goals are
         human-set intent, and which humans is the same call as who may reorganize the company&apos;s

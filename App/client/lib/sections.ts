@@ -44,15 +44,16 @@ import {
 /**
  * The catalog of top-level sections, and how a URL maps back to one.
  *
- * Lives in `lib/` rather than next to the top nav because several surfaces read
- * it — the nav pill (`AppShell`), the command palette (`CommandPalette`), the
- * `G` chord and shortcut guide (`KeyboardShortcuts`), and the section rails —
- * and the palette is itself rendered by the shell. Importing it from
- * `AppShell` would put a cycle between the two.
+ * Lives in `lib/` rather than next to the app chrome because several surfaces
+ * read it — the app sidebar (`AppSidebar`), the command palette
+ * (`CommandPalette`), the `G` chord and shortcut guide (`KeyboardShortcuts`),
+ * and the section rails — and the palette is itself rendered by the shell.
+ * Importing it from `AppShell` would put a cycle between the two.
  *
- * Not every section is listed from the first day: the palette's browse view
- * shows the core and the sections a company has started using
- * (`shared/navigation.ts`, `lib/sectionVisibility.ts`). Search covers all.
+ * Every surface lists the same groups in the same order, filtered to what the
+ * person can open (`lib/sectionVisibility.ts`), so the sidebar, the palette's
+ * browse view and the keyboard guide teach one map of the product. The sidebar
+ * starts a few groups closed (`startsClosed`); search covers all.
  */
 
 export type SectionKey =
@@ -107,11 +108,31 @@ export type SectionItem = {
   keywords?: string[];
 };
 
-export type SectionGroup = { label: string; items: SectionItem[] };
+export type SectionGroup = {
+  label: string;
+  items: SectionItem[];
+  /**
+   * A stable name for the group, so the app sidebar can remember whether a
+   * person left it open or closed when its label changes. Groups the palette
+   * and keyboard guide make up on the spot ("You") have none.
+   */
+  id?: string;
+  /**
+   * The sidebar draws this group closed until the person opens it, or opens a
+   * section in it. A new company sees what it uses first; the rest stays one
+   * click away and is never hidden from search or the `G` chords.
+   */
+  startsClosed?: boolean;
+};
 
 export const SECTION_GROUPS: SectionGroup[] = [
   {
-    label: "Essentials",
+    // Where a person starts: what needs them, where the company is headed,
+    // and what happened while they were away. The Goal sits here rather than
+    // with the AI Employees because it is the company's, not any one
+    // employee's — the one thing its owners are asked to write.
+    id: "overview",
+    label: "Overview",
     items: [
       {
         key: "home",
@@ -155,6 +176,18 @@ export const SECTION_GROUPS: SectionGroup[] = [
         ],
       },
       {
+        key: "goals",
+        label: "Goals",
+        description: "Measurable objectives your AI employees steer toward.",
+        icon: Target,
+        // Punctuation, like Settings (","): "." is the closest thing on a
+        // keyboard to a bullseye.
+        shortcut: ".",
+        path: "/goals",
+        iconBg: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
+        keywords: ["goal", "kpi", "okr", "objective", "target", "metric"],
+      },
+      {
         key: "tldrs",
         label: "What happened",
         description: "Briefings on what your company did, and each AI Employee's journal.",
@@ -176,6 +209,13 @@ export const SECTION_GROUPS: SectionGroup[] = [
           "today",
         ],
       },
+    ],
+  },
+  {
+    // Where people and AI Employees talk and keep track of work together.
+    id: "work",
+    label: "Work",
+    items: [
       {
         key: "workspace",
         label: "Workspace",
@@ -233,32 +273,15 @@ export const SECTION_GROUPS: SectionGroup[] = [
         iconBg: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
         keywords: ["projects", "todos", "kanban", "backlog", "issues"],
       },
-      {
-        key: "vault",
-        label: "Vault",
-        description: "Passwords and secrets, shared safely.",
-        icon: KeyRound,
-        shortcut: "K",
-        path: "/vault",
-        iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
-        keywords: [
-          "password",
-          "password manager",
-          "credentials",
-          "secrets",
-          "api keys",
-          "secure notes",
-          "autofill",
-        ],
-      },
     ],
   },
   {
-    // The three parts of an AI employee's working life: who they are, what
-    // they know, and what they do on a schedule. Skills and Routines used to
-    // be reachable only by opening an employee first, which made the
-    // company's playbook library and its schedule invisible.
-    label: "AI",
+    // The parts of an AI employee's working life: who they are, what they
+    // know, and what they do on a schedule or on their own. Skills and
+    // Routines used to be reachable only by opening an employee first, which
+    // made the company's playbook library and its schedule invisible.
+    id: "ai",
+    label: "AI team",
     items: [
       {
         key: "employees",
@@ -269,18 +292,6 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/employees",
         iconBg: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
         keywords: ["team", "roster", "staff", "people", "hire", "agent", "bot"],
-      },
-      {
-        key: "goals",
-        label: "Goals",
-        description: "Measurable objectives your AI employees steer toward.",
-        icon: Target,
-        // Punctuation, like Settings (","): "." is the closest thing on a
-        // keyboard to a bullseye.
-        shortcut: ".",
-        path: "/goals",
-        iconBg: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
-        keywords: ["goal", "kpi", "okr", "objective", "target", "metric"],
       },
       {
         key: "routines",
@@ -325,18 +336,12 @@ export const SECTION_GROUPS: SectionGroup[] = [
     ],
   },
   {
+    // What the company knows and keeps: pages, tables, sources, charts, and
+    // the logins its people and AI Employees share.
+    id: "knowledge",
     label: "Knowledge",
+    startsClosed: true,
     items: [
-      {
-        key: "bases",
-        label: "Bases",
-        description: "Airtable-style structured data.",
-        icon: Table2,
-        shortcut: "B",
-        path: "/bases",
-        iconBg: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
-        keywords: ["airtable", "tables", "records", "spreadsheet", "database"],
-      },
       {
         key: "notes",
         label: "Notes",
@@ -346,6 +351,16 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/notes",
         iconBg: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
         keywords: ["notion", "docs", "pages", "markdown", "wiki"],
+      },
+      {
+        key: "bases",
+        label: "Bases",
+        description: "Airtable-style structured data.",
+        icon: Table2,
+        shortcut: "B",
+        path: "/bases",
+        iconBg: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
+        keywords: ["airtable", "tables", "records", "spreadsheet", "database"],
       },
       {
         key: "resources",
@@ -367,10 +382,30 @@ export const SECTION_GROUPS: SectionGroup[] = [
         iconBg: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300",
         keywords: ["bi", "sql", "charts", "dashboards", "analytics", "queries"],
       },
+      {
+        key: "vault",
+        label: "Vault",
+        description: "Passwords and secrets, shared safely.",
+        icon: KeyRound,
+        shortcut: "K",
+        path: "/vault",
+        iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+        keywords: [
+          "password",
+          "password manager",
+          "credentials",
+          "secrets",
+          "api keys",
+          "secure notes",
+          "autofill",
+        ],
+      },
     ],
   },
   {
+    id: "engineering",
     label: "Engineering",
+    startsClosed: true,
     items: [
       {
         key: "repositories",
@@ -395,28 +430,12 @@ export const SECTION_GROUPS: SectionGroup[] = [
     ],
   },
   {
-    label: "Money",
+    // Running the business: selling, serving customers, the books, and
+    // hiring.
+    id: "business",
+    label: "Business",
+    startsClosed: true,
     items: [
-      {
-        key: "marketing",
-        label: "Marketing",
-        description: "Campaigns, Creative, Experiments, and performance.",
-        icon: Megaphone,
-        shortcut: "D",
-        path: "/marketing",
-        iconBg: "bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300",
-        keywords: [
-          "ads",
-          "advertising",
-          "paid media",
-          "campaigns",
-          "creative",
-          "experiments",
-          "roas",
-          "agency",
-          "acquisition",
-        ],
-      },
       {
         key: "revenue",
         label: "Revenue",
@@ -463,21 +482,23 @@ export const SECTION_GROUPS: SectionGroup[] = [
         keywords: ["accounts", "contacts", "crm", "contracts", "acv"],
       },
       {
-        key: "signatures",
-        label: "Signatures",
-        description: "Send documents and collect signatures.",
-        icon: FileSignature,
-        shortcut: "G",
-        path: "/signatures",
-        iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+        key: "marketing",
+        label: "Marketing",
+        description: "Campaigns, Creative, Experiments, and performance.",
+        icon: Megaphone,
+        shortcut: "D",
+        path: "/marketing",
+        iconBg: "bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300",
         keywords: [
-          "esign",
-          "e-signature",
-          "docusign",
-          "agreements",
-          "contracts",
-          "envelopes",
-          "signing",
+          "ads",
+          "advertising",
+          "paid media",
+          "campaigns",
+          "creative",
+          "experiments",
+          "roas",
+          "agency",
+          "acquisition",
         ],
       },
       {
@@ -510,6 +531,45 @@ export const SECTION_GROUPS: SectionGroup[] = [
         ],
       },
       {
+        key: "finance",
+        label: "Finance",
+        description: "Invoices, bills, and revenue.",
+        icon: Wallet,
+        shortcut: "F",
+        path: "/finance",
+        iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-300",
+        keywords: [
+          "invoices",
+          "bills",
+          "revenue",
+          "accounting",
+          "ledger",
+          "money",
+          "billing",
+          "estimates",
+          "customer statements",
+          "statements",
+        ],
+      },
+      {
+        key: "signatures",
+        label: "Signatures",
+        description: "Send documents and collect signatures.",
+        icon: FileSignature,
+        shortcut: "G",
+        path: "/signatures",
+        iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+        keywords: [
+          "esign",
+          "e-signature",
+          "docusign",
+          "agreements",
+          "contracts",
+          "envelopes",
+          "signing",
+        ],
+      },
+      {
         key: "dataRooms",
         label: "Data rooms",
         description: "Share documents with investors, buyers, and auditors.",
@@ -536,32 +596,6 @@ export const SECTION_GROUPS: SectionGroup[] = [
           "docsend",
         ],
       },
-      {
-        key: "finance",
-        label: "Finance",
-        description: "Invoices, bills, and revenue.",
-        icon: Wallet,
-        shortcut: "F",
-        path: "/finance",
-        iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-300",
-        keywords: [
-          "invoices",
-          "bills",
-          "revenue",
-          "accounting",
-          "ledger",
-          "money",
-          "billing",
-          "estimates",
-          "customer statements",
-          "statements",
-        ],
-      },
-    ],
-  },
-  {
-    label: "People",
-    items: [
       {
         key: "recruiting",
         label: "Recruiting",
@@ -592,6 +626,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
     ],
   },
   {
+    id: "system",
     label: "System",
     items: [
       {

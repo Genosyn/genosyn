@@ -23,7 +23,7 @@ export function Help() {
       </P>
       <OL>
         <LI>
-          Click the <Strong>Help</Strong> icon in the app&apos;s top bar.
+          Click <Strong>Help</Strong> at the bottom of the app&apos;s sidebar.
         </LI>
         <LI>
           Select an AI Employee. An employee needs a connected{" "}

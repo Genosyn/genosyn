@@ -37,7 +37,7 @@ export function Tldrs() {
 
       <H2 id="what-happened">What happened</H2>
       <P>
-        Open <Strong>What happened</Strong> from the <Strong>⌘K</Strong> palette (or press{" "}
+        Open <Strong>What happened</Strong> near the top of the sidebar (or press{" "}
         <Strong>G</Strong> then <Strong>Z</Strong>). Its side menu has <Strong>Briefings</Strong>,
         every TLDR so far; <Strong>Letters</Strong>, the monthly{" "}
         <DocLink to="/docs/board-letters">letter to the board</DocLink>, which only owners and

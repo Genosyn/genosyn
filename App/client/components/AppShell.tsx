@@ -2,34 +2,41 @@ import React from "react";
 import { Link, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ChevronDown,
-  ChevronRight,
-  CircleHelp,
   CircleUser,
   Keyboard,
   LogOut,
+  Menu as MenuIcon,
   Monitor,
   Moon,
-  PanelLeft,
   Plug,
+  Search,
   ServerCog,
   Sparkles,
   Sun,
 } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
 import { clearAssistantChatSessions } from "@/lib/assistantChatSessions";
-import { createCompanyAndSwitch } from "../lib/companySwitch";
+import {
+  NAV_WIDE_VIEWPORT,
+  attentionTotal,
+  companyTabTitle,
+  readCollapsedPreference,
+  writeCollapsedPreference,
+} from "../lib/appNavigation";
 import { SECTION_BY_KEY, SectionItem, activeSection } from "../lib/sections";
 import { productIntegrationScope, type ProductIntegrationKey } from "../lib/productIntegrations";
-import { useDialog } from "./ui/Dialog";
+import type { NavigationAttention } from "../../shared/navigation";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
 import { Breadcrumbs, type Crumb } from "./ui/Breadcrumbs";
+import { Menu, MenuItem, MenuSeparator } from "./ui/Menu";
 import { PageHeader } from "./ui/PageHeader";
-import { ResizableRail } from "./ui/SidePanel";
+import { ResizableRail, useWideViewport } from "./ui/SidePanel";
 import { ButtonSpinner } from "./ui/Spinner";
+import { clsx } from "./ui/clsx";
+import { AppSidebar } from "./AppSidebar";
 import { CommandPaletteProvider, PALETTE_SHORTCUT, useCommandPalette } from "./CommandPalette";
 import { CommandRegistryProvider } from "./CommandRegistry";
-import { CompanySocketProvider } from "./CompanySocket";
-import { Logo, LogoMark } from "./Logo";
+import { CompanySocketProvider, useLiveRefetch } from "./CompanySocket";
 import { KeyboardShortcutsProvider, useKeyboardShortcuts } from "./KeyboardShortcuts";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { useNavigationGuard } from "./NavigationGuard";
@@ -40,21 +47,23 @@ import { GlobalCreateTask } from "./todos/GlobalCreateTask";
 
 /**
  * App chrome:
- *   ┌───────────────────────────────────────────────┐
- *   │ TopNav (company switcher · sections · user)   │
- *   ├─────────┬─────────────────────────────────────┤
- *   │         │                                     │
- *   │ Sidebar │           Main content              │
- *   │         │                                     │
- *   └─────────┴─────────────────────────────────────┘
+ *   ┌──────────┬────────────────────────────────────────┐
+ *   │ Company  │ TopNav (search · Ask AI · bell · you)  │
+ *   │          ├──────────┬─────────────────────────────┤
+ *   │ Sections │ Section  │                             │
+ *   │ (always) │ rail     │       Main content          │
+ *   │          │ (if any) │                             │
+ *   │ Settings │          │                             │
+ *   └──────────┴──────────┴─────────────────────────────┘
  *
- * Sections live in the ⌘K command palette, opened from the top nav's section
- * pill or from anywhere by keyboard (see `CommandPalette`). The
- * sidebar is context-specific: the roster on the Employees section, the
- * roster-as-filter on Routines, or Settings sub-pages on the Settings section.
- * A selected employee has no rail at all — that page is Chat plus Settings and
- * nothing else. Each page renders `<ContextualLayout sidebar={...}>{main}</>`
- * so the sidebar can change route-by-route without remounting the shell.
+ * The app sidebar (`AppSidebar`) lists every section the person can open, so
+ * the product's map is always on screen; ⌘K and the `G` chords are shortcuts
+ * to the same places, not the only way there. Each section may add its own
+ * rail beside it — the roster on Employees, the folders on Routines, the
+ * sub-pages on Settings — through `<ContextualLayout sidebar={...}>`, so that
+ * rail can change route by route without remounting the shell. On a phone the
+ * app sidebar is a drawer behind the top bar's menu button, and a section's
+ * rail is a second drawer behind the section's name.
  */
 
 type AppShellProps = {
@@ -80,13 +89,7 @@ type ContextualSidebarState = {
 };
 const ContextualSidebarContext = React.createContext<ContextualSidebarState | null>(null);
 
-export function AppShell({
-  me,
-  companies,
-  current,
-  onCompaniesChanged,
-  children,
-}: AppShellProps) {
+export function AppShell({ me, companies, current, onCompaniesChanged, children }: AppShellProps) {
   const [open, setOpen] = React.useState(false);
   const [hasSidebar, setHasSidebar] = React.useState(false);
   const sidebarState = React.useMemo<ContextualSidebarState>(
@@ -118,39 +121,239 @@ export function AppShell({
           >
             <ContextualSidebarContext.Provider value={sidebarState}>
               <AskAiProvider>
-              <div className="flex h-full flex-col">
-                <a
-                  href="#main-content"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    document.getElementById("main-content")?.focus();
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    document.getElementById("main-content")?.focus();
-                  }}
-                  className="sr-only z-[80] rounded-md bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow-lg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 dark:bg-slate-900 dark:text-indigo-300"
-                >
-                  Skip to main content
-                </a>
-                <TopNav
+                <ShellFrame
                   me={me}
                   companies={companies}
                   current={current}
                   onCompaniesChanged={onCompaniesChanged}
-                />
-                <div className="flex min-h-0 flex-1">
+                >
                   {children}
-                  <AskAiDock company={current} />
-                </div>
-              </div>
+                </ShellFrame>
               </AskAiProvider>
             </ContextualSidebarContext.Provider>
           </CommandPaletteProvider>
         </CommandRegistryProvider>
       </KeyboardShortcutsProvider>
     </CompanySocketProvider>
+  );
+}
+
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Icons only or full labels: what the person chose, or else what the window
+ * has room for — a laptop keeps its width for a section's rail and the page.
+ */
+function useSidebarCollapsed(): { collapsed: boolean; toggle: () => void } {
+  const wide = useWideViewport(NAV_WIDE_VIEWPORT);
+  const [preference, setPreference] = React.useState<boolean | null>(() =>
+    readCollapsedPreference(browserStorage()),
+  );
+  const collapsed = preference ?? !wide;
+  const toggle = React.useCallback(() => {
+    const next = !collapsed;
+    setPreference(next);
+    writeCollapsedPreference(browserStorage(), next);
+  }, [collapsed]);
+  return { collapsed, toggle };
+}
+
+/** Reads at most this often, however busy the company's queues are. */
+const ATTENTION_MIN_INTERVAL_MS = 5_000;
+
+/**
+ * How much waits on this person, for the number beside the Decision stack.
+ * Read on load, when a queue it counts changes, and when the window comes back
+ * into focus — never more than once every few seconds, since the sidebar is on
+ * every page. A failed read keeps the last number: it is a convenience beside
+ * a link that works without it.
+ */
+function useAttention(company: Company): number | null {
+  const [attention, setAttention] = React.useState<NavigationAttention | null>(null);
+  const latest = React.useRef(0);
+  const lastRead = React.useRef(0);
+  const queued = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const read = React.useCallback(() => {
+    const request = ++latest.current;
+    lastRead.current = Date.now();
+    api
+      .get<NavigationAttention>(`/api/companies/${company.id}/navigation/attention`)
+      .then((body) => {
+        if (request === latest.current) setAttention(body);
+      })
+      .catch(() => {
+        // Keep the last count rather than show an error beside a working link.
+      });
+  }, [company.id]);
+
+  const reload = React.useCallback(() => {
+    if (queued.current) return;
+    const wait = Math.max(0, lastRead.current + ATTENTION_MIN_INTERVAL_MS - Date.now());
+    queued.current = setTimeout(() => {
+      queued.current = null;
+      read();
+    }, wait);
+  }, [read]);
+
+  React.useEffect(() => {
+    setAttention(null);
+    read();
+    return () => {
+      latest.current += 1;
+      if (queued.current) clearTimeout(queued.current);
+      queued.current = null;
+    };
+  }, [read]);
+
+  useLiveRefetch(["approval", "decision", "revision", "initiative", "todo", "finance"], reload);
+
+  React.useEffect(() => {
+    window.addEventListener("focus", reload);
+    return () => window.removeEventListener("focus", reload);
+  }, [reload]);
+
+  return attentionTotal(attention);
+}
+
+/** The sidebar, the top bar and the page, inside every provider they read. */
+function ShellFrame({
+  me,
+  companies,
+  current,
+  onCompaniesChanged,
+  children,
+}: {
+  me: Me;
+  companies: Company[];
+  current: Company;
+  onCompaniesChanged: () => Promise<void>;
+  children: React.ReactNode;
+}) {
+  const location = useLocation();
+  const { collapsed, toggle } = useSidebarCollapsed();
+  const attention = useAttention(current);
+  const [navOpen, setNavOpen] = React.useState(false);
+
+  // Choosing a section in the drawer navigates; the drawer closes behind it.
+  React.useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
+  // Name the tab for the section and company. Keyed on the title rather than
+  // the address, so moving around inside a section leaves alone a title a page
+  // set for itself (chat's "Working · Avery"); a layout effect, so it lands
+  // before a page's own title effect when both run in one commit.
+  const tabTitle = companyTabTitle(location.pathname, current.name);
+  React.useLayoutEffect(() => {
+    document.title = tabTitle;
+  }, [tabTitle]);
+  React.useEffect(
+    () => () => {
+      document.title = "Genosyn";
+    },
+    [],
+  );
+
+  return (
+    <div className="flex h-full">
+      <a
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("main-content")?.focus();
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          document.getElementById("main-content")?.focus();
+        }}
+        className="sr-only z-[80] rounded-md bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow-lg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 dark:bg-slate-900 dark:text-indigo-300"
+      >
+        Skip to main content
+      </a>
+      <AppSidebar
+        className="hidden md:flex"
+        companies={companies}
+        current={current}
+        onCompaniesChanged={onCompaniesChanged}
+        attention={attention}
+        collapsed={collapsed}
+        onToggleCollapsed={toggle}
+      />
+      {navOpen && (
+        <NavDrawer onClose={() => setNavOpen(false)}>
+          <AppSidebar
+            variant="drawer"
+            className="absolute inset-y-0 left-0 shadow-xl"
+            companies={companies}
+            current={current}
+            onCompaniesChanged={onCompaniesChanged}
+            attention={attention}
+            onClose={() => setNavOpen(false)}
+          />
+        </NavDrawer>
+      )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopNav me={me} current={current} onOpenNav={() => setNavOpen(true)} />
+        <div className="flex min-h-0 flex-1">
+          {children}
+          <AskAiDock company={current} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The phone's app sidebar: a modal drawer over the page. Escape and the scrim
+ * close it, and focus moves into it and back to the menu button.
+ */
+function NavDrawer({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  // Through a ref, so the shell re-rendering (a count arriving) never re-runs
+  // the effect below and moves focus while the drawer is open.
+  const closeRef = React.useRef(onClose);
+  closeRef.current = onClose;
+  React.useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    // The section you are in, so the list reads from where you are.
+    const here =
+      ref.current?.querySelector<HTMLElement>('a[aria-current="page"]') ??
+      ref.current?.querySelector<HTMLElement>("nav a");
+    here?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      closeRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      opener?.focus?.();
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Navigation"
+      className="fixed inset-0 z-40 md:hidden"
+    >
+      <div
+        className="absolute inset-0 bg-slate-900/40 motion-safe:animate-scrim-in"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      {children}
+    </div>
   );
 }
 
@@ -175,7 +378,7 @@ function AskAiButton() {
       type="button"
       onClick={askAi.toggle}
       className={
-        "flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-md px-2 text-sm font-medium sm:px-2.5 " +
+        "flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium sm:px-2.5 " +
         (askAi.open
           ? "bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-200"
           : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800")
@@ -190,37 +393,127 @@ function AskAiButton() {
   );
 }
 
-function TopNav({
-  me,
-  companies,
-  current,
-  onCompaniesChanged,
-}: {
-  me: Me;
-  companies: Company[];
-  current: Company;
-  onCompaniesChanged: () => Promise<void>;
-}) {
-  const navigate = useNavigate();
+function TopNav({ me, current, onOpenNav }: { me: Me; current: Company; onOpenNav: () => void }) {
   const location = useLocation();
-  const dialog = useDialog();
-  const shortcuts = useKeyboardShortcuts();
+  const section = SECTION_BY_KEY[activeSection(location.pathname)];
+
+  return (
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:gap-3 sm:px-4 dark:border-slate-800 dark:bg-slate-950">
+      <button
+        type="button"
+        onClick={onOpenNav}
+        className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 md:hidden dark:text-slate-300 dark:hover:bg-slate-800"
+        aria-label="Open navigation"
+      >
+        <MenuIcon size={18} />
+      </button>
+      <PhoneSectionTitle section={section} />
+      <SearchBox />
+
+      <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
+        <PhoneSearchButton />
+        <AskAiButton />
+        <NotificationsPanel company={current} meId={me.id} />
+        <AccountMenu me={me} current={current} />
+      </div>
+    </header>
+  );
+}
+
+/**
+ * On a phone the sidebar is out of sight, so the top bar says where you are.
+ * When the section has its own rail — its folders, channels or pages — the
+ * name opens it.
+ */
+function PhoneSectionTitle({ section }: { section: SectionItem }) {
   const sidebarCtx = React.useContext(ContextualSidebarContext);
+  const Icon = section.icon;
+  const label = (
+    <>
+      <span
+        aria-hidden="true"
+        className={clsx(
+          "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
+          section.iconBg,
+        )}
+      >
+        <Icon size={13} />
+      </span>
+      <span className="truncate">{section.label}</span>
+    </>
+  );
+  if (!sidebarCtx?.hasSidebar) {
+    return (
+      <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-900 md:hidden dark:text-slate-100">
+        {label}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => sidebarCtx.setOpen(true)}
+      aria-label={`${section.label} pages`}
+      title={`Show ${section.label} pages`}
+      className="flex h-8 min-w-0 items-center gap-2 rounded-lg px-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-100 md:hidden dark:text-slate-100 dark:hover:bg-slate-800"
+    >
+      {label}
+      <ChevronDown size={14} aria-hidden="true" className="shrink-0 text-slate-400" />
+    </button>
+  );
+}
+
+/**
+ * The way into ⌘K for people who never learn shortcuts: it looks like a search
+ * field because that is what it is — sections, pages, AI Employees, notes,
+ * records, and actions, all from one box.
+ */
+function SearchBox() {
+  const palette = useCommandPalette();
+  return (
+    <button
+      type="button"
+      onClick={palette.open}
+      aria-keyshortcuts={PALETTE_SHORTCUT.startsWith("⌘") ? "Meta+K" : "Control+K"}
+      className="hidden h-9 w-full min-w-0 max-w-md items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500 transition-colors hover:border-slate-300 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:flex dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700"
+    >
+      <Search size={15} aria-hidden="true" className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-left">Search or jump to…</span>
+      <kbd className="hidden h-5 shrink-0 items-center rounded border border-slate-200 bg-white px-1.5 font-sans text-xs font-medium text-slate-500 lg:inline-flex dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+        {PALETTE_SHORTCUT}
+      </kbd>
+    </button>
+  );
+}
+
+function PhoneSearchButton() {
+  const palette = useCommandPalette();
+  return (
+    <button
+      type="button"
+      onClick={palette.open}
+      aria-label="Search or jump to…"
+      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 md:hidden dark:text-slate-300 dark:hover:bg-slate-800"
+    >
+      <Search size={17} />
+    </button>
+  );
+}
+
+/**
+ * Everything about you, in one menu: your account, the instance's Admin when
+ * you run it, the keyboard guide, the theme, and signing out. These used to be
+ * four separate icons in the top bar.
+ */
+function AccountMenu({ me, current }: { me: Me; current: Company }) {
+  const navigate = useNavigate();
   const navigationGuard = useNavigationGuard();
-  const [companyOpen, setCompanyOpen] = React.useState(false);
-  const [userOpen, setUserOpen] = React.useState(false);
+  const shortcuts = useKeyboardShortcuts();
   const [loggingOut, setLoggingOut] = React.useState(false);
 
-  React.useEffect(() => {
-    if (!companyOpen && !userOpen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setCompanyOpen(false);
-      setUserOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [companyOpen, userOpen]);
+  function go(destination: string) {
+    if (!navigationGuard.request(destination)) navigate(destination);
+  }
 
   async function performLogout() {
     setLoggingOut(true);
@@ -240,282 +533,131 @@ function TopNav({
     void performLogout();
   }
 
-  const sectionKey = activeSection(location.pathname);
-  const section = SECTION_BY_KEY[sectionKey];
+  const name = me.name || me.email;
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:gap-3 sm:px-4 dark:border-slate-800 dark:bg-slate-950">
-      {sidebarCtx?.hasSidebar && (
+    <Menu
+      align="right"
+      width={256}
+      trigger={({ ref, onClick, open }) => (
         <button
-          onClick={() => sidebarCtx.setOpen(true)}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 md:hidden dark:text-slate-300 dark:hover:bg-slate-800"
-          aria-label="Open sidebar"
+          ref={ref}
+          type="button"
+          onClick={onClick}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Your account"
+          title={name}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:ring-2 hover:ring-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus dark:hover:ring-slate-700"
         >
-          <PanelLeft size={18} />
+          <Avatar name={name} src={meAvatarUrl(me.avatarKey)} size="sm" />
         </button>
       )}
-      <Link
-        to={`/c/${current.slug}`}
-        className="flex h-8 min-w-8 shrink-0 items-center justify-center gap-2 rounded-md text-slate-900 dark:text-slate-100"
-      >
-        {/* Phones get the bare mark; the full wordmark would eat half the bar. */}
-        <LogoMark className="h-7 w-7 sm:hidden" />
-        <Logo className="hidden h-7 w-auto sm:block" />
-      </Link>
-
-      <span aria-hidden="true" className="h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
-
-      {/* min-w-0 + truncate: the company name is the one flexible item in the
-          bar, so it absorbs the squeeze on narrow viewports. */}
-      <div className="relative min-w-0">
-        <button
-          onClick={() => {
-            setUserOpen(false);
-            setCompanyOpen((d) => !d);
-          }}
-          className="flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
-          aria-expanded={companyOpen}
-          aria-haspopup="menu"
-        >
-          <span className="truncate">{current.name}</span>
-          <ChevronDown size={14} className="shrink-0 text-slate-400" />
-        </button>
-        {companyOpen && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setCompanyOpen(false)} />
-            <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-              {companies.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => {
-                    setCompanyOpen(false);
-                    const destination = `/c/${c.slug}`;
-                    if (!navigationGuard.request(destination)) navigate(destination);
-                  }}
-                  className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
-                >
-                  {c.name}
-                </button>
-              ))}
-              <button
-                onClick={async () => {
-                  setCompanyOpen(false);
-                  const name = await dialog.prompt({
-                    title: "New company",
-                    placeholder: "Company name",
-                    confirmLabel: "Create",
-                  });
-                  if (!name) return;
-                  try {
-                    await createCompanyAndSwitch({
-                      createCompany: () =>
-                        api.post<Company>("/api/companies", {
-                          name,
-                          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                        }),
-                      refreshCompanies: onCompaniesChanged,
-                      navigate: (destination) => {
-                        if (!navigationGuard.request(destination)) navigate(destination);
-                      },
-                      suffix: "/onboarding",
-                    });
-                  } catch (e) {
-                    void dialog.error(e, { title: "Couldn’t create the company" });
-                  }
-                }}
-                className="block w-full border-t border-slate-100 px-3 py-2 text-left text-sm text-indigo-600 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
-              >
-                + New company
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      <ChevronRight size={14} className="shrink-0 text-slate-300 dark:text-slate-600" />
-
-      <SectionMenu current={section} />
-
-      <div className="ml-auto flex items-center gap-1 sm:gap-2">
-        <AskAiButton />
-        <button
-          onClick={() => {
-            const destination = `/c/${current.slug}/help`;
-            if (!navigationGuard.request(destination)) navigate(destination);
-          }}
-          // Phones reach Help from the section menu; the bar is full there.
-          className={
-            "hidden h-8 w-8 items-center justify-center rounded-md sm:flex " +
-            (sectionKey === "help"
-              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-              : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800")
-          }
-          title="Help"
-          aria-label="Open Help"
-          aria-current={sectionKey === "help" ? "page" : undefined}
-        >
-          <CircleHelp size={16} />
-        </button>
-        <button
-          onClick={shortcuts.openGuide}
-          className="hidden h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 sm:flex dark:text-slate-300 dark:hover:bg-slate-800"
-          title="Keyboard shortcuts (?)"
-          aria-label="Show keyboard shortcuts"
-        >
-          <Keyboard size={16} />
-        </button>
-        <NotificationsPanel company={current} meId={me.id} />
-        {/* Phones follow the system theme; the bar has no room for a third
-            icon there once Ask AI sits in it. */}
-        <div className="hidden sm:block">
-          <ThemeToggle />
-        </div>
-        <div className="relative">
-          <button
-            onClick={() => {
-              setCompanyOpen(false);
-              setUserOpen((d) => !d);
-            }}
-            className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
-            aria-expanded={userOpen}
-            aria-haspopup="menu"
-          >
-            <Avatar name={me.name || me.email} src={meAvatarUrl(me.avatarKey)} size="sm" />
-            <span className="hidden max-w-[12rem] truncate text-slate-700 sm:inline dark:text-slate-200">
-              {me.name || me.email}
-            </span>
-          </button>
-          {userOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setUserOpen(false)} />
-              <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-                <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
-                  <div className="truncate text-slate-900 dark:text-slate-100">{me.name}</div>
-                  <div className="truncate">{me.email}</div>
-                </div>
-                <Link
-                  to={`/c/${current.slug}/account`}
-                  onClick={() => setUserOpen(false)}
-                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  <CircleUser size={14} /> Account
-                </Link>
-                {me.isMasterAdmin && (
-                  <Link
-                    to={`/c/${current.slug}/admin`}
-                    onClick={() => setUserOpen(false)}
-                    className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  >
-                    <ServerCog size={14} /> Admin
-                  </Link>
-                )}
-                <button
-                  onClick={logout}
-                  disabled={loggingOut}
-                  aria-busy={loggingOut || undefined}
-                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  {loggingOut ? <ButtonSpinner size={14} /> : <LogOut size={14} />} Log out
-                </button>
-                <div
-                  className="border-t border-slate-100 px-3 py-2 text-xs tabular-nums text-slate-500 dark:border-slate-700 dark:text-slate-400"
-                  title="Genosyn version · build commit"
-                >
-                  v{__APP_VERSION__} · <span className="font-mono">{__APP_COMMIT__}</span>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </header>
-  );
-}
-
-/**
- * The section pill: shows where you are, and opens the ⌘K palette to go
- * somewhere else. It used to drop a 56rem mega-menu down from the top nav —
- * the palette does the same job centred, searchable, and without the mouse, so
- * the pill is now just its click target for people who never learn shortcuts.
- */
-function SectionMenu({ current }: { current: SectionItem }) {
-  const palette = useCommandPalette();
-  const Icon = current.icon;
-
-  return (
-    <button
-      onClick={palette.open}
-      className="flex h-8 shrink-0 items-center gap-2 rounded-md px-2 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
-      title={`Search sections and pages (${PALETTE_SHORTCUT})`}
     >
-      <span className={"flex h-5 w-5 items-center justify-center rounded " + current.iconBg}>
-        <Icon size={12} />
-      </span>
-      <span className="hidden sm:inline">{current.label}</span>
-      {/* The shortcut hint is the affordance on pointer-and-keyboard screens;
-          below sm there's no room and probably no keyboard, so fall back to
-          the chevron that says "this opens something". */}
-      <kbd className="hidden h-5 items-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-xs font-medium text-slate-500 sm:inline-flex dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-        {PALETTE_SHORTCUT}
-      </kbd>
-      <ChevronDown size={14} className="shrink-0 text-slate-400 sm:hidden" />
-    </button>
+      {(close) => (
+        <>
+          <div className="flex items-center gap-2.5 px-2 pb-2 pt-1.5">
+            <Avatar name={name} src={meAvatarUrl(me.avatarKey)} size="sm" />
+            <div className="min-w-0 text-xs">
+              <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                {me.name || me.email}
+              </div>
+              {me.name && (
+                <div className="truncate text-slate-500 dark:text-slate-400">{me.email}</div>
+              )}
+            </div>
+          </div>
+          <MenuSeparator />
+          <MenuItem
+            icon={<CircleUser size={14} />}
+            label="Account"
+            onSelect={() => {
+              close();
+              go(`/c/${current.slug}/account`);
+            }}
+          />
+          {me.isMasterAdmin && (
+            <MenuItem
+              icon={<ServerCog size={14} />}
+              label="Admin"
+              onSelect={() => {
+                close();
+                go(`/c/${current.slug}/admin`);
+              }}
+            />
+          )}
+          <MenuItem
+            icon={<Keyboard size={14} />}
+            label="Keyboard shortcuts"
+            hint="?"
+            onSelect={() => {
+              close();
+              shortcuts.openGuide();
+            }}
+          />
+          <MenuSeparator />
+          <ThemeChoice />
+          <MenuSeparator />
+          <MenuItem
+            icon={loggingOut ? <ButtonSpinner size={14} /> : <LogOut size={14} />}
+            label="Log out"
+            onSelect={() => {
+              if (loggingOut) return;
+              logout();
+            }}
+          />
+          <div
+            className="px-2 pb-1 pt-1.5 text-xs tabular-nums text-slate-500 dark:text-slate-400"
+            title="Genosyn version · build commit"
+          >
+            Genosyn v{__APP_VERSION__} · <span className="font-mono">{__APP_COMMIT__}</span>
+          </div>
+        </>
+      )}
+    </Menu>
   );
 }
 
-function ThemeToggle() {
+/** Light, dark, or the system's: three buttons in one row of the account menu. */
+function ThemeChoice() {
   const { theme, setTheme } = useTheme();
-  const [open, setOpen] = React.useState(false);
   const options: { value: Theme; label: string; icon: React.ReactNode }[] = [
     { value: "light", label: "Light", icon: <Sun size={14} /> },
     { value: "dark", label: "Dark", icon: <Moon size={14} /> },
     { value: "system", label: "System", icon: <Monitor size={14} /> },
   ];
-  const current = options.find((o) => o.value === theme) ?? options[2];
-
-  React.useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-        title={`Theme: ${current.label}`}
-        aria-label="Toggle theme"
-        aria-expanded={open}
-        aria-haspopup="menu"
+    <div className="px-2 py-1.5">
+      <div
+        id="theme-choice-label"
+        className="mb-1.5 text-xs font-medium text-slate-500 dark:text-slate-400"
       >
-        {current.icon}
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-            {options.map((o) => (
-              <button
-                key={o.value}
-                onClick={() => {
-                  setTheme(o.value);
-                  setOpen(false);
-                }}
-                className={
-                  "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800 " +
-                  (o.value === theme ? "text-indigo-600" : "text-slate-700 dark:text-slate-200")
-                }
-              >
-                {o.icon} {o.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+        Theme
+      </div>
+      <div
+        role="group"
+        aria-labelledby="theme-choice-label"
+        className="grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
+      >
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="menuitemradio"
+            aria-checked={theme === option.value}
+            onClick={() => setTheme(option.value)}
+            className={clsx(
+              "touch-target relative flex h-7 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
+              theme === option.value
+                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white",
+            )}
+          >
+            {option.icon}
+            {option.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
