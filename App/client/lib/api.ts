@@ -7,6 +7,7 @@ import type { ModelEffort } from "../../shared/modelEffort";
 import type { PublicModelAvailability } from "../../shared/modelAvailability";
 export type { PublicModelAvailability } from "../../shared/modelAvailability";
 import type { RoutinePriority } from "../../shared/routinePriority";
+import type { RoutineRunCondition } from "../../shared/routineRunCondition";
 import { dayOf, documentDay } from "../../shared/documentDays";
 export type { EntryCategoryLock } from "../../shared/entryCategory";
 export type { ModelEffort } from "../../shared/modelEffort";
@@ -531,11 +532,43 @@ export type Routine = {
    * a server that predates it, which reads as Normal.
    */
   priority?: RoutinePriority;
+  /**
+   * Whether a scheduled time or Trigger fire starts a Run: `always`, or only
+   * when one of the employee's Workstreams has a revisit due
+   * (`shared/routineRunCondition.ts`). Missing on a server that predates it,
+   * which reads as `always`.
+   */
+  runCondition?: RoutineRunCondition;
+  /** The last time an automatic start found nothing due and started no Run. */
+  nothingDueAt?: string | null;
+  /** Automatic starts that found nothing due since the last Run finished. */
+  nothingDueCount?: number;
   tags: CompanyTag[];
   createdAt?: string;
 };
 export type CatchUpPolicy = "once" | "skip";
-export type { RoutinePriority };
+export type { RoutinePriority, RoutineRunCondition };
+
+/**
+ * Where a Routine's run condition stands right now, from
+ * `GET /routines/:rid/run-condition` — decided by the same function the
+ * scheduler asks before each automatic start.
+ */
+export type RoutineRunConditionStatus = {
+  condition: RoutineRunCondition;
+  /** Whether the next scheduled time or Trigger fire would start a Run. */
+  due: boolean;
+  /** The Workstreams due now, soonest revisit first. */
+  dueWorkstreams: Array<{ id: string; title: string; revisitAt: string }>;
+  /** The soonest revisit still to come. */
+  nextRevisit: { id: string; title: string; revisitAt: string } | null;
+  /** Active Workstreams it resumes with no revisit planned. */
+  unplanned: number;
+  /** The start of its newest Run that looked at its work. */
+  lookedAt: string | null;
+  nothingDueAt: string | null;
+  nothingDueCount: number;
+};
 
 /**
  * A folder in the Routines filing tree, as `GET /routine-folders` returns it.
@@ -1101,6 +1134,12 @@ export type Workstream = {
   /** Empty while active. */
   closeReason: string;
   lastRunId: string | null;
+  /**
+   * When the employee next needs to look at it, or null when nothing waits on
+   * a time. A Routine that runs only when a Workstream is due starts once it
+   * comes.
+   */
+  revisitAt: string | null;
   createdAt: string;
   updatedAt: string;
 };

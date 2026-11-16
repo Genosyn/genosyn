@@ -9,6 +9,7 @@ import {
   ArrowUp,
   Ban,
   BrainCircuit,
+  CalendarClock,
   ChevronsUp,
   ClipboardCheck,
   Clock,
@@ -16,6 +17,7 @@ import {
   Folder,
   Globe,
   History,
+  ListFilter,
   Pause,
   Pencil,
   Play,
@@ -40,6 +42,8 @@ import {
   CommandChecksAvailability,
   RoutineCheck,
   RoutineCheckList,
+  RoutineRunCondition,
+  RoutineRunConditionStatus,
   RoutineTrigger,
   RoutineTriggerList,
   RoutineWithMeta,
@@ -112,6 +116,16 @@ import {
   routinePriorityOf,
 } from "../lib/routinePriority";
 import { RoutinePriorityChip } from "../components/routines/RoutinePriorityChip";
+import {
+  RUN_CONDITION_OPTIONS,
+  revisitPhrase,
+  routineRunConditionOf,
+  runConditionHelp,
+  runConditionLabel,
+  scheduleWithRunCondition,
+  summarizeRunConditionStatus,
+} from "../lib/routineRunCondition";
+import { Skeleton } from "../components/ui/Skeleton";
 import { RoutinesContext } from "./RoutinesLayout";
 import { useAskAi } from "../components/askAi/AskAiProvider";
 import { ResourceTagPicker } from "../components/TagPicker";
@@ -312,7 +326,9 @@ export default function RoutineDetail({ company }: { company: Company }) {
               )}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
-              <span title={routine.cronExpr}>{describeCronExpr(routine.cronExpr)}</span>
+              <span title={routine.cronExpr}>
+                {scheduleWithRunCondition(describeCronExpr(routine.cronExpr), routine.runCondition)}
+              </span>
               {routine.enabled && routine.nextRunAt && (
                 <>
                   <span aria-hidden="true">·</span>
@@ -502,6 +518,7 @@ function OverviewTab({
   }, [company.id, emp, routine.modelId]);
 
   const pinHolds = !!routine.modelId && model?.id === routine.modelId;
+  const conditioned = routineRunConditionOf(routine.runCondition) !== "always";
   const recent = (runs ?? []).slice(0, 5);
   // Only what the rows inside show, so the line never names something the
   // person cannot find once they open it.
@@ -576,6 +593,11 @@ function OverviewTab({
           <Row icon={<Clock size={14} />} label="Fires">
             <span title={routine.cronExpr}>{describeCronExpr(routine.cronExpr)}</span>
           </Row>
+          {conditioned && (
+            <Row icon={<ListFilter size={14} />} label="Starts a Run">
+              {runConditionLabel(routine.runCondition)}
+            </Row>
+          )}
           <Row icon={<Clock size={14} />} label="Next run">
             {!routine.enabled ? (
               <span className="text-slate-400 dark:text-slate-500">Paused</span>
@@ -606,6 +628,9 @@ function OverviewTab({
               <span className="text-slate-400 dark:text-slate-500">Never</span>
             )}
           </Row>
+          {conditioned && routine.enabled && (
+            <RunConditionPanel company={company} routine={routine} />
+          )}
         </CardBody>
       </Card>
 
@@ -854,6 +879,82 @@ function LessonsCard({
 }
 
 /**
+ * Where a Routine that runs only when something is due stands right now:
+ * whether its next scheduled time starts a Run, what is due, and the starts it
+ * declined because nothing was. Read from the same function the scheduler asks
+ * (`GET …/run-condition`), and kept current as Runs, Workstreams and the
+ * Routine change — plus once a minute, since a revisit coming due changes no
+ * row at all.
+ */
+function RunConditionPanel({ company, routine }: { company: Company; routine: RoutineWithMeta }) {
+  const [status, setStatus] = React.useState<RoutineRunConditionStatus | null>(null);
+  const [failed, setFailed] = React.useState(false);
+  const [now, setNow] = React.useState(() => Date.now());
+
+  const reload = React.useCallback(() => {
+    api
+      .get<RoutineRunConditionStatus>(
+        `/api/companies/${company.id}/routines/${routine.id}/run-condition`,
+      )
+      .then((next) => {
+        setStatus(next);
+        setFailed(false);
+        setNow(Date.now());
+      })
+      .catch(() => setFailed(true));
+  }, [company.id, routine.id]);
+
+  // The Routine row moving (a Run finishing, a start declined, a settings save)
+  // arrives as a new `routine` prop from the list above.
+  React.useEffect(() => {
+    reload();
+  }, [reload, routine.nothingDueAt, routine.lastRunAt, routine.runCondition]);
+  useLiveRefetch(["workstream", "run"], reload);
+  React.useEffect(() => {
+    const timer = window.setInterval(reload, 60_000);
+    return () => window.clearInterval(timer);
+  }, [reload]);
+
+  if (!status) {
+    return failed ? (
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Couldn&apos;t load what is due right now.
+      </p>
+    ) : (
+      <div aria-busy="true" className="flex flex-col gap-2 rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-800">
+        <Skeleton className="h-4 w-56" />
+        <Skeleton className="h-3 w-40" />
+      </div>
+    );
+  }
+  const summary = summarizeRunConditionStatus(status, now);
+  return (
+    <div
+      aria-live="polite"
+      className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40"
+    >
+      <div className="flex items-start gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+        <span
+          aria-hidden="true"
+          className={clsx(
+            "mt-1.5 h-2 w-2 shrink-0 rounded-full",
+            summary.state === "due" ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600",
+          )}
+        />
+        <span>{summary.headline}</span>
+      </div>
+      {summary.details.length > 0 && (
+        <ul className="mt-1.5 flex flex-col gap-1 pl-4 text-xs leading-5 text-slate-500 dark:text-slate-400">
+          {summary.details.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
  * Workstream — the persistent state document for work this routine's Runs
  * carry across sessions (M54). Only an ACTIVE workstream is news on the
  * routine page — the card vanishes when there is none, like Lessons. Closing
@@ -917,8 +1018,16 @@ function WorkstreamCard({
         <div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 font-mono text-xs leading-5 text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
           {active.stateDoc.trim() || "The employee hasn't written the state document yet."}
         </div>
-        <div className="text-xs text-slate-400 dark:text-slate-500">
-          last updated {new Date(active.updatedAt).toLocaleDateString()}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400 dark:text-slate-500">
+          <span>last updated {new Date(active.updatedAt).toLocaleDateString()}</span>
+          <span aria-hidden="true">·</span>
+          <span
+            className="inline-flex items-center gap-1"
+            title={active.revisitAt ? new Date(active.revisitAt).toLocaleString() : undefined}
+          >
+            <CalendarClock size={12} aria-hidden="true" />
+            {revisitPhrase(active.revisitAt ?? null, Date.now())}
+          </span>
         </div>
         {closing && (
           <CloseWorkstreamModal
@@ -1618,6 +1727,14 @@ function SettingsTab({
   React.useEffect(() => {
     setPriority(routinePriorityOf(routine.priority));
   }, [routine.id, routine.priority]);
+  const [runCondition, setRunCondition] = React.useState<RoutineRunCondition>(
+    routineRunConditionOf(routine.runCondition),
+  );
+  // Same re-seed discipline: another owner's change must not be undone by a
+  // save of an unrelated setting here.
+  React.useEffect(() => {
+    setRunCondition(routineRunConditionOf(routine.runCondition));
+  }, [routine.id, routine.runCondition]);
   // "" is the inherit choice — the routine follows the employee's active model.
   const [modelId, setModelId] = React.useState(routine.modelId ?? "");
   const [models, setModels] = React.useState<AIModel[] | null>(null);
@@ -1719,6 +1836,7 @@ function SettingsTab({
         timeoutSec,
         requiresApproval,
         priority,
+        runCondition,
         folderId: folderId || null,
         goalId: goalId || null,
         modelId: modelId || null,
@@ -1775,7 +1893,51 @@ function SettingsTab({
           <SectionLabel>Basics</SectionLabel>
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
 
-          <ScheduleField value={cronExpr} onChange={setCronExpr} allowRandom />
+          <ScheduleField
+            value={cronExpr}
+            onChange={setCronExpr}
+            allowRandom
+            startsOnlyWhenDue={runCondition !== "always"}
+          />
+
+          <div className="flex flex-col gap-1.5">
+            <span
+              id={`${criteriaId}-condition`}
+              className="text-sm font-medium text-slate-700 dark:text-slate-300"
+            >
+              Start a Run
+            </span>
+            <div
+              role="group"
+              aria-labelledby={`${criteriaId}-condition`}
+              aria-describedby={`${criteriaId}-condition-hint`}
+              className="flex gap-1 rounded-md border border-slate-200 p-0.5 text-xs dark:border-slate-700"
+            >
+              {RUN_CONDITION_OPTIONS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={runCondition === value}
+                  onClick={() => setRunCondition(value)}
+                  className={
+                    "flex flex-1 items-center justify-center gap-1 rounded px-2 py-1 transition " +
+                    (runCondition === value
+                      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+                  }
+                >
+                  {value === "workstream_due" && <ListFilter size={12} aria-hidden="true" />}
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div
+              id={`${criteriaId}-condition-hint`}
+              className="text-xs text-slate-500 dark:text-slate-400"
+            >
+              {runConditionHelp(runCondition, emp?.name)}
+            </div>
+          </div>
 
           <div className="flex flex-col gap-1">
             <Select label="Goal" value={goalId} onChange={(e) => setGoalId(e.target.value)}>
