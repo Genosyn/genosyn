@@ -374,6 +374,20 @@ await context.route("**/api/**", async (route) => {
     }
     if (method === "GET" && /^\/conversations\/[^/]+\/attachments\/[^/]+$/.test(rest))
       return route.fulfill({ contentType: "image/png", body: Buffer.from(png, "base64") });
+    // The panel follows the answer being written over its own stream. This
+    // fixture drives answers over the send stream instead, so the follow
+    // stream only names the turn and lets go.
+    const follow = /^\/conversations\/[^/]+\/messages\/([^/]+)\/activity\/stream$/.exec(rest);
+    if (method === "GET" && follow) {
+      const now = new Date().toISOString();
+      return route.fulfill({
+        contentType: "text/event-stream",
+        body: sse([
+          ["turn", { messageId: follow[1], status: "working", startedAt: now, attempt: 1, now }],
+          ["done", {}],
+        ]),
+      });
+    }
     const conversation = /^\/conversations\/([^/]+)$/.exec(rest);
     if (method === "GET" && conversation)
       return json({
@@ -873,7 +887,7 @@ try {
       await page.getByRole("button", { name: "Remove Alex", exact: true }).waitFor();
       await page.getByRole("button", { name: "Send message", exact: true }).click();
       await page.getByText(`Alex checking: ${question}`, { exact: true }).waitFor();
-      await page.getByText("Sam · waiting", { exact: true }).waitFor();
+      await page.getByText("Answers once Alex has finished.", { exact: true }).waitFor();
       await status.filter({ hasText: "Alex is working" }).waitFor();
       const reply = replies.at(-1)!;
       assert.equal(reply.body.message, question);

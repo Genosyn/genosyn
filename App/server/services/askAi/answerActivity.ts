@@ -75,11 +75,13 @@ export class AskAiAnswerRun {
         console.error(`[ask-ai] reply snapshot save failed message=${row.id}`, error);
       },
     });
+    // Ref'd on purpose, like the busy wait: while an answer is owed this can be
+    // the only thing that ends it — a stop that landed elsewhere — and
+    // `release()` always clears it.
     this.watcher = setInterval(
       () => void this.checkStillOwed(),
       options.stillOwedCheckMs ?? STILL_OWED_CHECK_MS,
     );
-    this.watcher.unref?.();
   }
 
   /** Start recording an answer this process is about to write. */

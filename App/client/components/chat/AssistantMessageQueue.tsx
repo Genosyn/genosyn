@@ -27,7 +27,7 @@ export function AssistantWorkStatus({
   const headline = reconnecting
     ? "Reconnecting to the reply…"
     : doing
-      ? `${name} · ${doing}`
+      ? `${name} is working · ${doing}`
       : `${name} is working`;
 
   return (
