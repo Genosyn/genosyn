@@ -98,6 +98,18 @@ export function Vocabulary() {
             ),
           },
           {
+            term: "Run condition",
+            def: (
+              <>
+                What must be true for a scheduled time or Trigger to start a Run, decided by
+                Genosyn without the AI Model: every time, or only when a Workstream is due. A start
+                with nothing due creates no Run. Set at <Strong>Settings → Start a Run</Strong>.
+                Never &quot;Filter&quot; or &quot;Gate,&quot; and never a Check. See{" "}
+                <DocLink to="/docs/routines#run-condition">Only when something is due</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "Wakeup",
             def: (
               <>
@@ -116,6 +128,18 @@ export function Vocabulary() {
                 and opened into every Run brief of the Routine it binds. Never &quot;Thread&quot; or
                 &quot;Epic&quot; — and &quot;Project&quot; stays reserved for the humans&apos; task
                 manager. See <DocLink to="/docs/reactivity">Reactivity</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Revisit",
+            def: (
+              <>
+                When an AI Employee next needs to look at one of its Workstreams —{" "}
+                <Code>revisitAt</Code>, the one part of a Workstream Genosyn reads. It starts a
+                Routine that runs only when a Workstream is due. Never &quot;Next check&quot; (a
+                Check is something else), &quot;Reminder,&quot; or &quot;Due date.&quot; See{" "}
+                <DocLink to="/docs/reactivity#workstreams">Reactivity</DocLink>.
               </>
             ),
           },
