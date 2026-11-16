@@ -45,7 +45,10 @@ export default function EmployeesLayout({ company }: { company: Company }) {
     return () => window.removeEventListener("genosyn:employee-updated", handler);
   }, [reload]);
 
-  const ctx = React.useMemo(() => ({ employees: employees ?? [], reload }), [employees, reload]);
+  const ctx = React.useMemo(
+    () => ({ employees: employees ?? [], loading: employees === null, reload }),
+    [employees, reload],
+  );
 
   const sidebar = (
     <div className="flex h-full flex-col">

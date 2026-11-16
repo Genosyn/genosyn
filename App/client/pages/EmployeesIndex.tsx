@@ -7,6 +7,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
+import { Skeleton } from "../components/ui/Skeleton";
 import { api, Company, Team } from "../lib/api";
 import { rosterCards } from "../lib/employeeRoster";
 import { useEmployees } from "./employeesContext";
@@ -21,7 +22,7 @@ import { useEmployees } from "./employeesContext";
  * set on the employee's Settings → General and managed at Settings → Teams.
  */
 export default function EmployeesIndex({ company }: { company: Company }) {
-  const { employees } = useEmployees();
+  const { employees, loading } = useEmployees();
   const navigate = useNavigate();
   const [teams, setTeams] = React.useState<Team[] | null>(null);
 
@@ -47,6 +48,43 @@ export default function EmployeesIndex({ company }: { company: Company }) {
       <Breadcrumbs items={[{ label: "Employees" }]} />
     </div>
   );
+
+  const header = (
+    <PageHeader
+      title="Employees"
+      description="Open an AI Employee to chat with them or change their settings."
+      actions={
+        <Button onClick={() => navigate(`/c/${company.slug}/employees/new`)}>
+          <Plus size={14} /> New employee
+        </Button>
+      }
+    />
+  );
+
+  // Until the roster answers, cards' outlines rather than an invitation to
+  // hire a first employee the company may well have.
+  if (loading) {
+    return (
+      <>
+        {crumbs}
+        {header}
+        <ul aria-hidden="true" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((index) => (
+            <li
+              key={index}
+              className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+            >
+              <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-3.5 w-1/2" />
+                <Skeleton className="h-3 w-2/3" />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+  }
 
   if (cards.length === 0) {
     return (
@@ -78,15 +116,7 @@ export default function EmployeesIndex({ company }: { company: Company }) {
   return (
     <>
       {crumbs}
-      <PageHeader
-        title="Employees"
-        description="Open an AI Employee to chat with them or change their settings."
-        actions={
-          <Button onClick={() => navigate(`/c/${company.slug}/employees/new`)}>
-            <Plus size={14} /> New employee
-          </Button>
-        }
-      />
+      {header}
       <ul
         aria-label="AI Employees"
         className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
