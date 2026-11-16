@@ -646,6 +646,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "The Repositories granted to you — code, documents, anything version-controlled. Changing one means starting a work session first; the repository_* tools work only inside one, where you can also run the repository's tests and linter before you commit.",
     tools: [
       "list_repositories",
+      "sync_repositories",
       "start_repository_work_session",
       "revise_repository_work_session",
       "get_repository_work_session",
@@ -1951,6 +1952,14 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   decline_handoff: ["reject", "refuse"],
   cancel_handoff: ["withdraw"],
   list_repositories: ["git", "repo", "codebase", "source"],
+  sync_repositories: [
+    "git pull",
+    "git fetch",
+    "clone repo",
+    "latest code",
+    "update checkout",
+    "read the code",
+  ],
   // What somebody types here is the job ("fix the bug", "send me a PR"), never
   // "work session" — they do not know that is the thing standing between the
   // employee and the code.

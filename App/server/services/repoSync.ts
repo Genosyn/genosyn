@@ -27,12 +27,13 @@ import { cloneWorkspaceGitRemote, fetchWorkspaceGitRemote } from "./workspaceGit
 /**
  * Repo sync seam — materializes git checkouts of every allowlisted repo on
  * each granted forge Connection (GitHub, or a self-hosted Forgejo / Gitea)
- * into the AI employee's working directory before each chat / routine spawn.
+ * into the AI employee's working directory when the employee asks for them
+ * with `sync_repositories`, never ahead of a turn that may not read code.
  *
  * Engineering AI employees are *editor-shaped*, not API-shaped — they need a
  * working tree to read, edit, branch, and commit. Calling the forge's
  * REST API for every operation is the wrong primitive for that workload, so
- * the runner's pre-spawn step now drops a real `git clone` of each repo into
+ * a sync drops a real `git clone` of each repo into
  * `<employeeDir>/repos/<owner>/<name>/` and leaves it there. The agent uses
  * normal `git` to do its work; PR creation is the only operation that needs
  * to cross back into Genosyn (via the `create_pull_request` MCP tool).
@@ -121,9 +122,61 @@ function withMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
+/** One allowlisted repository on a granted forge Connection. */
+export type ForgeCheckoutRef = {
+  connectionId: string;
+  owner: string;
+  name: string;
+};
+
+export type ForgeCheckout = ForgeCheckoutRef & { defaultBranch: string };
+
+/**
+ * The Connection checkouts an employee may sync, read from its Grants and the
+ * Connections' allowlists alone. No remote is contacted and no credential is
+ * refreshed, so a turn can say what exists without paying for a fetch.
+ */
+export async function listForgeCheckoutsForEmployee(employeeId: string): Promise<ForgeCheckout[]> {
+  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
+  if (!employee) return [];
+  const grants = await loadEmployeeConnections(employee);
+  const checkouts: ForgeCheckout[] = [];
+  for (const { connection } of grants) {
+    if (!isForgeProvider(connection.provider)) continue;
+    let repos: ReturnType<typeof readForgeRepos>;
+    try {
+      repos = readForgeRepos(
+        connection.provider,
+        decryptConnectionConfig(connection),
+        connection.authMode,
+      );
+    } catch {
+      // A Connection whose config no longer decrypts is reported when a sync
+      // tries it; it has nothing to offer a listing.
+      continue;
+    }
+    for (const repo of repos) {
+      checkouts.push({
+        connectionId: connection.id,
+        owner: repo.owner,
+        name: repo.name,
+        defaultBranch: repo.defaultBranch,
+      });
+    }
+  }
+  return checkouts;
+}
+
 export async function materializeReposForEmployee(args: {
   employeeId: string;
   cwd: string;
+  /**
+   * Which allowlisted repositories to clone or fetch. Every granted
+   * Connection's credential is still resolved and returned, because a
+   * credential-free Repository synced in the same call may need it; only the
+   * checkouts this rejects are left untouched. Omitted, every one is synced.
+   */
+  include?: (repo: ForgeCheckoutRef) => boolean;
 }): Promise<RepoSyncResult> {
   const result: RepoSyncResult = {
     extraEnv: {},
@@ -144,7 +197,7 @@ export async function materializeReposForEmployee(args: {
     const lockKey = `${args.employeeId}:${connection.id}`;
     await withMutex(lockKey, async () => {
       try {
-        await syncConnection(connection, args.cwd, result);
+        await syncConnection(connection, args.cwd, result, args.include);
       } catch (err) {
         result.errors.push({
           scope: `connection:${connection.id}`,
@@ -160,6 +213,7 @@ async function syncConnection(
   connection: IntegrationConnection,
   cwd: string,
   result: RepoSyncResult,
+  include?: (repo: ForgeCheckoutRef) => boolean,
 ): Promise<void> {
   if (!isForgeProvider(connection.provider)) return;
   const provider = connection.provider;
@@ -230,6 +284,9 @@ async function syncConnection(
       envKey,
       token: creds.accessToken,
     });
+    if (include && !include({ connectionId: connection.id, owner: repo.owner, name: repo.name })) {
+      continue;
+    }
     try {
       const repoPath = path.join(cwd, "repos", repo.owner, repo.name);
       await syncOneRepo({

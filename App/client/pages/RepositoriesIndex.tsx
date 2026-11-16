@@ -14,9 +14,9 @@ import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Code — the company's git repositories. Humans add any HTTPS / SSH repo and
- * decide which AI employees may work on it. Before each chat / routine spawn
- * the runner clones every granted repo into the employee's workspace, so the
- * agent uses ordinary `git` to read, commit, and push.
+ * decide which AI employees may work on it. A granted employee clones or
+ * fetches its own checkout with `sync_repositories` when it needs the code, and
+ * uses ordinary `git` to read and commit there.
  */
 export default function RepositoriesIndex({ company }: { company: Company }) {
   const navigate = useNavigate();

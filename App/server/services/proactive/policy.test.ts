@@ -418,7 +418,7 @@ test("suggestion-only Runs retain their exact review tools after renaming and cl
   );
   assert.equal(configuredMcpRequests, 0);
   assert.equal(await AppDataSource.getRepository(BrowserSession).count(), 0);
-  assert.match(run.logContent, /automatic repository sync is disabled/);
+  assert.match(run.logContent, /repository checkouts are unavailable to this Run/);
 });
 
 test("review token authority removes caller-supplied tools and prevents broad scope overrides", async () => {

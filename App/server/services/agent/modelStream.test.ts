@@ -481,9 +481,9 @@ describe("watching a turn", () => {
   });
 
   test("getting ready says what it is doing, before anything has gone out", () => {
-    const pulse = preparingPulse("Updating its Repositories", "m", T0);
+    const pulse = preparingPulse("Connecting its tools", "m", T0);
     assert.equal(pulse.state, "preparing");
-    assert.equal(pulse.label, "Updating its Repositories");
+    assert.equal(pulse.label, "Connecting its tools");
     assert.equal(pulse.request, 0);
     assert.equal(pulse.sentAt, null);
   });

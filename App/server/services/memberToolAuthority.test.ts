@@ -31,6 +31,7 @@ describe("interactive Member tool policy", () => {
       "list_journal",
       "get_journal_entry",
       "list_repositories",
+      "sync_repositories",
       "send_chat_attachment",
       "run_explore_query",
       "create_chart",

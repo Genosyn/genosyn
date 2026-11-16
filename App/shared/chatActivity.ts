@@ -124,7 +124,7 @@ export type ModelPulseState =
  */
 export type ModelPulse = {
   state: ModelPulseState;
-  /** Server-written words for `preparing`: "Updating its Repositories". */
+  /** Server-written words for `preparing`: "Connecting its tools". */
   label: string | null;
   /** The AI Model's own id, as the request names it. */
   model: string | null;

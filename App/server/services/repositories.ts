@@ -22,7 +22,12 @@ import {
   inlineEnvCredentialHelper,
 } from "./gitCredentialHelper.js";
 import { materializeReposForEmployee } from "./repoSync.js";
-import type { ForgeRepoCredential, RepoSyncResult, SyncedRepo } from "./repoSync.js";
+import type {
+  ForgeCheckoutRef,
+  ForgeRepoCredential,
+  RepoSyncResult,
+  SyncedRepo,
+} from "./repoSync.js";
 import { readContributorGuide } from "./repositoryGuidance.js";
 import { resolveConnectionForRemote, resolveConnectionToken } from "./repositoryForge.js";
 import { forgeGitUsername } from "../integrations/providers/forge/connection.js";
@@ -44,9 +49,10 @@ import {
  * HTTPS or SSH git URL, with credentials stored encrypted on the row and
  * access handed out per-employee via {@link EmployeeRepositoryGrant}.
  *
- * Before each chat / routine spawn the runner calls
- * {@link materializeRepositoriesForEmployee}, which drops a real `git clone`
- * of every granted repo into `<employeeDir>/repositories/<slug>/`. As in
+ * When an employee calls `sync_repositories` — never ahead of a turn that may
+ * not read code (see `employeeRepositoryCheckouts.ts`) —
+ * {@link materializeRepositoriesForEmployee} drops a real `git clone` of each
+ * requested granted repo into `<employeeDir>/repositories/<slug>/`. As in
  * `repoSync`, we only ever `fetch` on an existing
  * checkout (never `reset --hard`) so the employee's WIP between spawns is
  * never trampled.
@@ -237,9 +243,10 @@ export type RepositorySyncResult = {
 };
 
 /**
- * Materialize every Repository the employee has been granted into
- * `<cwd>/repositories/<slug>/`. Returns env vars for HTTPS tokens, the list of
- * synced repos (so callers can log / inject context), and non-fatal errors.
+ * Materialize the Repositories the employee has been granted into
+ * `<cwd>/repositories/<slug>/` — every one, or only `repositoryIds`. Returns
+ * env vars for HTTPS tokens, the list of synced repos (so callers can log /
+ * inject context), and non-fatal errors.
  */
 export async function materializeRepositoriesForEmployee(args: {
   employeeId: string;
@@ -247,6 +254,8 @@ export async function materializeRepositoriesForEmployee(args: {
   /** Credentials resolved from this employee's granted GitHub Connections
    * earlier in the same turn. */
   forgeRepoCredentials?: ForgeRepoCredential[];
+  /** Sync only these granted Repositories. Omitted, every granted one is. */
+  repositoryIds?: readonly string[];
 }): Promise<RepositorySyncResult> {
   const result: RepositorySyncResult = { extraEnv: {}, repos: [], errors: [] };
   if (config.security.multiTenant) return result;
@@ -257,9 +266,11 @@ export async function materializeRepositoriesForEmployee(args: {
   if (!employee) return result;
   purgeLegacyRepositorySshFiles(args.cwd);
 
-  const grants = await AppDataSource.getRepository(EmployeeRepositoryGrant).find({
+  const allGrants = await AppDataSource.getRepository(EmployeeRepositoryGrant).find({
     where: { employeeId: args.employeeId },
   });
+  const wanted = args.repositoryIds ? new Set(args.repositoryIds) : null;
+  const grants = wanted ? allGrants.filter((g) => wanted.has(g.repositoryId)) : allGrants;
   if (grants.length === 0) return result;
 
   const repoRepo = AppDataSource.getRepository(Repository);
@@ -268,7 +279,9 @@ export async function materializeRepositoriesForEmployee(args: {
       id: grant.repositoryId,
       companyId: employee.companyId,
     });
-    if (!repoRow) continue;
+    // A local Repository has no remote to clone, so there is no employee
+    // checkout of it; work sessions reach it through the shared checkout.
+    if (!repoRow || repoRow.origin === "local") continue;
     const lockKey = `${args.employeeId}:${repoRow.id}`;
     await withMutex(lockKey, async () => {
       try {
@@ -848,9 +861,27 @@ type MaterializeContextDependencies = {
   materializeRepositoriesForEmployee: typeof materializeRepositoriesForEmployee;
 };
 
-/** Both callers share this ordering so the model sees the files it will edit. */
+/** The one checkout a sync is narrowed to. */
+export type RepositoryCheckoutTarget =
+  | {
+      kind: "repository";
+      repositoryId: string;
+      /**
+       * A credential-free Repository may borrow a granted forge Connection's
+       * credential, so those Connections are resolved first. A Repository
+       * with its own token or key needs none of that.
+       */
+      borrowsConnectionCredential: boolean;
+    }
+  | { kind: "connection"; connectionId: string; owner: string; name: string };
+
+/**
+ * Clone or fetch an employee's checkouts — every one, or `only` one — then
+ * brief from the files that sync just produced, so the model never reads a
+ * guide from a checkout that failed to refresh.
+ */
 export async function materializeEmployeeRepositoryContext(
-  args: { employeeId: string; cwd: string },
+  args: { employeeId: string; cwd: string; only?: RepositoryCheckoutTarget },
   dependencyOverrides: Partial<MaterializeContextDependencies> = {},
 ): Promise<{
   context: string;
@@ -862,11 +893,31 @@ export async function materializeEmployeeRepositoryContext(
     materializeRepositoriesForEmployee,
     ...dependencyOverrides,
   };
-  const forgeSync = await dependencies.materializeReposForEmployee(args);
-  const repositorySync = await dependencies.materializeRepositoriesForEmployee({
-    ...args,
-    forgeRepoCredentials: forgeSync.forgeRepoCredentials,
-  });
+  const { employeeId, cwd, only } = args;
+  // Which Connection checkouts to clone or fetch: all of them, only the one
+  // asked for, or none when a Repository only needs a Connection's credential.
+  let include: ((repo: ForgeCheckoutRef) => boolean) | undefined;
+  if (only?.kind === "connection") {
+    include = (repo) =>
+      repo.connectionId === only.connectionId &&
+      repo.owner === only.owner &&
+      repo.name === only.name;
+  } else if (only) {
+    include = () => false;
+  }
+  const forgeSync: Pick<RepoSyncResult, "repos" | "errors" | "forgeRepoCredentials"> =
+    only?.kind === "repository" && !only.borrowsConnectionCredential
+      ? { repos: [], errors: [], forgeRepoCredentials: [] }
+      : await dependencies.materializeReposForEmployee({ employeeId, cwd, include });
+  const repositorySync: Pick<RepositorySyncResult, "repos" | "errors"> =
+    only?.kind === "connection"
+      ? { repos: [], errors: [] }
+      : await dependencies.materializeRepositoriesForEmployee({
+          employeeId,
+          cwd,
+          forgeRepoCredentials: forgeSync.forgeRepoCredentials,
+          repositoryIds: only ? [only.repositoryId] : undefined,
+        });
   const context = await composeRepositoriesContext(args.employeeId, {
     cwd: args.cwd,
     repositories: repositorySync.repos,

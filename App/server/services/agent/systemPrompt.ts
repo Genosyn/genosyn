@@ -371,8 +371,9 @@ export function toolsBriefing(
   if (codingToolsAvailable) {
     lines.push(
       "- Coding: use the coding tools supplied by your runtime to read, edit, and search files " +
-        "and run commands when a command tool is available. Your working directory holds granted " +
-        "Repositories under `repos/` and `repositories/`. Stay within the assigned work and its Grants.",
+        "and run commands when a command tool is available. Granted Repositories are checked out " +
+        "under `repos/` and `repositories/` in your working directory once `sync_repositories` " +
+        "fetches them. Stay within the assigned work and its Grants.",
     );
   }
 

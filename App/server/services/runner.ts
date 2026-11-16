@@ -26,7 +26,7 @@ import { composeWorkstreamBlock } from "./workstreams.js";
 import { composeRunConditionBlock, revisitsDueForBrief } from "./routineRunConditions.js";
 import { composeLessonsBlock, reflectOnRun, shouldReflect } from "./runLessons.js";
 import { contractAutonomyOnBadRun } from "./autonomy.js";
-import { materializeEmployeeRepositoryContext } from "./repositories.js";
+import { composeRepositoryCheckoutsBriefing } from "./employeeRepositoryCheckouts.js";
 import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
 import { composePhoneContext } from "./phone/context.js";
@@ -937,7 +937,7 @@ async function prepareRoutineRun(
         ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
         ...unavailableCodingTools,
       ];
-      const repositoryMaterializationAllowed =
+      const repositoryCheckoutsAllowed =
         deliveryPolicy.allowPrivilegedToolSources &&
         shouldMaterializeRepositoriesForTurn(model.authMode);
       const memoryContext = await composeMemoryContext(emp.id);
@@ -945,21 +945,13 @@ async function prepareRoutineRun(
       const policiesContext = await composePoliciesContext(co.id);
       const cwd = employeeDir(co.slug, emp.slug);
       ensureDir(cwd);
-      let repositoriesContext = "";
-      if (repositoryMaterializationAllowed) {
-        const prepared = await materializeEmployeeRepositoryContext({ employeeId: emp.id, cwd });
-        repositoriesContext = prepared.context;
-        for (const r of prepared.forgeSync.repos) {
-          log.line(`[repos] synced ${r.owner}/${r.name}@${r.defaultBranch}`);
-        }
-        for (const e of prepared.forgeSync.errors) log.line(`[repos] ${e.scope}: ${e.message}`);
-        for (const r of prepared.repositorySync.repos) {
-          log.line(`[repositories] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);
-        }
-        for (const e of prepared.repositorySync.errors)
-          log.line(`[repositories] ${e.scope}: ${e.message}`);
-      } else {
-        log.line("[repos] automatic repository sync is disabled for this Run");
+      // Named, not fetched: a Run syncs a checkout with `sync_repositories`
+      // when it reads one, and its `[tool]` lines record that it did.
+      const repositoriesContext = repositoryCheckoutsAllowed
+        ? await composeRepositoryCheckoutsBriefing(emp.id)
+        : "";
+      if (!repositoryCheckoutsAllowed) {
+        log.line("[repos] repository checkouts are unavailable to this Run");
       }
       const financeContext = await composeFinanceContext(emp.id);
       const [

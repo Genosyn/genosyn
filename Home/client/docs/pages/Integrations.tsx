@@ -547,9 +547,14 @@ export function Integrations() {
       <H3 id="github-engineering">Git hosts &amp; engineering grants</H3>
       <P>
         GitHub and Forgejo Connections are special: a Connection holds a list of repositories the
-        employee is allowed to touch, and the runner materializes a git checkout of each allowed
-        repository into <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code>{" "}
-        before each run. The git token exists only inside a short-lived server-owned clone or
+        employee is allowed to touch, and the employee&apos;s <Code>sync_repositories</Code> call
+        materializes a git checkout of an allowed repository into{" "}
+        <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code> when it needs the
+        code; nothing is fetched ahead of a chat or Run that does not. See{" "}
+        <DocLink to="/docs/repositories#employee-checkouts">
+          Repositories in chats and Routines
+        </DocLink>
+        . The git token exists only inside a short-lived server-owned clone or
         refresh operation. It is never copied into the checkout, an environment variable visible to
         the AI Employee, or a reusable credential helper. A matching HTTPS Repository can reuse the
         same server-held credential when the Connection is granted to that employee. Genosyn prefers

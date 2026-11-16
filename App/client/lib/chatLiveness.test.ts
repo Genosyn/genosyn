@@ -449,7 +449,7 @@ describe("what the AI Model's own stream says", () => {
         events: [started],
         pulse: pulse(1_000, {
           state: "preparing",
-          label: "Updating its Repositories",
+          label: "Connecting its tools",
           sentAt: null,
           lastDataAt: null,
         }),
@@ -458,7 +458,7 @@ describe("what the AI Model's own stream says", () => {
     assert.equal(phase.kind, "preparing");
     const words = describeLivePhase(phase, "Sam", T0 + 3_000);
     assert.equal(words.title, "Getting ready");
-    assert.equal(words.detail, "Updating its Repositories");
+    assert.equal(words.detail, "Connecting its tools");
   });
 
   test("only a stream that has really gone silent is called silent, and says for how long", () => {

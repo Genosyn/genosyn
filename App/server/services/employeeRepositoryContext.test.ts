@@ -7,17 +7,35 @@ import os from "node:os";
 import path from "node:path";
 import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 
+import express from "express";
+
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
+import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
+import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Repository } from "../db/entities/Repository.js";
 import { Routine } from "../db/entities/Routine.js";
+import type { IntegrationConfig } from "../integrations/types.js";
 import { encryptSecret } from "../lib/secret.js";
+import { errorHandler } from "../middleware/error.js";
+import { mcpInternalRouter } from "../routes/mcpInternal.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { insertEmployeeModel } from "../test/modelFixtures.js";
 import { chatWithEmployee } from "./chat.js";
+import {
+  BRIEFED_CHECKOUTS_MAX,
+  formatRepositoryCheckoutSyncReport,
+  formatRepositoryCheckoutsBriefing,
+  listEmployeeRepositoryCheckouts,
+  resolveEmployeeRepositoryCheckout,
+  type EmployeeRepositoryCheckout,
+} from "./employeeRepositoryCheckouts.js";
+import { GITHUB_ENDPOINT } from "../integrations/providers/forge/client.js";
+import { encryptConnectionConfig } from "./integrations.js";
+import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { employeeDir } from "./paths.js";
 import {
   composeRepositoriesContext,
@@ -25,7 +43,12 @@ import {
   REPOSITORIES_CONTEXT_MAX_CHARS,
   type SyncedRepository,
 } from "./repositories.js";
-import type { RepoSyncResult, SyncedRepo } from "./repoSync.js";
+import type {
+  ForgeCheckoutRef,
+  ForgeRepoCredential,
+  RepoSyncResult,
+  SyncedRepo,
+} from "./repoSync.js";
 import { startRoutineRun } from "./runner.js";
 import { waitForRoutineQueueIdle } from "./routineQueue.js";
 import { resetRuntimeSettingsCacheForTests } from "./runtimeSettings.js";
@@ -37,6 +60,8 @@ let company: Company;
 let employee: AIEmployee;
 let server: Server;
 let serverUrl: string;
+let mcpServer: Server;
+let mcpUrl: string;
 let modelRequests: Array<{ messages: Array<{ role: string; content: string }> }> = [];
 let gitRequests = 0;
 // Test fixtures temporarily change these boot settings and restore them below.
@@ -101,6 +126,15 @@ before(async () => {
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   serverUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  // The internal tool API, called the way an employee's turn calls it.
+  const mcpApp = express();
+  mcpApp.use(express.json());
+  mcpApp.use("/internal/mcp", mcpInternalRouter);
+  mcpApp.use(errorHandler);
+  await new Promise<void>((resolve) => {
+    mcpServer = mcpApp.listen(0, "127.0.0.1", resolve);
+  });
+  mcpUrl = `http://127.0.0.1:${(mcpServer.address() as AddressInfo).port}/internal/mcp`;
 });
 
 beforeEach(async () => {
@@ -143,9 +177,10 @@ after(async () => {
   securityConfig.multiTenant = originalConfig.multiTenant;
   Object.assign(config.agent.codingTools, originalConfig.codingTools);
   config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...originalConfig.allowlist);
-  if (server) {
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+  for (const open of [server, mcpServer]) {
+    if (!open) continue;
+    open.closeAllConnections();
+    await new Promise<void>((resolve) => open.close(() => resolve()));
   }
   await closeTestDb();
 });
@@ -360,6 +395,92 @@ describe("materialized employee repository contributor context", () => {
     assert.equal(result.repositorySync.errors.length, 1);
   });
 
+  test("a Repository with its own credential syncs alone, without touching Connections", async () => {
+    const calls: string[] = [];
+    let repositoryIds: readonly string[] | undefined;
+    await materializeEmployeeRepositoryContext(
+      {
+        employeeId: employee.id,
+        cwd,
+        only: { kind: "repository", repositoryId: "repo-1", borrowsConnectionCredential: false },
+      },
+      {
+        materializeReposForEmployee: async () => {
+          calls.push("forge");
+          return emptyForgeSync();
+        },
+        materializeRepositoriesForEmployee: async (args) => {
+          calls.push("repository");
+          repositoryIds = args.repositoryIds;
+          return { extraEnv: {}, repos: [], errors: [] };
+        },
+      },
+    );
+    assert.deepEqual(calls, ["repository"]);
+    assert.deepEqual(repositoryIds, ["repo-1"]);
+  });
+
+  test("a credential-free Repository borrows Connection credentials without syncing their checkouts", async () => {
+    const credential: ForgeRepoCredential = {
+      connectionId: "connection",
+      endpoint: GITHUB_ENDPOINT,
+      username: "x-access-token",
+      owner: null,
+      name: null,
+      envKey: "GENOSYN_FORGE_TOKEN_CONNECTION",
+      token: "token",
+    };
+    let include: ((repo: ForgeCheckoutRef) => boolean) | undefined;
+    let handed: ForgeRepoCredential[] | undefined;
+    await materializeEmployeeRepositoryContext(
+      {
+        employeeId: employee.id,
+        cwd,
+        only: { kind: "repository", repositoryId: "repo-1", borrowsConnectionCredential: true },
+      },
+      {
+        materializeReposForEmployee: async (args) => {
+          include = args.include;
+          return { ...emptyForgeSync(), forgeRepoCredentials: [credential] };
+        },
+        materializeRepositoriesForEmployee: async (args) => {
+          handed = args.forgeRepoCredentials;
+          return { extraEnv: {}, repos: [], errors: [] };
+        },
+      },
+    );
+    assert.ok(include, "Connection checkouts must be filtered, not all synced");
+    assert.equal(include({ connectionId: "connection", owner: "acme", name: "web" }), false);
+    assert.deepEqual(handed, [credential]);
+  });
+
+  test("a Connection checkout syncs alone, without any Repository", async () => {
+    let include: ((repo: ForgeCheckoutRef) => boolean) | undefined;
+    let repositoriesSynced = false;
+    await materializeEmployeeRepositoryContext(
+      {
+        employeeId: employee.id,
+        cwd,
+        only: { kind: "connection", connectionId: "c1", owner: "acme", name: "web" },
+      },
+      {
+        materializeReposForEmployee: async (args) => {
+          include = args.include;
+          return emptyForgeSync();
+        },
+        materializeRepositoriesForEmployee: async () => {
+          repositoriesSynced = true;
+          return { extraEnv: {}, repos: [], errors: [] };
+        },
+      },
+    );
+    assert.equal(repositoriesSynced, false);
+    assert.ok(include);
+    assert.equal(include({ connectionId: "c1", owner: "acme", name: "web" }), true);
+    assert.equal(include({ connectionId: "c1", owner: "acme", name: "api" }), false);
+    assert.equal(include({ connectionId: "c2", owner: "acme", name: "web" }), false);
+  });
+
   test("omits grants removed since synchronization", async () => {
     const { synced, row } = await grantedCheckout();
     await AppDataSource.getRepository(EmployeeRepositoryGrant).delete({ repositoryId: row.id });
@@ -503,56 +624,45 @@ function systemReceived(): string {
 }
 
 describe("chat and Routine repository briefing integration", () => {
-  test("an ordinary authorized chat includes the guide after the first real clone", async () => {
+  test("an ordinary authorized chat names its checkouts without fetching them", async () => {
     await actualRemote();
-    assert.equal(fs.existsSync(path.join(cwd, "repositories", "actual")), false);
     const result = await chatWithEmployee(
       company.id,
       employee.id,
-      "Inspect the repository contributor instructions.",
+      "Where is the reseller for Canada based?",
       [],
       { toolAuthority: "employee" },
     );
     assert.equal(result.status, "ok");
-    assert.match(systemReceived(), /Run npm run verify-repository before committing/);
-    assert.match(systemReceived(), /start_repository_work_session before editing/);
-    assert.match(systemReceived(), /push_repository_work_session/);
-    assert.ok(gitRequests > 0);
+    const system = systemReceived();
+    assert.match(system, /## Repositories/);
+    assert.match(
+      system,
+      /"Actual Repository": slug `actual`, checkout `repositories\/actual\/`, default branch "main", write Grant/,
+    );
+    assert.match(system, /call `sync_repositories` with its slug/);
+    assert.match(system, /start_repository_work_session/);
+    // A guide is only ever read from a checkout a sync has just refreshed.
+    assert.doesNotMatch(system, /Run npm run verify-repository before committing/);
+    assert.equal(gitRequests, 0, "a turn that may never read code must not wait on git");
+    assert.equal(fs.existsSync(path.join(cwd, "repositories", "actual")), false);
   });
 
-  test("the next chat sees the guide from the newly fast-forwarded default branch", async () => {
-    const { source, remote } = await actualRemote("Old contributor instruction");
-    assert.equal(
-      (
-        await chatWithEmployee(company.id, employee.id, "Inspect the repository.", [], {
-          toolAuthority: "employee",
-        })
-      ).status,
-      "ok",
-    );
-    assert.match(systemReceived(), /Old contributor instruction/);
-    fs.writeFileSync(
-      path.join(source, "AGENTS.md"),
-      "New contributor instruction: run npm run refreshed-check.",
-    );
-    git(source, "add", "AGENTS.md");
-    git(source, "commit", "-m", "Update contributor guide");
-    git(source, "push", remote, "main");
-    git(remote, "update-server-info");
-    modelRequests = [];
-    assert.equal(
-      (
-        await chatWithEmployee(company.id, employee.id, "Inspect it again.", [], {
-          toolAuthority: "employee",
-        })
-      ).status,
-      "ok",
-    );
-    assert.match(systemReceived(), /New contributor instruction: run npm run refreshed-check/);
-    assert.doesNotMatch(systemReceived(), /Old contributor instruction/);
+  test("a stale checkout's guide stays out of the prompt", async () => {
+    await actualRemote();
+    const checkout = path.join(cwd, "repositories", "actual");
+    fs.mkdirSync(checkout, { recursive: true });
+    fs.writeFileSync(path.join(checkout, "AGENTS.md"), "Stale instruction from an old checkout");
+    const result = await chatWithEmployee(company.id, employee.id, "Inspect the repository.", [], {
+      toolAuthority: "employee",
+    });
+    assert.equal(result.status, "ok");
+    assert.match(systemReceived(), /checkout `repositories\/actual\/`/);
+    assert.doesNotMatch(systemReceived(), /Stale instruction from an old checkout/);
+    assert.equal(gitRequests, 0);
   });
 
-  test("a Routine includes its freshly materialized contributor guide", async () => {
+  test("a Routine names its checkouts without fetching them", async () => {
     await actualRemote("Routine contributor instruction: run npm run routine-check.");
     const routine = await insert(Routine, {
       employeeId: employee.id,
@@ -565,10 +675,11 @@ describe("chat and Routine repository briefing integration", () => {
     const started = await startRoutineRun(routine, { triggerKind: "manual" });
     const run = await started.completion;
     assert.equal(run.status, "completed", run.logContent);
-    assert.match(systemReceived(), /Routine contributor instruction: run npm run routine-check/);
-    assert.match(systemReceived(), /start_repository_work_session before editing/);
-    assert.match(systemReceived(), /push_repository_work_session/);
-    assert.match(run.logContent, /\[repositories\] synced actual@main/);
+    assert.match(systemReceived(), /checkout `repositories\/actual\/`/);
+    assert.match(systemReceived(), /call `sync_repositories` with its slug/);
+    assert.doesNotMatch(systemReceived(), /Routine contributor instruction/);
+    assert.doesNotMatch(run.logContent, /\[repositories\] synced|checkouts are unavailable/);
+    assert.equal(gitRequests, 0);
   });
 
   test("an unauthenticated chat neither syncs nor receives repository instructions", async () => {
@@ -609,6 +720,386 @@ describe("chat and Routine repository briefing integration", () => {
       systemReceived(),
       /Private repository contributor instruction|## Repositories/,
     );
+    assert.equal(gitRequests, 0);
+  });
+});
+
+/** Call the tool and read what the model would: its text, or its error. */
+async function callSync(
+  body: Record<string, unknown> = {},
+  origin: Parameters<typeof issueMcpToken>[2] = { authority: "employee" },
+): Promise<{ status: number; text: string }> {
+  const token = issueMcpToken(employee.id, company.id, origin);
+  try {
+    const response = await fetch(`${mcpUrl}/tools/sync_repositories`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const answer = (await response.json()) as {
+      error?: string;
+      content?: Array<{ type: string; text: string }>;
+    };
+    return {
+      status: response.status,
+      text: answer.error ?? answer.content?.map((part) => part.text).join("\n") ?? "",
+    };
+  } finally {
+    revokeMcpToken(token);
+  }
+}
+
+describe("sync_repositories", () => {
+  test("clones a checkout that was never cloned and returns its contributor guide", async () => {
+    await actualRemote();
+    const { status, text } = await callSync({ repository: "actual" });
+    assert.equal(status, 200, text);
+    assert.match(
+      text,
+      /^Synced 1 checkout:\n- Actual Repository \(actual\): `repositories\/actual\/`, default branch "main"\n/,
+    );
+    assert.doesNotMatch(text, /Could not sync/);
+    // The guide reads as markdown, with real newlines, not an escaped string.
+    assert.match(text, /\n## Repositories\n/);
+    assert.match(text, /Run npm run verify-repository before committing/);
+    assert.match(text, /start_repository_work_session before editing/);
+    assert.match(text, /push_repository_work_session/);
+    assert.doesNotMatch(text, new RegExp(tmp));
+    assert.ok(fs.existsSync(path.join(cwd, "repositories", "actual", "AGENTS.md")));
+    assert.ok(gitRequests > 0);
+  });
+
+  test("a later sync fast-forwards the default branch and returns the new guide", async () => {
+    const { source, remote } = await actualRemote("Old contributor instruction");
+    const first = await callSync();
+    assert.equal(first.status, 200, first.text);
+    assert.match(first.text, /Old contributor instruction/);
+    fs.writeFileSync(
+      path.join(source, "AGENTS.md"),
+      "New contributor instruction: run npm run refreshed-check.",
+    );
+    git(source, "add", "AGENTS.md");
+    git(source, "commit", "-m", "Update contributor guide");
+    git(source, "push", remote, "main");
+    git(remote, "update-server-info");
+    const second = await callSync({ repository: "Actual Repository" });
+    assert.equal(second.status, 200, second.text);
+    assert.match(second.text, /New contributor instruction: run npm run refreshed-check/);
+    assert.doesNotMatch(second.text, /Old contributor instruction/);
+  });
+
+  test("syncs only the repository it is asked for", async () => {
+    await actualRemote();
+    const other = await insert(Repository, {
+      companyId: company.id,
+      name: "Other",
+      slug: "other",
+      gitUrl: `${serverUrl}/missing.git`,
+    });
+    await insert(EmployeeRepositoryGrant, {
+      employeeId: employee.id,
+      repositoryId: other.id,
+      accessLevel: "read",
+    });
+    const { status, text } = await callSync({ repository: "repositories/actual/" });
+    assert.equal(status, 200, text);
+    assert.match(text, /^Synced 1 checkout:\n- Actual Repository \(actual\)/);
+    assert.doesNotMatch(text, /Other|Could not sync/);
+    assert.equal(fs.existsSync(path.join(cwd, "repositories", "other")), false);
+    const untouched = await AppDataSource.getRepository(Repository).findOneByOrFail({
+      id: other.id,
+    });
+    assert.equal(untouched.lastSyncStatus, "unknown");
+  });
+
+  test("with no repository it syncs every checkout and reports each failure", async () => {
+    await actualRemote();
+    const broken = await insert(Repository, {
+      companyId: company.id,
+      name: "Broken",
+      slug: "broken",
+      gitUrl: `${serverUrl}/missing.git`,
+    });
+    await insert(EmployeeRepositoryGrant, {
+      employeeId: employee.id,
+      repositoryId: broken.id,
+      accessLevel: "read",
+    });
+    const { status, text } = await callSync();
+    assert.equal(status, 200, text);
+    assert.match(
+      text,
+      /^Synced 1 checkout:\n- Actual Repository \(actual\): `repositories\/actual\/`/,
+    );
+    assert.match(
+      text,
+      /\nCould not sync these, so do not rely on their files — they may be missing or out of date:\n- Broken \(broken\): \S/,
+    );
+    // Only the checkout that synced is briefed.
+    assert.match(text, /Run npm run verify-repository before committing/);
+  });
+
+  test("a sync where nothing succeeds is an error that names each failure", async () => {
+    const missing = await insert(Repository, {
+      companyId: company.id,
+      name: "Missing",
+      slug: "missing",
+      gitUrl: `${serverUrl}/missing.git`,
+    });
+    await insert(EmployeeRepositoryGrant, {
+      employeeId: employee.id,
+      repositoryId: missing.id,
+      accessLevel: "write",
+    });
+    const { status, text } = await callSync({ repository: "missing" });
+    assert.equal(status, 502, text);
+    assert.match(text, /Nothing could be synced/);
+    assert.match(text, /- Missing \(missing\): \S/);
+    assert.doesNotMatch(text, new RegExp(cwd));
+  });
+
+  test("an unknown repository lists the checkouts the employee has", async () => {
+    await actualRemote();
+    const { status, text } = await callSync({ repository: "website" });
+    assert.equal(status, 400);
+    assert.match(text, /"website" is not one of your repository checkouts/);
+    assert.match(text, /Actual Repository \(actual\)/);
+    assert.equal(gitRequests, 0);
+  });
+
+  test("an employee with nothing granted is told how access is granted", async () => {
+    const { status, text } = await callSync();
+    assert.equal(status, 400);
+    assert.match(text, /no repository checkouts to sync/);
+  });
+
+  test("email work cannot sync", async () => {
+    await actualRemote();
+    const { status, text } = await callSync(
+      {},
+      { authority: "employee", mailDeliveryMode: "review" },
+    );
+    assert.equal(status, 403);
+    assert.match(text, /Email work does not use repository checkouts/);
+    assert.equal(gitRequests, 0);
+  });
+
+  test("disabled coding tools refuse a sync", async () => {
+    await actualRemote();
+    codingConfig.executionMode = "disabled";
+    const { status, text } = await callSync();
+    assert.equal(status, 403);
+    assert.match(text, /coding tools are disabled/);
+    assert.equal(gitRequests, 0);
+  });
+
+  test("a multi-tenant installation refuses a sync", async () => {
+    await actualRemote();
+    securityConfig.multiTenant = true;
+    const { status, text } = await callSync();
+    assert.equal(status, 403);
+    assert.match(text, /multi-tenant/);
+    assert.equal(gitRequests, 0);
+  });
+
+  test("an unauthenticated chat cannot sync", async () => {
+    await actualRemote();
+    const { status } = await callSync({}, { authority: "untrusted" });
+    assert.equal(status, 403);
+    assert.equal(gitRequests, 0);
+  });
+
+  test("a local Repository is neither briefed nor synced", async () => {
+    const local = await insert(Repository, {
+      companyId: company.id,
+      name: "Policies",
+      slug: "policies",
+      gitUrl: "",
+      origin: "local",
+    });
+    await insert(EmployeeRepositoryGrant, {
+      employeeId: employee.id,
+      repositoryId: local.id,
+      accessLevel: "write",
+    });
+    assert.deepEqual(await listEmployeeRepositoryCheckouts(employee.id), []);
+    const { status } = await callSync();
+    assert.equal(status, 400);
+    const row = await AppDataSource.getRepository(Repository).findOneByOrFail({ id: local.id });
+    assert.equal(row.lastSyncStatus, "unknown");
+  });
+});
+
+describe("repository checkout briefing", () => {
+  function repositoryCheckout(
+    overrides: Partial<Extract<EmployeeRepositoryCheckout, { kind: "repository" }>> = {},
+  ): EmployeeRepositoryCheckout {
+    return {
+      kind: "repository",
+      repositoryId: "website-id",
+      name: "Website",
+      slug: "website",
+      defaultBranch: "main",
+      accessLevel: "write",
+      credentialFree: true,
+      path: "repositories/website",
+      ...overrides,
+    };
+  }
+  const connectionCheckout: EmployeeRepositoryCheckout = {
+    kind: "connection",
+    connectionId: "connection-id",
+    owner: "acme",
+    name: "web",
+    defaultBranch: "trunk",
+    path: "repos/acme/web",
+  };
+
+  test("names each checkout, its Grant, and how to sync it", () => {
+    const text = formatRepositoryCheckoutsBriefing([
+      repositoryCheckout(),
+      repositoryCheckout({
+        repositoryId: "docs-id",
+        name: "Docs",
+        slug: "docs",
+        path: "repositories/docs",
+        accessLevel: "read",
+      }),
+      connectionCheckout,
+    ]);
+    assert.match(text, /^\n## Repositories\n/);
+    assert.match(text, /does not fetch them before each turn/);
+    assert.match(text, /call `sync_repositories` with its slug/);
+    assert.match(text, /Skip it for work that does not involve them/);
+    assert.match(
+      text,
+      /- "Website": slug `website`, checkout `repositories\/website\/`, default branch "main", write Grant\./,
+    );
+    assert.match(text, /- "Docs": slug `docs`, .*read-only Grant\./);
+    assert.match(
+      text,
+      /- "acme\/web": Connection checkout `repos\/acme\/web\/`, default branch "trunk"\./,
+    );
+  });
+
+  test("is empty when there is nothing to check out", () => {
+    assert.equal(formatRepositoryCheckoutsBriefing([]), "");
+  });
+
+  test("a sync that found nothing to do says why rather than reading as a success", () => {
+    assert.equal(
+      formatRepositoryCheckoutSyncReport({ synced: [], failed: [], instructions: "" }),
+      "Nothing was synced: that checkout is no longer among your Grants.",
+    );
+    assert.equal(
+      formatRepositoryCheckoutSyncReport({
+        synced: [{ repository: "acme/web", checkout: "repos/acme/web", defaultBranch: "trunk" }],
+        failed: [],
+        instructions: "",
+      }),
+      'Synced 1 checkout:\n- acme/web: `repos/acme/web/`, default branch "trunk"',
+    );
+  });
+
+  test("stays bounded however many Repositories are granted", () => {
+    const many = Array.from({ length: BRIEFED_CHECKOUTS_MAX + 5 }, (_, n) =>
+      repositoryCheckout({
+        repositoryId: `id-${n}`,
+        name: `Repository ${n}`,
+        slug: `repository-${n}`,
+        path: `repositories/repository-${n}`,
+      }),
+    );
+    const text = formatRepositoryCheckoutsBriefing(many);
+    assert.equal(text.split('\n- "').length - 1, BRIEFED_CHECKOUTS_MAX);
+    assert.match(text, /…and 5 more\. `list_repositories` lists every granted Repository/);
+  });
+
+  test("finds a checkout by slug, name, owner/name or path", () => {
+    const website = repositoryCheckout();
+    const all = [website, connectionCheckout];
+    for (const asked of ["website", "WEBSITE", "Website", " website ", "repositories/website/"]) {
+      assert.deepEqual(resolveEmployeeRepositoryCheckout(all, asked), { checkout: website }, asked);
+    }
+    for (const asked of ["acme/web", "ACME/Web", "repos/acme/web"]) {
+      assert.deepEqual(
+        resolveEmployeeRepositoryCheckout(all, asked),
+        { checkout: connectionCheckout },
+        asked,
+      );
+    }
+  });
+
+  test("asks which one when two Repositories share a name", () => {
+    const result = resolveEmployeeRepositoryCheckout(
+      [
+        repositoryCheckout(),
+        repositoryCheckout({
+          repositoryId: "other",
+          slug: "website-2",
+          path: "repositories/website-2",
+        }),
+      ],
+      "website ",
+    );
+    // The slug matches exactly, so there is nothing to ask.
+    assert.deepEqual(result, { checkout: repositoryCheckout() });
+    const ambiguous = resolveEmployeeRepositoryCheckout(
+      [
+        repositoryCheckout({ slug: "site-a", path: "repositories/site-a" }),
+        repositoryCheckout({ repositoryId: "b", slug: "site-b", path: "repositories/site-b" }),
+      ],
+      "website",
+    );
+    assert.ok("error" in ambiguous);
+    assert.match(ambiguous.error, /More than one of your repositories is called "website"/);
+    assert.match(ambiguous.error, /site-a, site-b/);
+  });
+
+  test("lists Connection checkouts from granted Connections, skipping unreadable ones", async () => {
+    const connection = await insert(IntegrationConnection, {
+      companyId: company.id,
+      provider: "github",
+      label: "GitHub",
+      authMode: "apikey",
+      encryptedConfig: encryptConnectionConfig(
+        {
+          apiKey: "ghp_token",
+          login: "acme",
+          repos: [{ owner: "acme", name: "web", defaultBranch: "trunk" }],
+        } as IntegrationConfig,
+        company.id,
+      ),
+      accountHint: "GitHub",
+      status: "connected",
+      statusMessage: "",
+      lastCheckedAt: null,
+    });
+    const unreadable = await insert(IntegrationConnection, {
+      companyId: company.id,
+      provider: "forgejo",
+      label: "Broken forge",
+      authMode: "apikey",
+      encryptedConfig: "not-ciphertext-this-install-can-read",
+      accountHint: "Broken forge",
+      status: "connected",
+      statusMessage: "",
+      lastCheckedAt: null,
+    });
+    for (const granted of [connection, unreadable]) {
+      await insert(EmployeeConnectionGrant, { employeeId: employee.id, connectionId: granted.id });
+    }
+    const checkouts = await listEmployeeRepositoryCheckouts(employee.id);
+    assert.deepEqual(checkouts, [
+      {
+        kind: "connection",
+        connectionId: connection.id,
+        owner: "acme",
+        name: "web",
+        defaultBranch: "trunk",
+        path: "repos/acme/web",
+      },
+    ]);
     assert.equal(gitRequests, 0);
   });
 });

@@ -1166,6 +1166,12 @@ permit only the session's generated branch, never merging or publishing the
 default branch.
 General employee checkouts remain credential-free; start publishable changes
 in a Work session instead of leaving them stranded as local commits.
+They are fetched on demand, never ahead of a turn: a chat or Run prompt only
+names them (`services/employeeRepositoryCheckouts.ts`, read from Grants with
+no remote contacted), and the employee clones or fetches one with
+`sync_repositories` when it is about to read it, receiving the contributor
+guide with the result. Do not reintroduce a pre-turn fetch — it held every
+reply, code or not, behind `git fetch`.
 
 - **The database is the source of truth** for Soul, Skill, and Routine prose
   (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`), for captured Run

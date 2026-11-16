@@ -233,7 +233,13 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
 // for words that may match none of them lexically, and a miss reads as the company
 // having no support desk; the Support briefing names these tools, so they must be
 // findable by name. 1,380 characters remain at the minimum result cap.
-const DOMAIN_FOOTER_CHARS_MAX = 6_620;
+// Raised to 6,640 for `sync_repositories`, one name in the existing
+// `repositories` domain (19 characters). Checkouts are no longer fetched before
+// every turn, so this is the step that brings one up to date before the employee
+// reads it. The Repositories briefing names it, and a search for "pull the latest
+// code" that missed it would leave the employee reading a stale checkout. 1,360
+// characters remain at the minimum result cap.
+const DOMAIN_FOOTER_CHARS_MAX = 6_640;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(
