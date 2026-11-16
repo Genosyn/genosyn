@@ -25,6 +25,7 @@ import { Button, buttonClassName } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FormError } from "@/components/ui/FormError";
 import { clsx } from "@/components/ui/clsx";
+import { scheduleWithRunCondition } from "@/lib/routineRunCondition";
 import type {
   ProactiveInstallation,
   ProactiveOverview,
@@ -497,7 +498,9 @@ function StandingWork({
                       {employee?.name ?? "Former AI Employee"} ·{" "}
                       {installation.kind === "email"
                         ? "When matching email arrives"
-                        : (recipe?.scheduleLabel ?? "On its Routine schedule")}
+                        : recipe?.scheduleLabel
+                          ? scheduleWithRunCondition(recipe.scheduleLabel, recipe.runCondition)
+                          : "On its Routine schedule"}
                       {mailbox ? ` · ${mailbox.address}` : ""}
                     </p>
                     {installation.configurationIssue && (
@@ -672,7 +675,9 @@ function StarterLibrary({
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
                     <span className="text-xs text-slate-500 dark:text-slate-400">
-                      {recipe.kind === "email" ? "When email arrives" : recipe.scheduleLabel}
+                      {recipe.kind === "email"
+                        ? "When email arrives"
+                        : scheduleWithRunCondition(recipe.scheduleLabel ?? "", recipe.runCondition)}
                       {assigned > 0 ? ` · ${assigned} assigned` : ""}
                     </span>
                     <Button

@@ -25,6 +25,7 @@ import { broadcastToCompany } from "../realtime.js";
 import { parseActions, parseConditions } from "../mail/rules.js";
 import { resolveAnalysisReader } from "../mail/analysis.js";
 import { PROACTIVE_RECIPES, PROACTIVE_WORK_GUIDANCE } from "./catalogue.js";
+import { DEFAULT_ROUTINE_RUN_CONDITION } from "../../../shared/routineRunCondition.js";
 import { proactiveId } from "./ids.js";
 import { proactiveScope } from "./scopes.js";
 import {
@@ -322,6 +323,7 @@ export async function installProactiveStarter(
           acceptanceCriteria: recipe.acceptanceCriteria,
           mailDeliveryMode: "draft",
           selfReviewOnly: recipe.id === "improve-own-work",
+          runCondition: recipe.runCondition ?? DEFAULT_ROUTINE_RUN_CONDITION,
         });
         if (recipe.triggerKind)
           await manager.getRepository(RoutineTrigger).insert({

@@ -99,6 +99,7 @@ export function ScheduleField({
   previewCount = 3,
   timeZone,
   allowRandom = false,
+  startsOnlyWhenDue = false,
 }: {
   /** The cron expression being edited. */
   value: string;
@@ -119,6 +120,11 @@ export function ScheduleField({
   timeZone?: string | null;
   /** Offer random times. Only a Routine's server route accepts them. */
   allowRandom?: boolean;
+  /**
+   * The Routine starts a Run only when something is due (its run condition),
+   * so a frequent schedule costs nothing while idle and the cost hint says so.
+   */
+  startsOnlyWhenDue?: boolean;
 }) {
   const inheritedTimeZone = useScheduleTimeZone();
   // Unknown to this browser reads as server time rather than throwing while
@@ -540,8 +546,9 @@ export function ScheduleField({
           draft.frequency === "random" &&
           randomRunsPerDay(draft) >= MANY_RANDOM_RUNS_PER_DAY && (
             <div className="text-slate-500 dark:text-slate-400">
-              That is about {randomRunsPerDay(draft)} runs a day, each one billed to the model. Pick
-              the fewest the work can live with.
+              {startsOnlyWhenDue
+                ? `That is about ${randomRunsPerDay(draft)} times a day it may start, but only a time with something due starts a Run, so idle times cost nothing.`
+                : `That is about ${randomRunsPerDay(draft)} runs a day, each one billed to the model. Pick the fewest the work can live with.`}
             </div>
           )}
 
@@ -557,8 +564,9 @@ export function ScheduleField({
         {!custom && draft.frequency === "minutes" && (
           <div className="text-slate-500 dark:text-slate-400">
             Every {draft.every === 1 ? "minute" : `${draft.every} minutes`} is{" "}
-            {Math.round((60 / draft.every) * 24)} runs a day, each one billed to the model. Pick the
-            longest gap the work can live with.
+            {startsOnlyWhenDue
+              ? `up to ${Math.round((60 / draft.every) * 24)} runs a day, but only a time with something due starts one, so idle times cost nothing.`
+              : `${Math.round((60 / draft.every) * 24)} runs a day, each one billed to the model. Pick the longest gap the work can live with.`}
           </div>
         )}
 

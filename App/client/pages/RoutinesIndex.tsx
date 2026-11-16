@@ -9,6 +9,7 @@ import {
   FolderInput,
   FolderPlus,
   Inbox,
+  ListFilter,
   OctagonX,
   Pause,
   Play,
@@ -34,6 +35,7 @@ import {
   timeUntil,
 } from "../components/routines/RunViews";
 import { describeCronExpr } from "../lib/scheduleBuilder";
+import { routineRunConditionOf, scheduleWithRunCondition } from "../lib/routineRunCondition";
 import { RoutinesContext } from "./RoutinesLayout";
 import { folderAndDescendants, routineTagsInScope } from "../lib/routineFolders";
 import { filterRoutinesBySearch } from "../lib/routineSearch";
@@ -653,6 +655,7 @@ function RoutineRow({
   const [starting, setStarting] = React.useState(false);
   const to = r.employee ? `/c/${company.slug}/routines/${r.employee.slug}/${r.slug}` : null;
   const brokenSchedule = r.enabled && r.nextRunAt === null;
+  const conditioned = routineRunConditionOf(r.runCondition) !== "always";
   const folder = r.folderId ? (folders.find((f) => f.id === r.folderId) ?? null) : null;
   const standdownTitle = r.standdown
     ? `${r.standdown.scope === "company" ? "Company" : r.standdown.scope === "employee" ? "AI Employee" : "Routine"} Standdown: ${r.standdown.reason}`
@@ -722,7 +725,7 @@ function RoutineRow({
             </div>
           )}
           <div className="mt-0.5 truncate text-xs text-slate-400 md:hidden dark:text-slate-500">
-            {describeCronExpr(r.cronExpr)}
+            {scheduleWithRunCondition(describeCronExpr(r.cronExpr), r.runCondition)}
           </div>
         </div>
       </div>
@@ -747,10 +750,23 @@ function RoutineRow({
       </div>
 
       <div className="hidden min-w-0 md:block">
-        <div className="truncate text-sm text-slate-600 dark:text-slate-300" title={r.cronExpr}>
+        <div
+          className="truncate text-sm text-slate-600 dark:text-slate-300"
+          title={scheduleWithRunCondition(r.cronExpr, r.runCondition)}
+        >
           {describeCronExpr(r.cronExpr)}
         </div>
         <div className="truncate text-xs text-slate-400 dark:text-slate-500">
+          {/* A Routine that runs only when something is due says so beside its
+              next time, where a narrow column still has room for it. */}
+          {conditioned && !r.standdown && !brokenSchedule && r.enabled && (
+            <span
+              className="mr-1 inline-flex items-center gap-0.5 text-slate-500 dark:text-slate-400"
+              title={scheduleWithRunCondition(describeCronExpr(r.cronExpr), r.runCondition)}
+            >
+              <ListFilter size={10} aria-hidden="true" /> when due ·
+            </span>
+          )}
           {r.standdown ? (
             <span className="text-red-600 dark:text-red-400" title={standdownTitle}>
               Stood down

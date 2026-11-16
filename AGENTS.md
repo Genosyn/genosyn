@@ -241,8 +241,10 @@ code, UI copy, commits, and docs.
 | **Pulse** (what an AI Model is doing right now, read off its own stream — `ModelPulse`, `services/agent/modelStream.ts`; live only, holds no words) | Heartbeat, Activity, Liveness, Status |
 | **Budget** (a monthly ad-spend envelope — `Budget`) | Cap, Limit, Allowance (as product nouns) |
 | **Trigger** (an event subscription that fires a Routine — `RoutineTrigger`; a Revenue **Signal** stays a cron-evaluated query, never a Trigger) | Subscription, Listener, Hook |
+| **Run condition** (what must be true for a scheduled time or Trigger fire to start a Run, decided by the server without a model — `Routine.runCondition`, `services/routineRunConditions.ts`; "Start a Run" in Settings) | Filter, Guard, Precondition, Gate (in product copy); never a Check |
 | **Wakeup** (a timed follow-up session an employee schedules for itself — `EmployeeWakeup`) | Reminder, Timer, Snooze |
 | **Workstream** (a persistent state document for work spanning many Runs — `Workstream`) | Project (reserved for the task manager), Thread, Epic |
+| **Revisit** (when an employee next needs to look at one of its Workstreams — `Workstream.revisitAt`) | Next check (a Check is something else), Reminder, Due date, Wakeup |
 | **Group chat** (a private Workspace conversation between Members and the AI Employees they bring in — a `Channel` of kind `group`) | Group DM, Room, Huddle |
 | **Group discussion** (several AI Employees working one Member's question out together in a channel, in bounded read-only rounds, ending in one outcome — `GroupDiscussion`) | Meeting (reserved for Meetings), Debate, Swarm, Council |
 | **Initiative** (standing work an employee proposes and a human accepts — `Initiative`) | Proposal (Revision proposals own that word), Suggestion, Idea |
@@ -523,6 +525,26 @@ the next Run each time and could lose or add one. Read a Routine's schedule thro
 `services/routineSchedule.ts` (`nextRoutineRun`, `countMissedRoutineSlots`,
 `routineScheduleSchema`). Do not store drawn times, add a `Math.random()` to the
 schedule, or hand a Routine's `cronExpr` to `cron-parser` directly.
+
+**A Routine with nothing to do costs nothing, and only the server says so.** A Routine's
+run condition (`Routine.runCondition`, `shared/routineRunCondition.ts`) is decided by
+`services/routineRunConditions.ts` from the server's own rows, before a Run row or an Approval
+exists, for scheduled times (`tickRoutine`) and Trigger fires (`fireTrigger`) only: Run now, a
+webhook, an approval, a retry and a continuation always start. `workstream_due` reads
+`Workstream.revisitAt`, the one part of a Workstream the server parses (the state document stays
+prose): it is due once the revisit of an active Workstream the Routine resumes — the employee's
+own, unbound or bound to that Routine — has come and the Routine has not looked since. A Run
+looked unless it ended in an Error or was skipped for want of a model, so one Run takes each
+revisit up and an employee that forgets to plan the next costs one Run, never one per scheduled
+time. A declined start writes no Run (a Run is a record of attempted work), no audit row and no
+journal entry; it bumps `nothingDueAt` and `nothingDueCount` on the Routine without entity
+listeners, so no Trigger fires on it. The Run's "Due now" block and its `revisitAt` instruction
+are server-written, so a starter whose stored brief predates them still gets them. Follow through
+on open work installs with `workstream_due`, and `backfillRunConditions` moved older starters
+once. Do not let model prose decide whether a Routine starts, add a condition an indexed query
+cannot answer, record an idle start as a Run, or hold back a start someone asked for. The outcome
+check is deliberately not skipped for a Run that changed nothing: an empty effect ledger is
+exactly when the checker must still be able to say `off_goal`.
 
 **A Run paused for a restart is not stood down.** An upgrade (`genosyn upgrade`'s
 pause step), `SIGTERM`, or recovery after a restart cut a Run off (its stopping

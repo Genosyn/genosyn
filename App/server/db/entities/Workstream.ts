@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
 
 /**
  * `active` is the only state that folds into briefs. Terminal states are
@@ -23,6 +24,9 @@ export type WorkstreamStatus = "active" | "archived" | "done" | "abandoned";
  */
 @Entity("workstreams")
 @Index(["companyId", "status"])
+// A Routine that runs only when a Workstream is due asks, before every
+// scheduled time, for this employee's active Workstreams whose revisit came.
+@Index(["employeeId", "status", "revisitAt"])
 export class Workstream {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -62,6 +66,19 @@ export class Workstream {
   /** The last Run that advanced the state, for the paper trail. */
   @Column({ type: "varchar", nullable: true })
   lastRunId!: string | null;
+
+  /**
+   * When the employee next needs to look at this work — the one part of its
+   * plan the server reads, since the state document is prose and never parsed.
+   * The employee sets it with `create_workstream` / `update_workstream`; null
+   * means nothing is waiting on a time. A Routine whose run condition is
+   * `workstream_due` (Follow through on open work) starts only once a revisit
+   * has come and it has not run since (`shared/routineRunCondition.ts`), so
+   * idle work costs no model turn. Cleared when the Workstream stops being
+   * active.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  revisitAt!: Date | null;
 
   @CreateDateColumn()
   createdAt!: Date;

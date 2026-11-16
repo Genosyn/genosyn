@@ -11,6 +11,7 @@ import {
   type ProactiveOverview,
   type ProactiveRecipe,
 } from "../../../shared/proactive";
+import { routineRunConditionOf } from "@/lib/routineRunCondition";
 
 /**
  * Assign one server-owned starter without making the catalogue page own a
@@ -146,8 +147,10 @@ export function StarterSetupModal({
         {recipe.kind === "routine" && (
           <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
             {recipe.scheduleLabel}
-            {recipe.triggerKind ? ", and on relevant changes (at most once an hour)." : "."} You can
-            edit the schedule and require Approval on the Routine after setup.
+            {recipe.triggerKind ? ", and on relevant changes (at most once an hour)." : "."}{" "}
+            {routineRunConditionOf(recipe.runCondition) === "workstream_due" &&
+              "It starts a Run only when one of the employee’s Workstreams reaches the revisit time it planned. Genosyn looks without the AI Model, so idle time costs nothing. "}
+            You can edit the schedule and require Approval on the Routine after setup.
           </p>
         )}
 

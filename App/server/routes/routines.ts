@@ -32,6 +32,11 @@ import {
 } from "../services/routineBrief.js";
 import { MAX_ROUTINE_BRIEF_LENGTH } from "../../shared/routineBrief.js";
 import { DEFAULT_ROUTINE_PRIORITY, ROUTINE_PRIORITIES } from "../../shared/routinePriority.js";
+import {
+  DEFAULT_ROUTINE_RUN_CONDITION,
+  ROUTINE_RUN_CONDITIONS,
+} from "../../shared/routineRunCondition.js";
+import { runConditionStatus } from "../services/routineRunConditions.js";
 import { getGoal } from "../services/goals.js";
 import { isModelAttached } from "../services/models.js";
 import { registerRoutine } from "../services/cron.js";
@@ -371,6 +376,19 @@ const routinePrioritySchema = z
       "Changing it reorders Runs already waiting.",
   );
 
+// What must be true for a scheduled time or Trigger fire to start a Run
+// (`shared/routineRunCondition.ts`). Written by owners and admins, like every
+// Routine setting.
+const routineRunConditionSchema = z
+  .enum(ROUTINE_RUN_CONDITIONS)
+  .describe(
+    "Whether a scheduled time or Trigger fire starts a Run. `always` starts one every time. " +
+      "`workstream_due` starts one only when one of the employee's Workstreams that this Routine " +
+      "resumes (unbound, or bound to it) has reached its planned revisit time since the Routine " +
+      "last ran; otherwise no Run is created and no AI Model is asked. Run now, webhooks, " +
+      "approvals, retries and continuations always start.",
+  );
+
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   cronExpr: routineScheduleSchema,
@@ -382,6 +400,7 @@ const createSchema = z.object({
   // unfiled, which is where every routine created before folders shipped sits.
   folderId: z.string().uuid().nullable().optional(),
   priority: routinePrioritySchema.optional(),
+  runCondition: routineRunConditionSchema.optional(),
 });
 
 routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), async (req, res) => {
@@ -422,6 +441,7 @@ routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), asyn
     folderId: body.folderId ?? null,
     body: start.body,
     priority: body.priority ?? DEFAULT_ROUTINE_PRIORITY,
+    runCondition: body.runCondition ?? DEFAULT_ROUTINE_RUN_CONDITION,
   });
   registerRoutine(r, co.timezone);
   await repo.save(r);
@@ -506,6 +526,9 @@ const patchSchema = z
     goalId: z.string().uuid().nullable().optional(),
     // The queue reads it when it orders, so Runs already waiting move at once.
     priority: routinePrioritySchema.optional(),
+    // Whether a scheduled time or Trigger fire starts a Run, decided by the
+    // server before any Run exists. The next automatic start reads it.
+    runCondition: routineRunConditionSchema.optional(),
   })
   .strict();
 
@@ -585,6 +608,12 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   if (body.retryOnTimeout !== undefined) r.retryOnTimeout = body.retryOnTimeout;
   if (body.acceptanceCriteria !== undefined) r.acceptanceCriteria = body.acceptanceCriteria;
   if (body.priority !== undefined) r.priority = body.priority;
+  if (body.runCondition !== undefined && body.runCondition !== r.runCondition) {
+    // A new condition starts its own count of starts it declined.
+    r.runCondition = body.runCondition;
+    r.nothingDueAt = null;
+    r.nothingDueCount = 0;
+  }
   // Only re-derive the pending fire time when the schedule itself changed —
   // renaming a routine or nudging its timeout shouldn't throw away the slot it
   // was already waiting on.
@@ -765,6 +794,33 @@ routinesRouter.get("/routines/:rid/readme", async (req, res, next) => {
     next(err);
   }
 });
+
+const runConditionParamsSchema = z
+  .object({ cid: z.string().uuid(), rid: z.string().uuid() })
+  .strict();
+
+/**
+ * Where a Routine's run condition stands right now: whether its next scheduled
+ * time or Trigger fire would start a Run, what is due, the next revisit coming,
+ * and the starts it declined because nothing was due. Decided by the same
+ * function the scheduler asks (`services/routineRunConditions.ts`), so the page
+ * never says one thing while the heartbeat does another. A read any Member may
+ * make, like the Workstreams it names.
+ */
+routinesRouter.get(
+  "/routines/:rid/run-condition",
+  validateParams(runConditionParamsSchema),
+  async (req, res, next) => {
+    try {
+      const { cid, rid } = req.params as z.infer<typeof runConditionParamsSchema>;
+      const found = await loadRoutine(cid, rid);
+      if (!found) return res.status(404).json({ error: "Not found" });
+      res.json(await runConditionStatus(found.routine));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 const readmeSchema = z.object({ content: z.string() });
 

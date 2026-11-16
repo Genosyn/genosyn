@@ -70,6 +70,7 @@ import { bindInstanceSecretsToDatabase } from "./services/instanceSecretsDatabas
 import { backfillRetiredIntegrationsIntoVault } from "./services/retiredIntegrationVaultBackfill.js";
 import { matchCardCategoriesToBooks } from "./services/cardCategoryRepair.js";
 import { backfillContinuedRuns } from "./services/runContinuedBackfill.js";
+import { backfillRunConditions } from "./services/routineRunConditionBackfill.js";
 import { createApp } from "./app.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -130,6 +131,14 @@ async function main() {
   await backfillContinuedRuns().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[runs] reclassifying continued Runs failed:", err);
+  });
+  // Follow through on open work starters installed before run conditions
+  // start only when a Workstream is due, like new ones, and the work they carry
+  // is looked at once more. Before the heartbeat's first pass; never blocks
+  // startup, and retries on the next boot.
+  await backfillRunConditions().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[routines] giving follow-through starters their run condition failed:", err);
   });
   await bootProactiveDefaults();
   // Recruiting: which custom domains serve a careers site, and the queue of

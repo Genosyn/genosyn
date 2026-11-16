@@ -28,6 +28,10 @@ import {
   BASE_CHART_SORT_KEYS,
 } from "../../shared/baseChartQuery.js";
 
+/** How `create_workstream` and `update_workstream` explain a revisit. */
+const WORKSTREAM_REVISIT_DESCRIPTION =
+  "When this Workstream next needs a look, as an ISO 8601 time (a past time means as soon as possible), or null when it waits on nothing time-based, such as a person's answer. Follow through on open work starts only once a planned revisit has come, so idle work costs nothing; a Workstream with no revisit is never followed up on its own.";
+
 /** A JSON-Schema object describing a tool's arguments. Intentionally loose:
  * individual tools use enums, nullable unions, nested objects, etc. */
 export type McpToolInputSchema = {
@@ -1542,6 +1546,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description: "One of your own Routine ids to bind, or omit for unbound.",
         },
+        revisitAt: {
+          type: ["string", "null"],
+          description: WORKSTREAM_REVISIT_DESCRIPTION,
+        },
       },
       required: ["title"],
       additionalProperties: false,
@@ -1550,12 +1558,16 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_workstream",
     description:
-      "Commit the new state of one of your Workstreams — a full replacement of the state document, exactly what your next Run should open with. Mark it done, or abandoned with a reason, when the work truly ends.",
+      "Commit the new state of one of your Workstreams — a full replacement of the state document, exactly what your next Run should open with — and when it next needs a look (revisitAt). Mark it done, or abandoned with a reason, when the work truly ends.",
     inputSchema: {
       type: "object",
       properties: {
         workstreamId: { type: "string" },
         stateDoc: { type: "string", description: "Full replacement state document." },
+        revisitAt: {
+          type: ["string", "null"],
+          description: `${WORKSTREAM_REVISIT_DESCRIPTION} Omit to keep the current one.`,
+        },
         status: {
           type: "string",
           enum: ["active", "archived", "done", "abandoned"],

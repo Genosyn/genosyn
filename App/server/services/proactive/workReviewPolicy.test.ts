@@ -29,6 +29,14 @@ test("ordinary customer preparation does not require another human work review",
       "update_workstream",
       { workstreamId: "workstream", stateDoc: "Saved the verified Contact facts." },
     ],
+    // When its own work next needs a look: how Follow through on open work
+    // learns there is something to do, so preparation must be able to say it.
+    [
+      "create_workstream",
+      { title: "Watch the fix", stateDoc: "Session queued.", revisitAt: "2026-09-24T09:00:00Z" },
+    ],
+    ["update_workstream", { workstreamId: "workstream", revisitAt: "2026-09-24T10:00:00Z" }],
+    ["update_workstream", { workstreamId: "workstream", revisitAt: null }],
     ["update_mail_thread", { threadId: "thread", markRead: true, archive: true }],
   ];
   const scope = proactiveReviewToolScope(true)!;

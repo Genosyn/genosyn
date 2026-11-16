@@ -4,8 +4,9 @@ import { Workstream, type WorkstreamStatus } from "../db/entities/Workstream.js"
 // The shared uuid-PK guard — see routineFolders.ts for the Postgres 22P02 story.
 import { UUID_RE } from "./bases.js";
 import { recordAudit } from "./audit.js";
-import { Not, type EntityManager } from "typeorm";
+import { Not, type EntityManager, type SelectQueryBuilder } from "typeorm";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { WORKSTREAM_REVISIT_MAX_AHEAD_MS } from "../../shared/routineRunCondition.js";
 
 /**
  * Workstreams — the employee as its own project state-holder (M54). The
@@ -19,6 +20,30 @@ const STATE_DOC_MAX = 40_000;
 const ACTIVE_PER_EMPLOYEE_MAX = 20;
 
 export class WorkstreamError extends Error {}
+
+/**
+ * Check a revisit time an employee asked for. Undefined leaves the current one
+ * as it is and null clears it. Any past time means "as soon as possible"; a
+ * time beyond {@link WORKSTREAM_REVISIT_MAX_AHEAD_MS} is a mistake, not a plan.
+ */
+export function parseWorkstreamRevisit(
+  value: string | null | undefined,
+  now: Date = new Date(),
+): Date | null | undefined {
+  if (value === undefined || value === null) return value;
+  const at = new Date(value);
+  if (!value.trim() || !Number.isFinite(at.getTime())) {
+    throw new WorkstreamError(
+      "revisitAt must be an ISO 8601 date and time, such as 2026-05-04T09:00:00Z, or null to clear it.",
+    );
+  }
+  if (at.getTime() > now.getTime() + WORKSTREAM_REVISIT_MAX_AHEAD_MS) {
+    throw new WorkstreamError(
+      "revisitAt is more than two years away. Plan the next time this work needs a look, not when it ends.",
+    );
+  }
+  return at;
+}
 
 const writeQueues = new Map<string, Promise<unknown>>();
 async function withWorkstreamWrite<T>(
@@ -69,6 +94,8 @@ export async function createWorkstream(args: {
   objective?: string;
   stateDoc?: string;
   routineId?: string | null;
+  /** When the employee next needs to look at it; null or omitted plans nothing. */
+  revisitAt?: Date | null;
   /** Internal: business Runs cannot bind suggestion-only review Routines. */
   excludeSelfReviews?: boolean;
 }): Promise<Workstream> {
@@ -93,6 +120,7 @@ export async function createWorkstream(args: {
         objective: (args.objective ?? "").trim().slice(0, 4_000),
         stateDoc: (args.stateDoc ?? "").slice(0, STATE_DOC_MAX),
         routineId: args.routineId ?? null,
+        revisitAt: args.revisitAt ?? null,
       }),
     );
   });
@@ -135,6 +163,8 @@ export async function updateWorkstream(args: {
   closeReason?: string;
   routineId?: string | null;
   lastRunId?: string | null;
+  /** Undefined keeps the planned revisit; null clears it. */
+  revisitAt?: Date | null;
 }): Promise<Workstream> {
   return withWorkstreamWrite(args.companyId, args.employeeId, async (manager) => {
     if (!UUID_RE.test(args.workstreamId)) throw new WorkstreamError("Workstream not found");
@@ -179,6 +209,10 @@ export async function updateWorkstream(args: {
       workstream.closeReason =
         args.status === "active" ? "" : (args.closeReason ?? "").trim().slice(0, 2_000);
     }
+    if (args.revisitAt !== undefined) workstream.revisitAt = args.revisitAt;
+    // Work that stopped is waiting on nothing: a revisit planned before it was
+    // archived or closed must not wake anything, nor come back on resuming.
+    if (workstream.status !== "active") workstream.revisitAt = null;
     if (args.lastRunId !== undefined) workstream.lastRunId = args.lastRunId;
     return repo.save(workstream);
   });
@@ -199,22 +233,88 @@ function workstreamReadQuery(companyId: string, filter: WorkstreamReadFilter) {
     query.andWhere("workstream.employeeId = :employeeId", { employeeId: filter.employeeId });
   }
   if (filter.status) query.andWhere("workstream.status = :status", { status: filter.status });
-  if (filter.excludeSelfReviews) {
-    // Filter before the limit. Orphaned bindings stay withheld too: deleting a
-    // review Routine must not turn its historical tracking into business work.
-    query.andWhere((sub) => {
-      const businessRoutine = sub
-        .subQuery()
-        .select("1")
-        .from(Routine, "boundRoutine")
-        .where("CAST(boundRoutine.id AS text) = workstream.routineId")
-        .andWhere("boundRoutine.employeeId = workstream.employeeId")
-        .andWhere("boundRoutine.selfReviewOnly = :selfReviewOnly", { selfReviewOnly: false })
-        .getQuery();
-      return `(workstream.routineId IS NULL OR EXISTS ${businessRoutine})`;
+  if (filter.excludeSelfReviews) excludeSelfReviewTracking(query);
+  return query.orderBy("workstream.updatedAt", "DESC").addOrderBy("workstream.id", "DESC");
+}
+
+/**
+ * Keep suggestion-only review tracking out of a read of business work. Filters
+ * before any limit. Orphaned bindings stay withheld too: deleting a review
+ * Routine must not turn its historical tracking into business work.
+ */
+function excludeSelfReviewTracking(query: SelectQueryBuilder<Workstream>): void {
+  query.andWhere((sub) => {
+    const businessRoutine = sub
+      .subQuery()
+      .select("1")
+      .from(Routine, "boundRoutine")
+      .where("CAST(boundRoutine.id AS text) = workstream.routineId")
+      .andWhere("boundRoutine.employeeId = workstream.employeeId")
+      .andWhere("boundRoutine.selfReviewOnly = :selfReviewOnly", { selfReviewOnly: false })
+      .getQuery();
+    return `(workstream.routineId IS NULL OR EXISTS ${businessRoutine})`;
+  });
+}
+
+/** What a run condition needs to know about one Workstream. */
+export type WorkstreamRevisit = Pick<Workstream, "id" | "title" | "revisitAt" | "routineId">;
+
+/** The Routine a run condition is decided for. */
+type RevisitingRoutine = { id: string; employeeId: string; selfReviewOnly: boolean };
+
+/**
+ * The Workstreams a Routine resumes: the employee's own, active, and either
+ * unbound or bound to this Routine. One bound to another Routine is that
+ * Routine's to carry on through its brief seam — and proactive preparation could
+ * not touch it anyway — so its revisit wakes nobody else. A suggestion-only
+ * review resumes only its own tracking, and business work never sees that
+ * tracking, since it is always bound to its review. An orphaned binding stays
+ * withheld, as in every business read.
+ */
+function revisitScope(routine: RevisitingRoutine) {
+  const query = AppDataSource.getRepository(Workstream)
+    .createQueryBuilder("workstream")
+    .where("workstream.employeeId = :employeeId", { employeeId: routine.employeeId })
+    .andWhere("workstream.status = :status", { status: "active" });
+  if (routine.selfReviewOnly) {
+    query.andWhere("workstream.routineId = :routineId", { routineId: routine.id });
+  } else {
+    query.andWhere("(workstream.routineId IS NULL OR workstream.routineId = :routineId)", {
+      routineId: routine.id,
     });
   }
-  return query.orderBy("workstream.updatedAt", "DESC").addOrderBy("workstream.id", "DESC");
+  return query;
+}
+
+/**
+ * The Workstreams a Routine resumes that have a revisit planned, soonest first,
+ * through the `(employeeId, status, revisitAt)` index.
+ *
+ * `dueBy` keeps only revisits that have come by then, and `after` only those
+ * later than it — the time the Routine last looked, so a revisit it already
+ * took up is not due again.
+ */
+export async function listWorkstreamRevisits(args: {
+  routine: RevisitingRoutine;
+  dueBy?: Date;
+  after?: Date | null;
+  limit: number;
+}): Promise<WorkstreamRevisit[]> {
+  const query = revisitScope(args.routine)
+    .select(["workstream.id", "workstream.title", "workstream.revisitAt", "workstream.routineId"])
+    .andWhere("workstream.revisitAt IS NOT NULL");
+  if (args.dueBy) query.andWhere("workstream.revisitAt <= :dueBy", { dueBy: args.dueBy });
+  if (args.after) query.andWhere("workstream.revisitAt > :after", { after: args.after });
+  return query
+    .orderBy("workstream.revisitAt", "ASC")
+    .addOrderBy("workstream.id", "ASC")
+    .take(args.limit)
+    .getMany();
+}
+
+/** How many of the Workstreams a Routine resumes have no revisit planned. */
+export async function countUnplannedWorkstreams(routine: RevisitingRoutine): Promise<number> {
+  return revisitScope(routine).andWhere("workstream.revisitAt IS NULL").getCount();
 }
 
 export async function listWorkstreams(
@@ -381,6 +481,8 @@ export async function closeWorkstream(args: {
   }
   workstream.status = args.status;
   workstream.closeReason = args.reason.trim().slice(0, 2_000);
+  // Closed work waits on nothing, so its planned revisit wakes no Routine.
+  workstream.revisitAt = null;
   const saved = await AppDataSource.getRepository(Workstream).save(workstream);
   await recordAudit({
     companyId: args.companyId,
@@ -405,6 +507,7 @@ export function serializeWorkstream(w: Workstream) {
     status: w.status,
     closeReason: w.closeReason,
     lastRunId: w.lastRunId,
+    revisitAt: w.revisitAt ? w.revisitAt.toISOString() : null,
     createdAt: w.createdAt.toISOString(),
     updatedAt: w.updatedAt.toISOString(),
   };

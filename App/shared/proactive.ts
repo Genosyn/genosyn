@@ -1,3 +1,5 @@
+import type { RoutineRunCondition } from "./routineRunCondition.js";
+
 /** Portable contract for the setup page and the server-owned starter catalogue. */
 export type ProactiveRequirement =
   | "mail"
@@ -15,6 +17,11 @@ export type ProactiveRecipe = {
   schedule?: string;
   scheduleLabel?: string;
   triggerKind?: string;
+  /**
+   * The Routine's run condition. A starter that wakes often to look for due
+   * work sets one, so a scheduled time with nothing due starts nothing.
+   */
+  runCondition?: RoutineRunCondition;
   requirements: ProactiveRequirement[];
   brief: string;
   acceptanceCriteria: string;
