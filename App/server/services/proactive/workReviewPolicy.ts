@@ -44,8 +44,10 @@ const PREPARATION_FIELDS: Record<string, readonly string[]> = {
     "customerId",
     "status",
   ],
-  create_workstream: ["title", "objective", "stateDoc", "routineId"],
-  update_workstream: ["workstreamId", "stateDoc", "status", "closeReason"],
+  // When its own work next needs a look is record keeping, and the only way a
+  // starter that runs when a Workstream is due learns there is something to do.
+  create_workstream: ["title", "objective", "stateDoc", "routineId", "revisitAt"],
+  update_workstream: ["workstreamId", "stateDoc", "status", "closeReason", "revisitAt"],
   update_mail_thread: [
     "threadId",
     "markRead",

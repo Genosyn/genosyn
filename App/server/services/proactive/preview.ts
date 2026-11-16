@@ -2,6 +2,7 @@ import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { TldrSettings, type TldrCadence } from "../../db/entities/TldrSettings.js";
 import type { ProactiveOverview } from "../../../shared/proactive.js";
+import { scheduleWithRunCondition } from "../../../shared/routineRunCondition.js";
 import { planProactiveDefaults } from "./defaults.js";
 import { getProactiveOverview, ProactiveSetupError } from "./setup.js";
 
@@ -95,8 +96,11 @@ export async function previewProactiveDefaults(
     .map((recipe) => ({
       recipeId: recipe.id,
       name: recipe.name,
-      schedule:
-        recipe.scheduleLabel ?? (recipe.kind === "email" ? "When a matching email arrives" : ""),
+      schedule: recipe.scheduleLabel
+        ? scheduleWithRunCondition(recipe.scheduleLabel, recipe.runCondition)
+        : recipe.kind === "email"
+          ? "When a matching email arrives"
+          : "",
       installed: installed.has(recipe.id),
     }));
 

@@ -154,6 +154,13 @@ async function assertNativeDefaults(companyId: string) {
     assert.equal(routine.mailDeliveryMode, "draft");
     assert.equal(routine.selfReviewOnly, routine.slug.startsWith("proactive-improve-own-work-"));
     assert.ok(routine.nextRunAt instanceof Date);
+    // Follow-through wakes every 30 minutes to look for due work, so it starts
+    // a Run only when a Workstream is due; every other starter always runs.
+    assert.equal(
+      routine.runCondition,
+      routine.slug.startsWith("proactive-work-followthrough-") ? "workstream_due" : "always",
+      routine.slug,
+    );
   }
   assert.equal(await AppDataSource.getRepository(RoutineTrigger).countBy({ companyId }), 4);
   assert.equal(await AppDataSource.getRepository(Run).count(), 0);

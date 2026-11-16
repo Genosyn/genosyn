@@ -10,6 +10,7 @@ import { startRoutineRun } from "./runner.js";
 import { recordAudit } from "./audit.js";
 import { notifyApprovalPending } from "./notifications.js";
 import { workBlocked } from "./standdowns.js";
+import { admitConditionedStart } from "./routineRunConditions.js";
 
 /**
  * Triggers — event-fired Routines on the live-sync spine (M54).
@@ -27,6 +28,10 @@ import { workBlocked } from "./standdowns.js";
  *    interval instead of a hot loop;
  *  - the webhook precedent for gated Routines: a `requiresApproval` Routine's
  *    fire enqueues the Approval a cron tick would, never a bypass.
+ *
+ * A fire also answers to the Routine's run condition, exactly as a scheduled
+ * time does (`services/routineRunConditions.ts`): with nothing due it starts
+ * nothing and asks no one.
  */
 
 const MIN_INTERVAL_FLOOR_SEC = 60;
@@ -191,6 +196,13 @@ async function fireTrigger(trigger: RoutineTrigger): Promise<void> {
   // stopped should still consume its slot, so lifting a standdown does not
   // release a burst of triggers that all became due while work was stopped.
   if (workBlocked(trigger.companyId, { employeeId: emp.id, routineId: routine.id }).blocked) {
+    return;
+  }
+  // A run condition with nothing due declines the fire like a scheduled time:
+  // no Run, no Approval, and no audit row or journal entry claiming the
+  // Routine was started. The fire still used its interval, so a Routine that
+  // writes the family it watches cannot re-check itself in a loop either.
+  if (!(await admitConditionedStart(routine, "event", { companyId: trigger.companyId }))) {
     return;
   }
 

@@ -338,6 +338,7 @@ import {
   assertBusinessWorkstream,
   createWorkstream,
   listEmployeeWorkstreams,
+  parseWorkstreamRevisit,
   readEmployeeWorkstream,
   serializeWorkstream,
   updateWorkstream,
@@ -16742,8 +16743,21 @@ const createWorkstreamSchema = z
     objective: z.string().max(4_000).optional(),
     stateDoc: z.string().max(40_000).optional(),
     routineId: z.string().uuid().optional(),
+    revisitAt: z.string().max(64).nullable().optional(),
   })
   .strict();
+
+/** What the employee is told about the revisit it has, after a write. */
+function revisitNote(
+  req: McpRequest,
+  workstream: { status: string; revisitAt: Date | null },
+): string {
+  // Review tracking is continued by its own review alone, never followed up.
+  if (workstream.status !== "active" || req.mcpSelfReviewOnly) return "";
+  return workstream.revisitAt
+    ? ` Next revisit ${workstream.revisitAt.toISOString()}${workstream.revisitAt.getTime() <= Date.now() ? " (due now)" : ""}.`
+    : " No revisit is planned, so Follow through on open work will not pick this up by itself; set revisitAt if anything is waiting on a time.";
+}
 
 mcpInternalRouter.post(
   "/tools/create_workstream",
@@ -16757,6 +16771,7 @@ mcpInternalRouter.post(
         title: body.title,
         objective: body.objective,
         stateDoc: body.stateDoc,
+        revisitAt: parseWorkstreamRevisit(body.revisitAt),
         excludeSelfReviews: req.mcpAuthority === "employee" && !req.mcpSelfReviewOnly,
         routineId: req.mcpSelfReviewOnly
           ? await reviewTrackingRoutine(
@@ -16782,7 +16797,10 @@ mcpInternalRouter.post(
           ? "This record belongs to the Improve my work Routine. Only that review continues it."
           : workstream.objective,
       });
-      res.json({ workstream: serializeWorkstream(workstream) });
+      res.json({
+        workstream: serializeWorkstream(workstream),
+        note: `Workstream opened.${revisitNote(req, workstream)}`,
+      });
     } catch (err) {
       if (!(err instanceof WorkstreamError)) return next(err);
       res.status(400).json({ error: err.message });
@@ -16796,6 +16814,7 @@ const updateWorkstreamSchema = z
     stateDoc: z.string().max(40_000).optional(),
     status: z.enum(["active", "archived", "done", "abandoned"]).optional(),
     closeReason: z.string().max(2_000).optional(),
+    revisitAt: z.string().max(64).nullable().optional(),
   })
   .strict();
 
@@ -16825,6 +16844,7 @@ mcpInternalRouter.post(
         stateDoc: body.stateDoc,
         status: body.status,
         closeReason: body.closeReason,
+        revisitAt: parseWorkstreamRevisit(body.revisitAt),
         lastRunId: req.mcpRunId ?? undefined,
       });
       // `create_workstream` above has always left a trail and this did not, so
@@ -16848,7 +16868,7 @@ mcpInternalRouter.post(
         workstream: serializeWorkstream(workstream),
         note:
           workstream.status === "active"
-            ? "State committed — your next Run on the bound routine opens with exactly this."
+            ? `State committed — your next Run on the bound routine opens with exactly this.${revisitNote(req, workstream)}`
             : workstream.status === "archived"
               ? "Archived with state preserved. Resume explicitly with status: active when capacity is available."
               : `Closed as ${workstream.status}.`,

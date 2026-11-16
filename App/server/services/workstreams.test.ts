@@ -21,7 +21,9 @@ import {
   createWorkstream,
   listEmployeeWorkstreams,
   listWorkstreams,
+  parseWorkstreamRevisit,
   readEmployeeWorkstream,
+  serializeWorkstream,
   updateWorkstream,
 } from "./workstreams.js";
 
@@ -646,5 +648,118 @@ describe("active capacity and archive recovery", () => {
       routineId: null,
     });
     assert.equal(unbound.routineId, null);
+  });
+});
+
+describe("planned revisits", () => {
+  const soon = () => new Date(Date.now() + 60 * 60_000);
+  const own = (values: Partial<Parameters<typeof updateWorkstream>[0]>) =>
+    ({ companyId, employeeId: employee.id, ...values }) as Parameters<typeof updateWorkstream>[0];
+
+  test("an employee plans a revisit when it opens work, and none is planned by default", async () => {
+    const plain = await createWorkstream({ companyId, employeeId: employee.id, title: "Plain" });
+    assert.equal(plain.revisitAt, null);
+    const at = soon();
+    const planned = await createWorkstream({
+      companyId,
+      employeeId: employee.id,
+      title: "Planned",
+      revisitAt: at,
+    });
+    assert.deepEqual(planned.revisitAt, at);
+    assert.equal(serializeWorkstream(planned).revisitAt, at.toISOString());
+    assert.equal(serializeWorkstream(plain).revisitAt, null);
+  });
+
+  test("an update keeps the revisit unless it names one, and null clears it", async () => {
+    const at = soon();
+    const work = await createWorkstream({
+      companyId,
+      employeeId: employee.id,
+      title: "Work",
+      revisitAt: at,
+    });
+    const rewritten = await updateWorkstream(own({ workstreamId: work.id, stateDoc: "Progress" }));
+    assert.deepEqual(rewritten.revisitAt, at, "rewriting the state keeps the plan");
+    const later = new Date(at.getTime() + 60 * 60_000);
+    const moved = await updateWorkstream(own({ workstreamId: work.id, revisitAt: later }));
+    assert.deepEqual(moved.revisitAt, later);
+    assert.equal(moved.stateDoc, "Progress", "planning alone keeps the state");
+    const cleared = await updateWorkstream(own({ workstreamId: work.id, revisitAt: null }));
+    assert.equal(cleared.revisitAt, null);
+  });
+
+  test("work that stops waits on nothing, and resuming it plans afresh", async () => {
+    for (const [status, closeReason] of [
+      ["archived", "It can wait."],
+      ["done", "Collected."],
+      ["abandoned", "Customer left."],
+    ] as const) {
+      const work = await createWorkstream({
+        companyId,
+        employeeId: employee.id,
+        title: status,
+        revisitAt: soon(),
+      });
+      const stopped = await updateWorkstream(
+        own({ workstreamId: work.id, status, closeReason, revisitAt: soon() }),
+      );
+      assert.equal(stopped.revisitAt, null, status);
+    }
+    const archived = (await listWorkstreams(companyId, { status: "archived" }))[0];
+    const resumed = await updateWorkstream(own({ workstreamId: archived.id, status: "active" }));
+    assert.equal(resumed.revisitAt, null, "an old plan does not come back");
+    const replanned = await updateWorkstream(own({ workstreamId: archived.id, revisitAt: soon() }));
+    assert.ok(replanned.revisitAt);
+  });
+
+  test("a person closing stale work clears its revisit", async () => {
+    const work = await createWorkstream({
+      companyId,
+      employeeId: employee.id,
+      title: "Stale",
+      revisitAt: soon(),
+    });
+    const closed = await closeWorkstream({
+      companyId,
+      workstreamId: work.id,
+      status: "abandoned",
+      reason: "No longer relevant",
+      userId: null,
+    });
+    assert.equal(closed.revisitAt, null);
+    const row = await AppDataSource.getRepository(Workstream).findOneByOrFail({ id: work.id });
+    assert.equal(row.revisitAt, null);
+  });
+
+  test("a revisit must be a real time no more than two years away; the past means now", () => {
+    const now = new Date("2026-11-16T12:00:00.000Z");
+    assert.equal(parseWorkstreamRevisit(undefined, now), undefined);
+    assert.equal(parseWorkstreamRevisit(null, now), null);
+    assert.deepEqual(
+      parseWorkstreamRevisit("2026-11-17T09:00:00Z", now),
+      new Date("2026-11-17T09:00:00Z"),
+    );
+    assert.deepEqual(
+      parseWorkstreamRevisit("2026-11-17T09:00:00+02:00", now),
+      new Date("2026-11-17T07:00:00Z"),
+      "offsets are honoured",
+    );
+    assert.deepEqual(
+      parseWorkstreamRevisit("2020-01-01T00:00:00Z", now),
+      new Date("2020-01-01T00:00:00Z"),
+      "a past time is due at once",
+    );
+    assert.deepEqual(
+      parseWorkstreamRevisit("2028-11-01T00:00:00Z", now),
+      new Date("2028-11-01T00:00:00Z"),
+    );
+    for (const value of ["", "  ", "tomorrow", "2026-13-45T99:00:00Z", "NaN"]) {
+      assert.throws(() => parseWorkstreamRevisit(value, now), /ISO 8601/, JSON.stringify(value));
+    }
+    assert.throws(
+      () => parseWorkstreamRevisit("2029-01-01T00:00:00Z", now),
+      /more than two years away/,
+    );
   });
 });

@@ -102,7 +102,7 @@ async function preview(employeeId = maya.id, query = `employeeId=${employeeId}`)
 
 const ALONE = [
   ["advance-responsibilities", "Weekdays at 08:00"],
-  ["work-followthrough", "Every 30 minutes"],
+  ["work-followthrough", "Every 30 minutes, only when a Workstream is due"],
   ["improve-own-work", "Fridays at 15:00"],
   ["discover-improvements", "Mondays at 11:00"],
 ];

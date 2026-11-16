@@ -23,6 +23,7 @@ import { composeMemoryContext } from "./employeeMemory.js";
 import { composeGoalsContext, goalBriefBlock } from "./goals.js";
 import { composePoliciesContext } from "./companyPolicies.js";
 import { composeWorkstreamBlock } from "./workstreams.js";
+import { composeRunConditionBlock, revisitsDueForBrief } from "./routineRunConditions.js";
 import { composeLessonsBlock, reflectOnRun, shouldReflect } from "./runLessons.js";
 import { contractAutonomyOnBadRun } from "./autonomy.js";
 import { materializeEmployeeRepositoryContext } from "./repositories.js";
@@ -1020,6 +1021,12 @@ async function prepareRoutineRun(
       const goalBlock = await goalBriefBlock(co.id, routine.goalId);
       const lessonsBlock = await composeLessonsBlock(routine.id);
       const workstreamBlock = await composeWorkstreamBlock(routine.id);
+      // A Routine that runs only when a Workstream is due is told which ones
+      // are, and how to plan the next revisit (`routineRunConditions.ts`).
+      const runConditionBlock = composeRunConditionBlock(
+        await revisitsDueForBrief(routine).catch(() => []),
+        saved.continuationOriginTriggerKind ?? saved.triggerKind,
+      );
       // What earlier attempts already did (M58). `Routine.maxAttempts`
       // documents retries as at-least-once for side effects and warns the
       // operator to raise it only on work that is safe to repeat — a warning
@@ -1045,6 +1052,7 @@ async function prepareRoutineRun(
             workstreamBlock,
             priorAttemptBlock,
             checksBlock,
+            runConditionBlock,
           );
       const deliveryMessage = routineDeliveryMessage(
         routineMessage,
@@ -1897,7 +1905,9 @@ async function touchRoutine(routineId: string, at: Date | null): Promise<void> {
         lastRunAt: fresh.lastRunAt ?? IsNull(),
         nextRunAt: fresh.nextRunAt ?? IsNull(),
       },
-      { lastRunAt: at, nextRunAt: next },
+      // A finished Run starts the count of idle starts its run condition
+      // declined afresh (`routineRunConditions.ts`).
+      { lastRunAt: at, nextRunAt: next, nothingDueCount: 0 },
     );
     if (updated.affected === 1) return;
   }
@@ -2262,6 +2272,7 @@ function composeRoutineMessage(
   workstreamBlock: string,
   priorAttemptBlock: string | null,
   checksBlock: string | null,
+  runConditionBlock: string,
 ): string {
   return [
     `## Routine: ${routine.name}`,
@@ -2271,6 +2282,9 @@ function composeRoutineMessage(
     // the brief on purpose: it changes what the work *is*, not merely how it
     // should be reported.
     ...(priorAttemptBlock ? ["", priorAttemptBlock] : []),
+    // Why a Routine that runs only when something is due started, and what is
+    // due: server-written, so it reaches starters whose stored brief predates it.
+    ...(runConditionBlock ? ["", runConditionBlock] : []),
     // The objective this work serves, when the Routine declares one — folded
     // beside the criteria so the employee aims at the goal it is graded on.
     ...(goalBlock ? ["", "## Goal", goalBlock] : []),

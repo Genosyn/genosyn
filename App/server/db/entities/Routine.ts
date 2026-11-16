@@ -1,6 +1,10 @@
 import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 import { DEFAULT_ROUTINE_PRIORITY, type RoutinePriority } from "../../../shared/routinePriority.js";
+import {
+  DEFAULT_ROUTINE_RUN_CONDITION,
+  type RoutineRunCondition,
+} from "../../../shared/routineRunCondition.js";
 
 /**
  * See {@link Routine.catchUpPolicy}. A string union rather than a boolean so a
@@ -264,6 +268,36 @@ export class Routine {
    */
   @Column({ type: "varchar", default: DEFAULT_ROUTINE_PRIORITY })
   priority!: RoutinePriority;
+
+  /**
+   * What must be true for a scheduled time or a Trigger fire to start a Run
+   * (`shared/routineRunCondition.ts`). `always` (the default) starts one every
+   * time. `workstream_due` starts one only when one of the employee's own
+   * Workstreams has reached its revisit time since this Routine last ran —
+   * Follow through on open work uses it, so an idle employee costs no model
+   * turn. The server decides it from its own rows before any Run exists
+   * (`services/routineRunConditions.ts`). A person's Run now, a webhook, an
+   * approval, a retry and a continuation always start. Owners and admins set it.
+   */
+  @Column({ type: "varchar", default: DEFAULT_ROUTINE_RUN_CONDITION })
+  runCondition!: RoutineRunCondition;
+
+  /**
+   * The last time a scheduled time or Trigger fire found nothing due under
+   * {@link Routine.runCondition} and started no Run. The only record of it:
+   * a start that was never needed writes no Run row, so a Run history full of
+   * idle Runs does not bury the ones that did work.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  nothingDueAt!: Date | null;
+
+  /**
+   * How many scheduled times and Trigger fires found nothing due since this
+   * Routine's last Run finished — the Runs, and model turns, its run condition
+   * saved. Set back to 0 when a Run finishes.
+   */
+  @Column({ type: "integer", default: 0 })
+  nothingDueCount!: number;
 
   @CreateDateColumn()
   createdAt!: Date;

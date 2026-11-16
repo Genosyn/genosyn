@@ -51,6 +51,7 @@ import { sweepGoals } from "./goals.js";
 import { sweepRoutedDecisions } from "./decisionRouting.js";
 import { sweepAutonomyPromotions } from "./autonomy.js";
 import { workBlockedForRoutine } from "./standdowns.js";
+import { admitConditionedStart } from "./routineRunConditions.js";
 import { sweepUngradedRuns } from "./runGrading.js";
 import { dispatchDueWakeups } from "./wakeups.js";
 import { dispatchTodoPickups } from "./todoPickups.js";
@@ -183,6 +184,12 @@ export async function tickRoutine(
   // Natural schedule ticks must not restart the same work while its durable
   // dispatch claim is waiting, including while another scheduler prepares it.
   if (await hasPendingContinuation(fresh.id)) return;
+  // A run condition with nothing due declines the start before anything is
+  // written for it: no Run row, no model turn, and no Approval asking a person
+  // to wave through a Run that would find nothing to do. The schedule has
+  // already moved on to the next slot. See `services/routineRunConditions.ts`.
+  assertLeaseHeld();
+  if (!(await admitConditionedStart(fresh, "schedule"))) return;
   if (fresh.requiresApproval) {
     const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
       id: fresh.employeeId,
