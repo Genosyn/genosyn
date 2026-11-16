@@ -74,8 +74,9 @@ export function Routines() {
         <Strong>More details</Strong> holds the rest — where it is filed, its timeout, approval,
         outcome check, priority, browser, catch-up, retries, and webhook — and its summary line
         names anything that is not at its default. <Strong>Settings</Strong> shows the basics:{" "}
-        <Strong>Name</Strong>, <Strong>Schedule</Strong>, <Strong>Goal</Strong>, and{" "}
-        <Strong>What counts as done</Strong>, saved with one <Strong>Save changes</Strong>.
+        <Strong>Name</Strong>, <Strong>Schedule</Strong>,{" "}
+        <DocLink to="/docs/routines#run-condition">Start a Run</DocLink>, <Strong>Goal</Strong>,
+        and <Strong>What counts as done</Strong>, saved with one <Strong>Save changes</Strong>.
         Everything else is under <Strong>Advanced</Strong>, closed until you open it: the folder,
         timeout and approval; <Strong>Checks</Strong>; the{" "}
         <DocLink to="/docs/routines#priority">priority</DocLink>, model and browser; downtime and
@@ -316,6 +317,17 @@ export function Routines() {
                 to a short <Code>@random</Code> expression for{" "}
                 <DocLink to="/docs/routines#random-times">random times</DocLink>. See{" "}
                 <DocLink to="/docs/routines#scheduling">Scheduling</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "runCondition",
+            def: (
+              <>
+                Whether a scheduled time or Trigger starts a Run: <Code>always</Code> (the default),
+                or <Code>workstream_due</Code> — only when one of the employee&apos;s Workstreams is
+                due for a revisit. Set at <Strong>Settings → Start a Run</Strong>. See{" "}
+                <DocLink to="/docs/routines#run-condition">Only when something is due</DocLink>.
               </>
             ),
           },
@@ -585,6 +597,44 @@ export function Routines() {
         arrive — limited to business records such as invoices, bills, bank and card transactions,
         deals, and todos, company-wide, and at most once every five minutes. See{" "}
         <DocLink to="/docs/reactivity#triggers">Reactivity</DocLink>.
+      </P>
+
+      <H3 id="run-condition">Only when something is due</H3>
+      <P>
+        Some work only matters when something is waiting — following up on open work, say. A
+        routine that wakes every 30 minutes to look for it would otherwise spend a full Run, and
+        its <DocLink to="/docs/routines#outcome-check">outcome check</DocLink>, every time it finds
+        nothing. <Strong>Start a Run</Strong>, under the schedule in <Strong>Settings</Strong>,
+        decides that before anything starts:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Every time</Strong> (the default) — every scheduled time and Trigger starts a Run.
+        </LI>
+        <LI>
+          <Strong>When a Workstream is due</Strong> — a scheduled time or Trigger starts a Run only
+          when one of the employee&apos;s{" "}
+          <DocLink to="/docs/reactivity#workstreams">Workstreams</DocLink> has reached the revisit
+          time the employee planned, and the routine has not run since. The Workstreams it looks at
+          are the employee&apos;s own unbound ones and any bound to this routine.
+        </LI>
+      </UL>
+      <P>
+        Genosyn decides this from its own records, without asking the AI Model. When nothing is
+        due, no Run is created, nothing is spent, and a routine that needs approval asks nobody;
+        the schedule simply moves on to the next time. The <Strong>Schedule</Strong> card on the
+        routine&apos;s <Strong>Overview</Strong> shows what is due right now, the next revisit
+        coming, and how many times since the last Run Genosyn looked and found nothing — the Runs
+        the condition saved. A Run that starts is told which Workstreams are due, and each revisit
+        is taken up by one Run: the employee plans the next one before it finishes, or the
+        Workstream waits until it does. A Run that ends in an Error has not looked, so what was due
+        stays due for the next scheduled time.
+      </P>
+      <P>
+        Only automatic starts are decided this way. <Strong>Run now</Strong>, a webhook, an approved
+        Approval, a retry, and the continuation of unfinished work always start.{" "}
+        <Strong>Follow through on open work</Strong> uses this condition out of the box; see{" "}
+        <DocLink to="/docs/reactivity#start">Standing work</DocLink>.
       </P>
 
       <H2 id="the-brief">The brief</H2>

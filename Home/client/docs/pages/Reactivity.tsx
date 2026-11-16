@@ -235,6 +235,18 @@ export function Reactivity() {
         to ten actionable items per Run and asks it to keep unchanged checks quiet.
       </P>
       <P>
+        <Strong>Follow through on open work</Strong> looks every 30 minutes and whenever a
+        Workstream changes, but starts a Run only when one of its employee&apos;s Workstreams has
+        reached the <DocLink to="/docs/reactivity#workstreams">revisit time</DocLink> the employee
+        planned. Genosyn decides that without the AI Model, so an employee with nothing waiting
+        costs nothing: no Run, no outcome check, and no Approval to wave through. Its routine page
+        shows what is due and how many times it found nothing. To have it run every time again,
+        set <DocLink to="/docs/routines#run-condition">Start a Run</DocLink> to{" "}
+        <Strong>Every time</Strong> on the routine. Starters set up before this change switch over
+        once on upgrade, and the open work they carry is looked at once more so nothing in flight
+        is dropped.
+      </P>
+      <P>
         <Strong>Improve my work</Strong> is assigned automatically to each AI Employee with a
         connected AI Model, with no extra resource Grant needed to review its own work. It runs on
         Fridays at 15:00 in the company&apos;s time zone. The employee reviews its recent Runs,
@@ -338,6 +350,13 @@ export function Reactivity() {
           a routine that writes the very family it subscribes to converges to one fire per interval
           instead of a hot loop.
         </LI>
+        <LI>
+          <Strong>A fire answers to the Routine&apos;s run condition.</Strong> On a routine that
+          starts{" "}
+          <DocLink to="/docs/routines#run-condition">only when a Workstream is due</DocLink>, a fire
+          with nothing due starts no Run, asks for no Approval and writes no journal entry. It
+          still uses up its interval.
+        </LI>
       </UL>
       <Callout kind="warn" title="A Trigger is not a Signal.">
         A Revenue <DocLink to="/docs/signals">Signal</DocLink> stays a cron-evaluated query over
@@ -378,6 +397,17 @@ export function Reactivity() {
         document in full, so the latest version is always the whole truth. Binding a workstream to
         one of the employee&apos;s Routines makes every future Run brief open with the latest state
         — the context seam that used to be journal archaeology.
+      </P>
+      <P>
+        The employee also plans when the work next needs a look: <Code>revisitAt</Code> on{" "}
+        <Code>create_workstream</Code> and <Code>update_workstream</Code>, a time, or{" "}
+        <Code>null</Code> when it waits on nothing time-based, such as a person&apos;s answer. It
+        is the one part of a Workstream Genosyn reads — the state document stays prose — and it is
+        what starts a routine that runs{" "}
+        <DocLink to="/docs/routines#run-condition">only when a Workstream is due</DocLink>, such as
+        Follow through on open work. One Run takes each revisit up, so the employee plans the next
+        before it finishes. A Workstream that is archived, done or abandoned has no revisit. The
+        Workstream card on a routine page shows when its next revisit is.
       </P>
       <P>
         <Code>list_workstreams</Code> returns compact pages of five active Workstreams by default,
