@@ -45,7 +45,8 @@ const DELIBERATELY_UNLISTED: Record<string, string> = {
     "it is reached from the avatar menu and the G = chord.",
   onboarding:
     "The one-time guided launch. It opens after creating a company and from the " +
-    "owner-only Home banner, and appears in no nav by design (SetupBanner.tsx).",
+    "owner-only Get started checklist on Home, and appears in no nav by design " +
+    "(home/GetStarted.tsx, SetupBanner.tsx).",
 };
 
 // ─────────────────────────── a tiny route reader ───────────────────────────

@@ -259,9 +259,14 @@ export function GettingStarted() {
 
       <H2 id="return">Leave and come back</H2>
       <P>
-        Your saved work stays in place. While your company has no Goal (or mission and vision) or no
-        connected AI Model, Home offers a setup banner that returns to the next required step.
-        Routines and email are optional. When Home has nothing waiting on you, its all-clear card
+        Your saved work stays in place. While the company is being set up, Home shows owners and
+        admins a <Strong>Get started</Strong> checklist — the Goal, the first hire, its AI Model, a scheduled
+        Routine, and inviting your team — with a button into each step you have left and the next
+        one highlighted. Steps tick themselves off wherever you finish them, and the checklist
+        leaves once they are all done. If you hide it while the company has no Goal (or mission and
+        vision) or no connected AI Model, a setup banner stays on Home that returns to the next
+        required step. Routines and email are optional. When Home has nothing waiting on you, its
+        all-clear card
         shows your Goal and how far along it is, or <Strong>Set your Goal</Strong> if you have not
         written one. You can also reopen <Code>/c/&lt;company-slug&gt;/onboarding</Code> directly.
       </P>

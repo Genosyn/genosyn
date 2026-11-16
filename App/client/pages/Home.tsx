@@ -93,7 +93,7 @@ import { Button } from "../components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { useCompanySocketSubscription, useLiveRefetch } from "../components/CompanySocket";
-import { SetupBanner } from "../components/SetupBanner";
+import { GetStarted } from "../components/home/GetStarted";
 import { errorMessage } from "../lib/errors";
 import { enablePush, pushSupported } from "../lib/push";
 import { clsx } from "../components/ui/clsx";
@@ -164,6 +164,14 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [employeesError, setEmployeesError] = React.useState<string | null>(null);
   const [members, setMembers] = React.useState<Member[]>([]);
+  // Null until the roster has loaded, so the Get started checklist doesn't
+  // tick or untick "Invite your team" from a list that isn't there yet.
+  const [memberCount, setMemberCount] = React.useState<number | null>(null);
+  // While the Get started checklist shows, it is the one thing Home asks for.
+  // Owners and admins may get one, so their push prompt waits until it's known.
+  const [checklistShown, setChecklistShown] = React.useState(
+    company.role === "owner" || company.role === "admin",
+  );
   const peopleRequest = React.useRef(0);
 
   const reload = React.useCallback(async () => {
@@ -229,12 +237,14 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
       setEmployeesError(errorMessage(emps.reason, "Could not load your AI employees."));
     }
     setMembers(mems.status === "fulfilled" ? mems.value : []);
+    if (mems.status === "fulfilled") setMemberCount(mems.value.length);
   }, [company.id]);
 
   React.useEffect(() => {
     setEmployees([]);
     setEmployeesError(null);
     setMembers([]);
+    setMemberCount(null);
     void reloadPeople();
     return () => {
       peopleRequest.current += 1;
@@ -491,8 +501,8 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
             onOpenRun={(entry) => setOverlay({ kind: "workRun", entry })}
           />
         </header>
-        <SetupBanner company={company} />
-        <PushPromptBanner />
+        <GetStarted company={company} memberCount={memberCount} onShownChange={setChecklistShown} />
+        {!checklistShown && <PushPromptBanner />}
         {loadError && (
           <div className="mt-4 space-y-2">
             <FormError message={loadError} />

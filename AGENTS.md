@@ -1681,7 +1681,8 @@ holds every text role to WCAG AA on every surface.
   **Search or jump to** (⌘K), Ask AI, the bell and the account menu, which keeps
   the theme, keyboard shortcuts, Admin and Log out; do not add icons to it. A
   section's own pages are its rail, beside the sidebar, through
-  `ContextualLayout`.
+  `ContextualLayout`. Home asks one thing at a time: while the **Get started**
+  checklist shows, other prompts wait.
 - **Columns.** A rail down the left of a page is a `ResizableRail`, and a panel
   docked on its right takes `useSidePanelWidth` and `SidePanelResizeHandle`
   (`components/ui/SidePanel.tsx`), so each can be dragged, moved from the keyboard

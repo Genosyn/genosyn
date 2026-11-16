@@ -156,6 +156,17 @@ export function Introduction() {
         few items.
       </P>
       <P>
+        <Strong>A new company starts with a checklist.</Strong> Until it is set up, owners and
+        admins see <Strong>Get your company running</Strong> at the top of Home: write the
+        company&apos;s <DocLink to="/docs/goals">Goal</DocLink>, hire an AI Employee, connect its{" "}
+        <DocLink to="/docs/models">AI Model</DocLink>, give it a{" "}
+        <DocLink to="/docs/routines">Routine</DocLink>, and invite your team. Each step carries the
+        button that does it and ticks itself off however you did it, and the next one is
+        highlighted. The checklist leaves once every step is done. Hide it sooner with its{" "}
+        <Strong>✕</Strong>; if the company still can&apos;t work — no Goal, or no AI Model — a
+        one-line <Strong>Finish setting up</Strong> banner stays in its place.
+      </P>
+      <P>
         Home only shows you what it actually has. Every queue — failed{" "}
         <DocLink to="/docs/routines">routines</DocLink>, mentions,{" "}
         <DocLink to="/docs/tasks">todos</DocLink>, pending Decisions, reviews, unread messages,

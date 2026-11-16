@@ -129,8 +129,8 @@ export function Install() {
         Employee and connecting its AI Model, its suggested Routines, and optional email access. The
         summary offers a first request in chat. Follow{" "}
         <DocLink to="/docs/getting-started">Onboard your first AI Employee</DocLink> for the
-        complete walkthrough. If you leave partway, Home keeps a <Strong>Finish setting up</Strong>{" "}
-        banner back into it.
+        complete walkthrough. If you leave partway, Home keeps a <Strong>Get started</Strong>{" "}
+        checklist with a button back into each step you have left.
       </P>
 
       <H2 id="upgrading">Upgrading</H2>
