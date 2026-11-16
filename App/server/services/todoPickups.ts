@@ -42,6 +42,7 @@ import {
   ChatTurnActivityRecorder,
   listChatActivity,
   nextChatActivityOrdinal,
+  runtimeActivityCallbacks,
   summarizeChatActivity,
 } from "./chatTurnActivity.js";
 import { followChatTurn, type FollowSource } from "./chatTurnFollow.js";
@@ -812,29 +813,6 @@ async function delegatingFinanceAccess(pickup: TodoPickup): Promise<FinanceAcces
     : membership.financeAccess;
 }
 
-/** Every runtime callback a session's activity listens to, wired into one recorder. */
-function recorderCallbacks(
-  recorder: ChatTurnActivityRecorder,
-): NonNullable<ChatOptions["activity"]> {
-  return {
-    onToolUse: (name, input, callId) => recorder.toolUse(name, input, callId),
-    onToolResult: (name, result, callId) => recorder.toolResult(name, result, callId),
-    onReasoning: (delta, block) => recorder.reasoning(delta, block),
-    onReasoningEnd: (block) => recorder.reasoningEnd(block),
-    onModelRetry: (retry) => recorder.modelRetry(retry),
-    onModelOutage: (outage) => recorder.modelOutage(outage),
-    onRuntimeWait: (wait) => recorder.runtimeWait(wait),
-    onCompact: (info) => recorder.compact(info),
-    onApiKeyFailover: (change) => recorder.apiKeyFailover(change),
-    onServedModelChange: (change) => recorder.servedModelChange(change),
-    onBackgroundWork: (pending) => recorder.backgroundWork(pending),
-    onThinkingFallback: (fallback) => recorder.thinkingFallback(fallback),
-    onModelPulse: (pulse) => recorder.modelPulse(pulse),
-    onModelCall: (call) => recorder.modelCall(call),
-    onToolOutput: (name, output, callId) => recorder.toolOutput(name, output, callId),
-  };
-}
-
 /** What a later attempt is told: an earlier one did not finish, and what it changed. */
 async function recoveryNoteFor(pickup: TodoPickup): Promise<string> {
   let lines = "- No completed database mutations were recorded.";
@@ -1233,7 +1211,7 @@ export async function executeTodoPickup(
       },
       onSensitiveValues: (values) => recorder.setSensitiveValues(values),
       onPayloadsWithheld: (why) => recorder.withholdPayloads(why),
-      activity: recorderCallbacks(recorder),
+      activity: runtimeActivityCallbacks(recorder),
     };
     const options: ChatOptions =
       pickup.authority === "member" &&

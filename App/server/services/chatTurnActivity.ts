@@ -1,7 +1,7 @@
 import { AppDataSource } from "../db/datasource.js";
 import { ConversationActivityEvent } from "../db/entities/ConversationActivityEvent.js";
 import type { ConversationMessage } from "../db/entities/ConversationMessage.js";
-import { CHAT_HARD_TIMEOUT_MS } from "./chat.js";
+import { CHAT_HARD_TIMEOUT_MS, type ChatOptions } from "./chat.js";
 import {
   approvalHeldIn,
   describeChatToolCall,
@@ -842,6 +842,33 @@ export class ChatTurnActivityRecorder {
     if (parts.length === 0) return null;
     return this.scrub(parts.join(" · "));
   }
+}
+
+/**
+ * Every runtime callback a turn's activity listens to, wired into one
+ * recorder: what a surface passes as `ChatOptions.activity`. A surface with
+ * more to do on one of them (the direct chat's thinking record) wraps it.
+ */
+export function runtimeActivityCallbacks(
+  recorder: ChatTurnActivityRecorder,
+): NonNullable<ChatOptions["activity"]> {
+  return {
+    onToolUse: (name, input, callId) => recorder.toolUse(name, input, callId),
+    onToolResult: (name, result, callId) => recorder.toolResult(name, result, callId),
+    onReasoning: (delta, block) => recorder.reasoning(delta, block),
+    onReasoningEnd: (block) => recorder.reasoningEnd(block),
+    onModelRetry: (retry) => recorder.modelRetry(retry),
+    onModelOutage: (outage) => recorder.modelOutage(outage),
+    onRuntimeWait: (wait) => recorder.runtimeWait(wait),
+    onCompact: (info) => recorder.compact(info),
+    onApiKeyFailover: (change) => recorder.apiKeyFailover(change),
+    onServedModelChange: (change) => recorder.servedModelChange(change),
+    onBackgroundWork: (pending) => recorder.backgroundWork(pending),
+    onThinkingFallback: (fallback) => recorder.thinkingFallback(fallback),
+    onModelPulse: (pulse) => recorder.modelPulse(pulse),
+    onModelCall: (call) => recorder.modelCall(call),
+    onToolOutput: (name, output, callId) => recorder.toolOutput(name, output, callId),
+  };
 }
 
 function textField(node: Record<string, unknown>, key: string): string | null {

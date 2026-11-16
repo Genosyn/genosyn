@@ -32,6 +32,7 @@ import {
   lastChatActivity,
   listChatActivity,
   nextChatActivityOrdinal,
+  runtimeActivityCallbacks,
   summarizeChatActivity,
 } from "./chatTurnActivity.js";
 import { followChatTurn, type FollowSource } from "./chatTurnFollow.js";
@@ -535,7 +536,7 @@ export async function executeChannelTurn(turnId: string): Promise<ChannelTurnOut
         },
         onSensitiveValues: (values) => recorder.setSensitiveValues(values),
         onPayloadsWithheld: (why) => recorder.withholdPayloads(why),
-        activity: recorderCallbacks(recorder),
+        activity: runtimeActivityCallbacks(recorder),
       };
     const options: ChatOptions =
       turn.authority === "member" &&
@@ -650,28 +651,6 @@ function nextModelLook(model: Awaited<ReturnType<typeof resolveChatModel>>): Dat
       : Math.min(Math.max(state.nextCheckAt.getTime(), now + 1_000), now + MODEL_WAIT_LOOK_MS),
   );
 }
-
-/** Every runtime callback a turn's activity listens to, wired into one recorder. */
-function recorderCallbacks(recorder: ChatTurnActivityRecorder): NonNullable<ChatOptions["activity"]> {
-  return {
-    onToolUse: (name, input, callId) => recorder.toolUse(name, input, callId),
-    onToolResult: (name, result, callId) => recorder.toolResult(name, result, callId),
-    onReasoning: (delta, block) => recorder.reasoning(delta, block),
-    onReasoningEnd: (block) => recorder.reasoningEnd(block),
-    onModelRetry: (retry) => recorder.modelRetry(retry),
-    onModelOutage: (outage) => recorder.modelOutage(outage),
-    onRuntimeWait: (wait) => recorder.runtimeWait(wait),
-    onCompact: (info) => recorder.compact(info),
-    onApiKeyFailover: (change) => recorder.apiKeyFailover(change),
-    onServedModelChange: (change) => recorder.servedModelChange(change),
-    onBackgroundWork: (pending) => recorder.backgroundWork(pending),
-    onThinkingFallback: (fallback) => recorder.thinkingFallback(fallback),
-    onModelPulse: (pulse) => recorder.modelPulse(pulse),
-    onModelCall: (call) => recorder.modelCall(call),
-    onToolOutput: (name, output, callId) => recorder.toolOutput(name, output, callId),
-  };
-}
-
 
 /**
  * The note a later attempt gets: a previous one did not finish, and what it
@@ -1156,7 +1135,7 @@ export async function beginDrivenChannelTurn(args: {
         onWorkStarted: () => recorder.turnStarted("start"),
         onSensitiveValues: (values) => recorder.setSensitiveValues(values),
         onPayloadsWithheld: (why) => recorder.withholdPayloads(why),
-        activity: recorderCallbacks(recorder),
+        activity: runtimeActivityCallbacks(recorder),
       },
       onChunk: (chunk) => {
         streamed += chunk;
