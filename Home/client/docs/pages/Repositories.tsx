@@ -443,8 +443,10 @@ export function Repositories() {
       <P>
         Keep your conventions, setup steps, and verification commands in <Code>AGENTS.md</Code>
         at the repository root. Genosyn automatically includes it in every work session&apos;s
-        briefing, including follow-ups, and in ordinary chats and Routines after it prepares the
-        employee&apos;s granted checkouts. Activity shows when a work session loads its root guide.
+        briefing, including follow-ups. In ordinary chats and Routines it arrives when the employee
+        syncs that checkout — see{" "}
+        <DocLink to="#employee-checkouts">Repositories in chats and Routines</DocLink>. Activity
+        shows when a work session loads its root guide.
       </P>
       <P>
         Names are matched without regard to capitalization: <Code>AGENTS.md</Code> takes precedence
@@ -533,6 +535,27 @@ export function Repositories() {
         dependencies using the App container&apos;s network. If required dependencies cannot be
         installed, the employee reports the checks it could not run.
       </Callout>
+      <H2 id="employee-checkouts">Repositories in chats and Routines</H2>
+      <P>
+        Outside a work session, an AI Employee keeps its own checkout of each Repository it is
+        granted, under <Code>repositories/&lt;slug&gt;/</Code> in its working directory, when
+        coding tools are enabled. Genosyn does not fetch these before every chat reply or Routine
+        Run. Each turn is told which checkouts the employee has, and the employee calls{" "}
+        <Code>sync_repositories</Code> when the work needs a repository&apos;s files: it clones the
+        checkout the first time, fetches it after that, and returns the repository&apos;s
+        contributor guide. A question that never touches code is answered without waiting on{" "}
+        <Code>git fetch</Code>.
+      </P>
+      <P>
+        The employee can sync one repository by its slug or name, or every checkout at once. A sync
+        never throws away the employee&apos;s work: it fast-forwards a clean checkout of the
+        default branch and leaves anything else as it was. A Routine&apos;s Run log records each
+        sync as a tool call. In chat, only an owner or admin&apos;s conversation can have the
+        employee sync, because it uses the Repository&apos;s stored credentials. Work sessions need
+        no sync: each one fetches from the remote before it starts (see{" "}
+        <DocLink to="#session-base">Where a session starts</DocLink>).
+      </P>
+
       <H2 id="tasks">Sessions and Tasks</H2>
       <P>
         A session can belong to a todo. An AI Employee working a todo links the session it starts to

@@ -259,6 +259,9 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "source a candidate from linkedin", expect: "add_candidate" },
   { query: "write a playbook", expect: "create_skill" },
   { query: "what git repos do i have", expect: "list_repositories" },
+  // Checkouts are fetched on demand, so reading code starts here.
+  { query: "pull the latest code", expect: "sync_repositories" },
+  { query: "read the code in the website repo", expect: "sync_repositories" },
   // Nobody asks for a "work session" — they ask for the outcome. These are the
   // phrasings that stranded an employee before the tool existed: it could read
   // the repository, and had no way to start changing it.

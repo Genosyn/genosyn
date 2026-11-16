@@ -107,8 +107,7 @@ export function Chat() {
             def: (
               <>
                 Nothing has been asked of the AI Model yet, and the card says what the time is going
-                on: <em>Updating its Repositories</em>, <em>Connecting its tools</em> or{" "}
-                <em>Starting its runtime</em>.
+                on: <em>Connecting its tools</em> or <em>Starting its runtime</em>.
               </>
             ),
           },

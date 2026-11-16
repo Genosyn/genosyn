@@ -406,6 +406,9 @@ const ADMIN_TOOLS = [
   // Code workspaces, raw data-source access, and generated files have no
   // Member-level Grant model. Their human management surfaces are privileged.
   "list_repositories",
+  // Fetches into the employee's own checkout with server-held credentials.
+  // Owner/admin chat only, as the per-turn sync it replaced was.
+  "sync_repositories",
   "send_chat_attachment",
   "list_explore_connections",
   "get_explore_schema",

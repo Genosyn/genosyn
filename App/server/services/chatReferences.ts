@@ -106,7 +106,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     path: "/repositories",
     description: "Granted repositories",
     keywords: ["repository", "repo", "git", "engineering", "source"],
-    toolHints: ["list_repositories"],
+    toolHints: ["list_repositories", "sync_repositories"],
   },
   {
     key: "pipelines",

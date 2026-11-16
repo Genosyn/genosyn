@@ -21,7 +21,7 @@ import { composeMemoryContext } from "./employeeMemory.js";
 import { workBlocked } from "./standdowns.js";
 import { composeGoalsContext } from "./goals.js";
 import { composePoliciesContext } from "./companyPolicies.js";
-import { materializeEmployeeRepositoryContext } from "./repositories.js";
+import { composeRepositoryCheckoutsBriefing } from "./employeeRepositoryCheckouts.js";
 import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
 import { composePhoneContext } from "./phone/context.js";
@@ -35,7 +35,6 @@ import { getRoutineAccess } from "./routineAccess.js";
 import { DEFAULT_ROUTINE_ACCESS } from "../db/entities/EmployeeRoutineGrant.js";
 import { composeTaggedChatReferenceContext } from "./chatReferences.js";
 import { runEmployeeAgent, runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
-import { preparingPulse } from "./agent/modelStream.js";
 import type { ModelUnavailability } from "./agent/modelOutage.js";
 import type {
   AgentMessage,
@@ -903,11 +902,11 @@ export async function streamChatWithEmployee(
       ...unavailableCodingTools,
     ];
     // A Repository work session gets none of the company context below and
-    // does not materialize the employee's other checkouts: it works in one
+    // is not told about the employee's other checkouts: it works in one
     // worktree through one tool set, and everything else is prompt spent on
     // things its MCP seam refuses. See `composeRepositoryWorkSystemPrompt`.
     const repositoryWork = options.workSurface === "repository";
-    const repositoryMaterializationAllowed =
+    const repositoryCheckoutsAllowed =
       !repositoryWork &&
       privilegedToolSourcesAllowed &&
       !options.mailDeliveryMode &&
@@ -928,15 +927,13 @@ export async function streamChatWithEmployee(
     const policiesContext = contextAccess.soulAndSkills ? await composePoliciesContext(co.id) : "";
     const cwd = employeeDir(co.slug, emp.slug);
     ensureDir(cwd);
-    const materializeRepositories = contextAccess.repositories && repositoryMaterializationAllowed;
-    // Fetching a Repository can take a good while, and the AI Model has not
-    // been asked anything yet.
-    if (materializeRepositories) {
-      options.activity?.onModelPulse?.(preparingPulse("Updating its Repositories", model.model));
-    }
-    const repositoriesContext = materializeRepositories
-      ? (await materializeEmployeeRepositoryContext({ employeeId: emp.id, cwd })).context
-      : "";
+    // Checkouts are named here and fetched only when the employee reads one
+    // (`sync_repositories`). Fetching every granted Repository before every
+    // turn held a reply about anything at all behind minutes of `git fetch`.
+    const repositoriesContext =
+      contextAccess.repositories && repositoryCheckoutsAllowed
+        ? await composeRepositoryCheckoutsBriefing(emp.id)
+        : "";
     const financeContext =
       contextAccess.finance && !repositoryWork ? await composeFinanceContext(emp.id) : "";
     const [

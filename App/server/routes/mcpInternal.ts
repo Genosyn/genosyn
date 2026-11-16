@@ -1,5 +1,11 @@
 import { ParallelWorkerResult } from "../db/entities/ParallelWorkerResult.js";
 import { withRepositoryGuidance } from "../services/repositoryGuidance.js";
+import {
+  employeeCheckoutRoot,
+  formatRepositoryCheckoutSyncReport,
+  repositoryCheckoutSyncRefusal,
+  syncEmployeeRepositoryCheckouts,
+} from "../services/employeeRepositoryCheckouts.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { selfReviewToolError } from "../services/proactive/reviewPolicy.js";
@@ -17847,6 +17853,44 @@ mcpInternalRouter.post(
         lastSyncStatus: r.lastSyncStatus,
       })),
     });
+  },
+);
+
+const syncRepositoriesSchema = z
+  .object({ repository: z.string().trim().min(1).max(200).optional() })
+  .strict();
+
+/**
+ * Clone or fetch the employee's own checkouts when it is about to read them.
+ *
+ * A turn is only told which checkouts exist (`employeeRepositoryCheckouts.ts`);
+ * this is where the fetch that used to hold up every chat and Run now happens,
+ * once, for the turn that needs the code.
+ */
+mcpInternalRouter.post(
+  "/tools/sync_repositories",
+  validateBody(syncRepositoriesSchema),
+  async (req: McpRequest, res) => {
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const body = req.body as z.infer<typeof syncRepositoriesSchema>;
+    const refusal = repositoryCheckoutSyncRefusal({ mailDeliveryMode: req.mcpMailDeliveryMode });
+    if (refusal) return res.status(403).json({ error: refusal });
+    // Express 4 does not await a handler, so every await stays inside this try.
+    try {
+      const outcome = await syncEmployeeRepositoryCheckouts({
+        employeeId: self.id,
+        cwd: employeeCheckoutRoot(co.slug, self.slug),
+        repository: body.repository,
+      });
+      if (!outcome.ok) {
+        return res.status(outcome.reason === "remote" ? 502 : 400).json({ error: outcome.error });
+      }
+      respondWithText(res, formatRepositoryCheckoutSyncReport(outcome.report));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: `Could not sync repositories: ${message}` });
+    }
   },
 );
 

@@ -160,9 +160,12 @@ export function subscriptionUnavailableReason(): string | null {
  * Repository materialization follows the install's coding switch for every
  * auth mode. Subscription credentials remain in temporary runtime homes;
  * trusted self-host installs may explicitly use ordinary host execution.
+ *
+ * The auth mode no longer changes the answer, so a caller that does not know
+ * the turn's model — a `sync_repositories` call — may leave it out.
  */
 export function shouldMaterializeRepositoriesForTurnFor(options: {
-  authMode: AIModel["authMode"];
+  authMode?: AIModel["authMode"];
   codingToolsEnabled: boolean;
   codingToolsExecutionMode: "host" | "disabled";
 }): boolean {
@@ -170,7 +173,7 @@ export function shouldMaterializeRepositoriesForTurnFor(options: {
   return true;
 }
 
-export function shouldMaterializeRepositoriesForTurn(authMode: AIModel["authMode"]): boolean {
+export function shouldMaterializeRepositoriesForTurn(authMode?: AIModel["authMode"]): boolean {
   return shouldMaterializeRepositoriesForTurnFor({
     authMode,
     codingToolsEnabled: config.agent.codingTools.enabled,
