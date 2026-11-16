@@ -78,18 +78,22 @@ jobs:
         if: steps.exists.outputs.ready == 'true'
         run: npm run typecheck
 
+      # App's suite is split across the `app-test` shards below.
       - name: Test
-        if: steps.exists.outputs.ready == 'true'
+        if: steps.exists.outputs.ready == 'true' && matrix.project != 'App'
         run: npm test
 
-  chat-browser-test:
-    name: Browser regressions
-    # Its 16 browser suites take 8-9 minutes; a 10-minute ceiling cancelled
-    # healthy runs on slower runners.
+  app-test:
+    name: Test (App ${{ matrix.shard }}/${{ strategy.job-total }})
+    # On one runner the suite took 47-58 minutes, longer than everything else
+    # in this workflow put together. Node's test runner deals the test files
+    # out across the shards, and each file still runs in its own process.
     timeout-minutes: 20
-    # Pinned: `ubuntu-latest` is now 26.04, where this Playwright can't install
-    # Chromium, so the job would stop before running a single suite.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     defaults:
       run:
         working-directory: App
@@ -101,96 +105,126 @@ jobs:
           cache: npm
           cache-dependency-path: App/package-lock.json
       - run: npm ci
+      # Node reads test-runner flags only up to the first file pattern, so
+      # `npm test -- --test-shard=…` would quietly run the whole suite in every
+      # shard. Splice the flag in after `tsx --test` instead, so package.json
+      # stays the one place that says what the suite is.
+      - name: Test
+        env:
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: |
+          script="$(node -p 'require("./package.json").scripts.test')"
+          case "$script" in
+            "tsx --test "*) ;;
+            *)
+              echo "::error::App's test script no longer starts with \"tsx --test\"; update how lint.yml shards it."
+              exit 1
+              ;;
+          esac
+          PATH="$PWD/node_modules/.bin:$PATH" sh -c "tsx --test --test-shard=$SHARD ${script#tsx --test }"
+
+  chat-browser-test:
+    name: Browser regressions (${{ matrix.part }}/${{ strategy.job-total }})
+    # Run one after another, these suites took 10 minutes. Each part takes the
+    # ones listed under its number, about 3-4 minutes of them, balanced by how
+    # long each suite ran in CI. A new suite goes in whichever part is shortest.
+    timeout-minutes: 15
+    # Pinned: `ubuntu-latest` is now 26.04, where this Playwright can't install
+    # Chromium, so the job would stop before running a single suite.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    defaults:
+      run:
+        working-directory: App
+    env:
+      GENOSYN_TEST_BROWSER: chromium
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: App/package-lock.json
+      - run: npm ci
       - run: npx playwright-core install --with-deps chromium
+
+      # Part 1
       - name: Test clipboard, uploads, drafts, and every AI composer
+        if: matrix.part == 1
         run: npm run test:chat-images
-        env:
-          GENOSYN_TEST_BROWSER: chromium
       - name: Test a reply's code blocks and what the sanitizer lets through
+        if: matrix.part == 1
         run: npm run test:chat-markdown
-        env:
-          GENOSYN_TEST_BROWSER: chromium
       - name: Test saved draft attachment downloads and editing
+        if: matrix.part == 1
         run: npm run test:mail-draft-attachments
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test Routine outcomes, employee day, and run-log navigation
-        run: npm run test:work-outcomes
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test employee email analysis details, history, and source navigation
-        run: npm run test:work-analysis
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test live browser recording and saved playback transitions
-        run: npm run test:browser-recording-live
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test compact Home greeting, employee bubbles, and card layout
-        run: npm run test:home-layout
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test running Routines, today's Runs, filters, and mobile layout
-        run: npm run test:routine-activity
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test Home channel peek layout, states, and read behavior
-        run: npm run test:home-channel-peek
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test Home repository work attention, pagination, and live refresh
-        run: npm run test:home-repository-work
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test decision discussions, drafts, and concurrent employee chats
-        run: npm run test:decision-discussions
-        env:
-          GENOSYN_TEST_BROWSER: chromium
       - name: Test Home draft counts, mailbox review links, and live updates
+        if: matrix.part == 1
         run: npm run test:home-mail-drafts
-        env:
-          GENOSYN_TEST_BROWSER: chromium
       - name: Test email AI review indicators and work timelines
+        if: matrix.part == 1
         run: npm run test:mail-review-timeline
-        env:
-          GENOSYN_TEST_BROWSER: chromium
       - name: Test email recipients, forwarding, and scheduling meetings from email
+        if: matrix.part == 1
         run: npm run test:mail-compose
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test Work session model selection
-        run: npm run test:work-session-models
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test SSH repository publishing setup
-        run: npm run test:repository-settings
-        env:
-          GENOSYN_TEST_BROWSER: chromium
-      - name: Test proactive setup and delivery choices
-        run: npm run test:proactive
-        env:
-          GENOSYN_TEST_BROWSER: chromium
       - name: Test public Base Forms, validation, and submissions
+        if: matrix.part == 1
         run: npm run test:base-forms-browser
-        env:
-          GENOSYN_TEST_BROWSER: chromium
       - name: Test the Chat widget on another site, in a real frame
+        if: matrix.part == 1
         run: npm run test:support-chat-widget
-        env:
-          GENOSYN_TEST_BROWSER: chromium
+
+      # Part 2
+      - name: Test Routine outcomes, employee day, and run-log navigation
+        if: matrix.part == 2
+        run: npm run test:work-outcomes
+      - name: Test employee email analysis details, history, and source navigation
+        if: matrix.part == 2
+        run: npm run test:work-analysis
+      - name: Test live browser recording and saved playback transitions
+        if: matrix.part == 2
+        run: npm run test:browser-recording-live
+      - name: Test compact Home greeting, employee bubbles, and card layout
+        if: matrix.part == 2
+        run: npm run test:home-layout
+      - name: Test running Routines, today's Runs, filters, and mobile layout
+        if: matrix.part == 2
+        run: npm run test:routine-activity
+      - name: Test Home channel peek layout, states, and read behavior
+        if: matrix.part == 2
+        run: npm run test:home-channel-peek
+      - name: Test Home repository work attention, pagination, and live refresh
+        if: matrix.part == 2
+        run: npm run test:home-repository-work
+      - name: Test Work session model selection
+        if: matrix.part == 2
+        run: npm run test:work-session-models
+
+      # Part 3
+      - name: Test decision discussions, drafts, and concurrent employee chats
+        if: matrix.part == 3
+        run: npm run test:decision-discussions
+      - name: Test SSH repository publishing setup
+        if: matrix.part == 3
+        run: npm run test:repository-settings
+      - name: Test proactive setup and delivery choices
+        if: matrix.part == 3
+        run: npm run test:proactive
       - name: Test what a person sees when an AI Employee needs them, and reading an authenticator QR
+        if: matrix.part == 3
         run: npm run test:input-request-card
-        env:
-          GENOSYN_TEST_BROWSER: chromium
       - name: Test asking a person end to end, with nothing faked but the AI Model
+        if: matrix.part == 3
         run: npm run test:input-requests
-        env:
-          GENOSYN_TEST_BROWSER: chromium
+
       - name: Save browser screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chat-image-browser-screenshots
+          name: chat-image-browser-screenshots-${{ matrix.part }}
           path: output/playwright/*.png
           if-no-files-found: ignore
 
