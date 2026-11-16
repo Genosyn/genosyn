@@ -6,8 +6,9 @@ import { Initiative } from "../db/entities/Initiative.js";
 import type { FinanceAccess, Role } from "../db/entities/Membership.js";
 import { RevisionProposal } from "../db/entities/RevisionProposal.js";
 import { Todo } from "../db/entities/Todo.js";
-import type { WaitingElsewhere } from "../../shared/navigation.js";
+import type { NavigationAttention, WaitingElsewhere } from "../../shared/navigation.js";
 import { financeAccessFor } from "../middleware/financeAccess.js";
+import { countPendingDecisions } from "./decisions.js";
 import { listAccessibleProjectIds } from "./projects.js";
 
 /**
@@ -68,4 +69,33 @@ export async function countWaitingElsewhere(args: {
         })
       : null,
   };
+}
+
+/**
+ * Everything waiting on this person, for the number beside the Decision stack
+ * in the app sidebar: the stack's Decisions and reviews, and the queues it
+ * links to. The reviews follow the stack's own reads — owners and admins, from
+ * a browser — so an API key or a Member is never counted rows it would not be
+ * shown.
+ */
+export async function countAttention(args: {
+  companyId: string;
+  userId: string;
+  role: Role;
+  financeAccess: FinanceAccess | undefined;
+  /** False for an API key or connected app, which the stack's reviews refuse. */
+  canReadReviews: boolean;
+}): Promise<NavigationAttention> {
+  const { companyId, userId, role } = args;
+  const canReview = args.canReadReviews && (role === "owner" || role === "admin");
+  const [decisions, reviews, elsewhere] = await Promise.all([
+    countPendingDecisions({ companyId, viewer: { userId, role } }),
+    canReview
+      ? AppDataSource.getRepository(Approval).count({
+          where: { companyId, status: "pending", kind: In(STACK_APPROVAL_KINDS) },
+        })
+      : Promise.resolve(null),
+    countWaitingElsewhere(args),
+  ]);
+  return { decisions, reviews, elsewhere };
 }

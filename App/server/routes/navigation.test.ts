@@ -8,6 +8,7 @@ import express from "express";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
+import { Decision } from "../db/entities/Decision.js";
 import { FinanceProposal } from "../db/entities/FinanceProposal.js";
 import { Initiative } from "../db/entities/Initiative.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
@@ -18,7 +19,7 @@ import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { persistTestSession } from "../test/userSession.js";
-import type { WaitingElsewhere } from "../../shared/navigation.js";
+import type { NavigationAttention, WaitingElsewhere } from "../../shared/navigation.js";
 import { navigationRouter } from "./navigation.js";
 
 /**
@@ -202,5 +203,64 @@ describe("GET /navigation/waiting", () => {
     });
     assert.equal((await get<WaitingElsewhere>("/navigation/waiting", reviewer)).todoReviews, 1);
     assert.equal((await get<WaitingElsewhere>("/navigation/waiting", owner)).todoReviews, 0);
+  });
+});
+
+describe("GET /navigation/attention", () => {
+  async function decision(fields: Partial<Decision>): Promise<Decision> {
+    return insert(Decision, {
+      companyId: company.id,
+      employeeId: ada.id,
+      title: "Which supplier?",
+      body: "",
+      optionsJson: "[]",
+      status: "pending",
+      urgency: "normal",
+      ...fields,
+    });
+  }
+
+  beforeEach(async () => {
+    for (const kind of ["mail_send", "proactive_work", "browser_action"] as const) {
+      await insert(Approval, {
+        companyId: company.id,
+        routineId: "none",
+        employeeId: ada.id,
+        status: "pending",
+        kind,
+      });
+    }
+  });
+
+  test("an owner is counted the stack's rows and every queue beside it", async () => {
+    await decision({});
+    await decision({ title: "Decided already", status: "decided" });
+    await decision({ title: "Asleep", snoozedUntil: new Date(Date.now() + 86_400_000) });
+    await decision({ title: "Woken", snoozedUntil: new Date(Date.now() - 60_000) });
+
+    const body = await get<NavigationAttention>("/navigation/attention", owner);
+    assert.equal(body.decisions, 2, "pending and woken, not decided or still snoozed");
+    assert.equal(body.reviews, 2, "the email and work reviews the stack draws");
+    assert.deepEqual(body.elsewhere, {
+      approvals: 1,
+      revisions: 0,
+      initiatives: 0,
+      todoReviews: 0,
+      financeProposals: 0,
+    });
+  });
+
+  test("a Member is counted only the Decisions they may answer, and no reviews", async () => {
+    const reader = await member("reader@example.com", "member", company.id);
+    const other = await member("other@example.com", "member", company.id);
+    await decision({ title: "Anyone's" });
+    await decision({ title: "Theirs", assigneeUserId: reader.id });
+    await decision({ title: "Someone else's", assigneeUserId: other.id });
+
+    const body = await get<NavigationAttention>("/navigation/attention", reader);
+    assert.equal(body.decisions, 2);
+    assert.equal(body.reviews, null);
+    assert.equal(body.elsewhere.approvals, null);
+    assert.equal((await get<NavigationAttention>("/navigation/attention", owner)).decisions, 3);
   });
 });

@@ -481,26 +481,7 @@ export async function listPendingDecisions(params: {
   viewer?: { userId: string; role: Role };
 }): Promise<{ decisions: DecisionDTO[]; total: number }> {
   await reconcileStalePickups(params.companyId);
-  const canAnswerAssigned = params.viewer?.role === "owner" || params.viewer?.role === "admin";
-  const audience =
-    params.viewer && !canAnswerAssigned
-      ? [{ assigneeUserId: IsNull() }, { assigneeUserId: params.viewer.userId }]
-      : [{}];
-  const now = new Date();
-  const where = audience.flatMap((entry) => [
-    {
-      companyId: params.companyId,
-      status: "pending" as const,
-      ...entry,
-      snoozedUntil: IsNull(),
-    },
-    {
-      companyId: params.companyId,
-      status: "pending" as const,
-      ...entry,
-      snoozedUntil: LessThanOrEqual(now),
-    },
-  ]);
+  const where = pendingStackWhere(params.companyId, params.viewer, new Date());
   const [rows, total] = await AppDataSource.getRepository(Decision).findAndCount({
     where,
     // Sorting is finished in memory: urgency is a string column, so ordering on
@@ -511,6 +492,53 @@ export async function listPendingDecisions(params: {
   });
   const ordered = rows.sort(compareDecisions).slice(0, params.limit);
   return { decisions: await hydrateDecisions(ordered), total };
+}
+
+/**
+ * How many Decisions wait on this person: the same rows `listPendingDecisions`
+ * lists, counted on the `companyId`, `status` index and never read. The app
+ * sidebar asks on every page, so it leaves stale pickups to the stack's own
+ * reads to reconcile rather than writing from a count.
+ */
+export async function countPendingDecisions(params: {
+  companyId: string;
+  viewer: { userId: string; role: Role };
+}): Promise<number> {
+  return AppDataSource.getRepository(Decision).count({
+    where: pendingStackWhere(params.companyId, params.viewer, new Date()),
+  });
+}
+
+/**
+ * The pending stack as one person sees it: unsnoozed (or woken) pending rows,
+ * and for a Member only the ones nobody is assigned or they are. Owners and
+ * admins answer for everyone. Shared by the list and the count so the number
+ * beside the stack is always the length of the stack.
+ */
+function pendingStackWhere(
+  companyId: string,
+  viewer: { userId: string; role: Role } | undefined,
+  now: Date,
+) {
+  const canAnswerAssigned = viewer?.role === "owner" || viewer?.role === "admin";
+  const audience =
+    viewer && !canAnswerAssigned
+      ? [{ assigneeUserId: IsNull() }, { assigneeUserId: viewer.userId }]
+      : [{}];
+  return audience.flatMap((entry) => [
+    {
+      companyId,
+      status: "pending" as const,
+      ...entry,
+      snoozedUntil: IsNull(),
+    },
+    {
+      companyId,
+      status: "pending" as const,
+      ...entry,
+      snoozedUntil: LessThanOrEqual(now),
+    },
+  ]);
 }
 
 export async function createDecision(params: {
