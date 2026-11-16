@@ -44,6 +44,7 @@ import { InvoiceIssuerDetails } from "@/components/finance/InvoiceIssuer";
 import { ArchivedBadge, ArchivedBanner } from "@/components/finance/ArchiveControls";
 import { DocumentLinesTable } from "@/components/finance/DocumentLinesTable";
 import { SendDocumentModal } from "@/components/finance/SendDocumentModal";
+import { useDocumentPdfDownload } from "@/components/finance/usePdfDownload";
 import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 import { discountLabel } from "../../shared/documentDiscount";
@@ -80,6 +81,7 @@ export default function FinanceEstimateDetail() {
   const navigate = useNavigate();
   const location = useLocation();
   const dialog = useDialog();
+  const downloadDocumentPdf = useDocumentPdfDownload(company.id, "estimate");
   const [estimate, setEstimate] = React.useState<Estimate | null>(null);
   const [revision, setRevision] = React.useState<DocumentRevision | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -97,6 +99,10 @@ export default function FinanceEstimateDetail() {
   >(null);
   const [showResend, setShowResend] = React.useState(false);
   const [resendMessage, setResendMessage] = React.useState("");
+  // Set while the server renders the PDF, which takes a moment, so the button
+  // that asked for it spins until the file is handed over. It leaves the other
+  // actions free: a download changes nothing.
+  const [downloadingPdf, setDownloadingPdf] = React.useState(false);
 
   // True once this slug has loaded. Issuing a draft re-slugs the estimate from
   // `edraft-…` to `est-nnnn`, and the socket refetch that write triggers can
@@ -275,6 +281,16 @@ export default function FinanceEstimateDetail() {
     }
   }
 
+  async function downloadPdf() {
+    if (!estimate) return;
+    setDownloadingPdf(true);
+    try {
+      await downloadDocumentPdf(estimate);
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
+
   async function duplicate() {
     if (!estimate) return;
     setBusy("duplicate");
@@ -450,6 +466,7 @@ export default function FinanceEstimateDetail() {
                   variant="secondary"
                   onClick={onClick}
                   disabled={busy !== null}
+                  loading={downloadingPdf}
                   aria-label="More actions"
                 >
                   <MoreHorizontal size={14} />
@@ -494,7 +511,7 @@ export default function FinanceEstimateDetail() {
                     label="Download PDF"
                     onSelect={() => {
                       close();
-                      window.location.href = `/api/companies/${company.id}/estimates/${estimate.slug}/pdf`;
+                      void downloadPdf();
                     }}
                   />
                   <MenuItem
@@ -557,11 +574,9 @@ export default function FinanceEstimateDetail() {
             </Menu>
           </div>
         ) : (
-          <a href={`/api/companies/${company.id}/estimates/${estimate.slug}/pdf`}>
-            <Button variant="secondary">
-              <Download size={14} /> Download PDF
-            </Button>
-          </a>
+          <Button variant="secondary" onClick={() => void downloadPdf()} loading={downloadingPdf}>
+            <Download size={14} /> Download PDF
+          </Button>
         )}
       </div>
 

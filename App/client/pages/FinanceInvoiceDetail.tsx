@@ -55,6 +55,7 @@ import { ArchivedBadge, ArchivedBanner } from "@/components/finance/ArchiveContr
 import { InvoiceStatusBadge } from "@/components/finance/InvoiceStatusBadge";
 import { DocumentLinesTable } from "@/components/finance/DocumentLinesTable";
 import { SendDocumentModal } from "@/components/finance/SendDocumentModal";
+import { useDocumentPdfDownload } from "@/components/finance/usePdfDownload";
 import { RecordHistory } from "@/components/RecordHistory";
 import { FinanceOutletCtx } from "./FinanceLayout";
 import { discountLabel } from "../../shared/documentDiscount";
@@ -108,6 +109,7 @@ export default function FinanceInvoiceDetail() {
   const navigate = useNavigate();
   const location = useLocation();
   const dialog = useDialog();
+  const downloadDocumentPdf = useDocumentPdfDownload(company.id, "invoice");
   const [invoice, setInvoice] = React.useState<Invoice | null>(null);
   const [emailDetails, setEmailDetails] = React.useState<DocumentEmailDetails | null>(null);
   const [writeOffs, setWriteOffs] = React.useState<InvoiceWriteOff[]>([]);
@@ -128,6 +130,10 @@ export default function FinanceInvoiceDetail() {
   const [resendMessage, setResendMessage] = React.useState("");
   const [revision, setRevision] = React.useState<DocumentRevision | null>(null);
   const [homeCurrency, setHomeCurrency] = React.useState<string | null>(null);
+  // Set while the server renders the PDF, which takes a moment, so the button
+  // that asked for it spins until the file is handed over. It leaves the other
+  // actions free: a download changes nothing.
+  const [downloadingPdf, setDownloadingPdf] = React.useState(false);
 
   // True once this slug has loaded. Issuing a draft re-slugs the invoice from
   // `draft-…` to `inv-nnnn`, and the socket refetch that write triggers can
@@ -252,6 +258,16 @@ export default function FinanceInvoiceDetail() {
       void dialog.error(err, { title: "Couldn’t void the invoice" });
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function downloadPdf() {
+    if (!invoice) return;
+    setDownloadingPdf(true);
+    try {
+      await downloadDocumentPdf(invoice);
+    } finally {
+      setDownloadingPdf(false);
     }
   }
 
@@ -523,6 +539,7 @@ export default function FinanceInvoiceDetail() {
                   variant="secondary"
                   onClick={onClick}
                   disabled={busy !== null}
+                  loading={downloadingPdf}
                   aria-label="More actions"
                 >
                   <MoreHorizontal size={14} />
@@ -566,7 +583,7 @@ export default function FinanceInvoiceDetail() {
                     label="Download PDF"
                     onSelect={() => {
                       close();
-                      window.location.href = `/api/companies/${company.id}/invoices/${invoice.slug}/pdf`;
+                      void downloadPdf();
                     }}
                   />
                   <MenuItem
@@ -631,11 +648,9 @@ export default function FinanceInvoiceDetail() {
             </Menu>
           </div>
         ) : (
-          <a href={`/api/companies/${company.id}/invoices/${invoice.slug}/pdf`}>
-            <Button variant="secondary">
-              <Download size={14} /> Download PDF
-            </Button>
-          </a>
+          <Button variant="secondary" onClick={() => void downloadPdf()} loading={downloadingPdf}>
+            <Download size={14} /> Download PDF
+          </Button>
         )}
       </div>
 

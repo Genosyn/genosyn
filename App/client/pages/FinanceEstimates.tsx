@@ -5,6 +5,7 @@ import {
   ArchiveRestore,
   Ban,
   Copy,
+  Download,
   MoreHorizontal,
   Plus,
   Repeat,
@@ -34,7 +35,7 @@ import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Menu, MenuItem } from "../components/ui/Menu";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import {
@@ -46,6 +47,7 @@ import {
 import { EstimateStatsPanel } from "../components/finance/EstimateStatsPanel";
 import { StatsUnavailable, StatsViewBar } from "../components/finance/StatsPanel";
 import { useArchiveSelection } from "../components/finance/useArchiveSelection";
+import { useDocumentPdfDownload } from "../components/finance/usePdfDownload";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /** Every status tab, plus the Archived view that holds what was filed away. */
@@ -77,9 +79,10 @@ const ALREADY_ARCHIVED_HINT = "Already archived — restore it from the Archived
 
 /**
  * Estimate (Quotation) list with status-tab filter. Mirrors the
- * Invoices list — click any row to open the detail page, and a read-only
- * Member gets neither New estimate, the row checkboxes, nor the all-writes
- * row menu. Archived estimates leave the status tabs for their own view;
+ * Invoices list — click any row to open the detail page, each row's menu
+ * leads with Download PDF, and a read-only Member gets neither New estimate
+ * nor the row checkboxes, and a row menu that offers that download alone.
+ * Archived estimates leave the status tabs for their own view;
  * select rows to archive or restore them together.
  *
  * Once anything has been issued, the list leads with its figures
@@ -93,6 +96,7 @@ export default function FinanceEstimates() {
   const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const dialog = useDialog();
+  const downloadPdf = useDocumentPdfDownload(company.id, "estimate");
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [estimates, setEstimates] = React.useState<EstimateListItem[] | null>(null);
@@ -456,7 +460,7 @@ export default function FinanceEstimates() {
                 <th className="px-4 py-2 text-left font-medium">Issued</th>
                 <th className="px-4 py-2 text-left font-medium">Valid until</th>
                 <th className="px-4 py-2 text-right font-medium">Total</th>
-                {canWrite && <th className="w-10 px-4 py-2 text-right font-medium">&nbsp;</th>}
+                <th className="w-10 px-4 py-2 text-right font-medium">&nbsp;</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -521,27 +525,27 @@ export default function FinanceEstimates() {
                     <td className="px-4 py-3 text-right tabular-nums text-slate-900 dark:text-slate-100">
                       {formatMoney(est.totalCents, est.currency)}
                     </td>
-                    {canWrite && (
-                      <td className="px-4 py-3 text-right">
-                        <RowMenu
-                          estimate={est}
-                          onDelete={() => deleteDraft(est)}
-                          onDuplicate={() => duplicate(est)}
-                          onMakeRecurring={() =>
-                            navigate(
-                              recurringInvoiceFromDocumentPath(`/c/${company.slug}/finance`, {
-                                kind: "estimate",
-                                slug: est.slug,
-                              }),
-                            )
-                          }
-                          onVoid={() => voidEstimate(est)}
-                          onArchive={() =>
-                            selection.runOne(est, est.archivedAt ? "restore" : "archive")
-                          }
-                        />
-                      </td>
-                    )}
+                    <td className="px-4 py-3 text-right">
+                      <RowMenu
+                        estimate={est}
+                        canWrite={canWrite}
+                        onDownload={() => downloadPdf(est)}
+                        onDelete={() => deleteDraft(est)}
+                        onDuplicate={() => duplicate(est)}
+                        onMakeRecurring={() =>
+                          navigate(
+                            recurringInvoiceFromDocumentPath(`/c/${company.slug}/finance`, {
+                              kind: "estimate",
+                              slug: est.slug,
+                            }),
+                          )
+                        }
+                        onVoid={() => voidEstimate(est)}
+                        onArchive={() =>
+                          selection.runOne(est, est.archivedAt ? "restore" : "archive")
+                        }
+                      />
+                    </td>
                   </tr>
                 );
               })}
@@ -565,6 +569,8 @@ export default function FinanceEstimates() {
 
 function RowMenu({
   estimate,
+  canWrite,
+  onDownload,
   onDelete,
   onDuplicate,
   onMakeRecurring,
@@ -572,12 +578,19 @@ function RowMenu({
   onArchive,
 }: {
   estimate: EstimateListItem;
+  /** False for a read-only Member, who is offered the download alone. */
+  canWrite: boolean;
+  /** Settles once the PDF has been handed over or its failure shown. */
+  onDownload: () => Promise<void>;
   onDelete: () => void;
   onDuplicate: () => void;
   onMakeRecurring: () => void;
   onVoid: () => void;
   onArchive: () => void;
 }) {
+  // The server renders the PDF in a browser of its own, which takes a
+  // moment, so the row's menu button spins until the file is handed over.
+  const [downloading, setDownloading] = React.useState(false);
   const isDraft = estimate.status === "draft";
   const isVoid = estimate.status === "void";
   const canVoid = !isDraft && !isVoid;
@@ -590,58 +603,73 @@ function RowMenu({
         <button
           ref={ref}
           onClick={onClick}
-          className="touch-target relative rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          disabled={downloading}
+          aria-busy={downloading || undefined}
+          className="touch-target relative rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-wait dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Row menu"
         >
-          <MoreHorizontal size={16} />
+          {downloading ? <ButtonSpinner size={16} /> : <MoreHorizontal size={16} />}
         </button>
       )}
     >
       {(close) => (
         <>
           <MenuItem
-            icon={<Copy size={14} />}
-            label="Duplicate"
+            icon={<Download size={14} />}
+            label="Download PDF"
             onSelect={() => {
               close();
-              onDuplicate();
+              setDownloading(true);
+              void onDownload().finally(() => setDownloading(false));
             }}
           />
-          <MenuItem
-            icon={<Repeat size={14} />}
-            label="Make recurring"
-            onSelect={() => {
-              close();
-              onMakeRecurring();
-            }}
-          />
-          <MenuItem
-            icon={archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
-            label={archived ? "Restore" : "Archive"}
-            onSelect={() => {
-              close();
-              onArchive();
-            }}
-          />
-          {canVoid && (
-            <MenuItem
-              icon={<Ban size={14} />}
-              label="Void"
-              onSelect={() => {
-                close();
-                onVoid();
-              }}
-            />
-          )}
-          {isDraft && (
-            <MenuItem
-              icon={<Trash2 size={14} className="text-red-500" />}
-              label={<span className="text-red-600 dark:text-red-400">Delete</span>}
-              onSelect={() => {
-                close();
-                onDelete();
-              }}
-            />
+          {canWrite && (
+            <>
+              <MenuItem
+                icon={<Copy size={14} />}
+                label="Duplicate"
+                onSelect={() => {
+                  close();
+                  onDuplicate();
+                }}
+              />
+              <MenuItem
+                icon={<Repeat size={14} />}
+                label="Make recurring"
+                onSelect={() => {
+                  close();
+                  onMakeRecurring();
+                }}
+              />
+              <MenuItem
+                icon={archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                label={archived ? "Restore" : "Archive"}
+                onSelect={() => {
+                  close();
+                  onArchive();
+                }}
+              />
+              {canVoid && (
+                <MenuItem
+                  icon={<Ban size={14} />}
+                  label="Void"
+                  onSelect={() => {
+                    close();
+                    onVoid();
+                  }}
+                />
+              )}
+              {isDraft && (
+                <MenuItem
+                  icon={<Trash2 size={14} className="text-red-500" />}
+                  label={<span className="text-red-600 dark:text-red-400">Delete</span>}
+                  onSelect={() => {
+                    close();
+                    onDelete();
+                  }}
+                />
+              )}
+            </>
           )}
         </>
       )}

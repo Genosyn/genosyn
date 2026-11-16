@@ -5,6 +5,7 @@ import {
   ArchiveRestore,
   Ban,
   Copy,
+  Download,
   MoreHorizontal,
   Plus,
   Repeat,
@@ -35,7 +36,7 @@ import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
-import { Spinner } from "../components/ui/Spinner";
+import { ButtonSpinner, Spinner } from "../components/ui/Spinner";
 import { Menu, MenuItem } from "../components/ui/Menu";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import {
@@ -48,6 +49,7 @@ import { InvoiceStatsPanel } from "../components/finance/InvoiceStatsPanel";
 import { InvoiceStatusBadge } from "../components/finance/InvoiceStatusBadge";
 import { StatsUnavailable, StatsViewBar } from "../components/finance/StatsPanel";
 import { useArchiveSelection } from "../components/finance/useArchiveSelection";
+import { useDocumentPdfDownload } from "../components/finance/usePdfDownload";
 import { invoiceArchiveBlocker } from "../../shared/invoiceArchive";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -76,10 +78,11 @@ const ALREADY_ARCHIVED_HINT = "Already archived — restore it from the Archived
 
 /**
  * Invoice list with status-tab filter. Phase A of the Finance milestone
- * (M19). Click any row to open the detail page. A read-only Member gets the
- * list without New invoice, the row checkboxes, or the row menu, whose every
- * entry is a write. It opens on Active: a voided invoice stays in the records
- * but leaves that view for its own Void tab, and an archived one leaves every
+ * (M19). Click any row to open the detail page. Each row's menu leads with
+ * Download PDF; a read-only Member gets the list without New invoice or the
+ * row checkboxes, and that download is all their row menu offers, since every
+ * other entry is a write. It opens on Active: a voided invoice stays in the
+ * records but leaves that view for its own Void tab, and an archived one leaves every
  * status tab for Archived. Only an invoice with nothing left to collect can be
  * archived, so the rest keep their tick box disabled.
  *
@@ -94,6 +97,7 @@ export default function FinanceInvoices() {
   const canWrite = canWriteFinance(company);
   const background = useBackgroundAction();
   const dialog = useDialog();
+  const downloadPdf = useDocumentPdfDownload(company.id, "invoice");
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
@@ -469,7 +473,7 @@ export default function FinanceInvoices() {
                 <th className="px-4 py-2 text-left font-medium">Due</th>
                 <th className="px-4 py-2 text-right font-medium">Total</th>
                 <th className="px-4 py-2 text-right font-medium">Balance</th>
-                {canWrite && <th className="w-10 px-4 py-2 text-right font-medium">&nbsp;</th>}
+                <th className="w-10 px-4 py-2 text-right font-medium">&nbsp;</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -555,27 +559,27 @@ export default function FinanceInvoices() {
                         {formatMoney(inv.balanceCents, inv.currency)}
                       </span>
                     </td>
-                    {canWrite && (
-                      <td className="px-4 py-3 text-right">
-                        <RowMenu
-                          invoice={inv}
-                          onDelete={() => deleteDraft(inv)}
-                          onDuplicate={() => duplicate(inv)}
-                          onMakeRecurring={() =>
-                            navigate(
-                              recurringInvoiceFromDocumentPath(`/c/${company.slug}/finance`, {
-                                kind: "invoice",
-                                slug: inv.slug,
-                              }),
-                            )
-                          }
-                          onVoid={() => voidInvoice(inv)}
-                          onArchive={() =>
-                            selection.runOne(inv, inv.archivedAt ? "restore" : "archive")
-                          }
-                        />
-                      </td>
-                    )}
+                    <td className="px-4 py-3 text-right">
+                      <RowMenu
+                        invoice={inv}
+                        canWrite={canWrite}
+                        onDownload={() => downloadPdf(inv)}
+                        onDelete={() => deleteDraft(inv)}
+                        onDuplicate={() => duplicate(inv)}
+                        onMakeRecurring={() =>
+                          navigate(
+                            recurringInvoiceFromDocumentPath(`/c/${company.slug}/finance`, {
+                              kind: "invoice",
+                              slug: inv.slug,
+                            }),
+                          )
+                        }
+                        onVoid={() => voidInvoice(inv)}
+                        onArchive={() =>
+                          selection.runOne(inv, inv.archivedAt ? "restore" : "archive")
+                        }
+                      />
+                    </td>
                   </tr>
                 );
               })}
@@ -599,6 +603,8 @@ export default function FinanceInvoices() {
 
 function RowMenu({
   invoice,
+  canWrite,
+  onDownload,
   onDelete,
   onDuplicate,
   onMakeRecurring,
@@ -606,12 +612,19 @@ function RowMenu({
   onArchive,
 }: {
   invoice: InvoiceListItem;
+  /** False for a read-only Member, who is offered the download alone. */
+  canWrite: boolean;
+  /** Settles once the PDF has been handed over or its failure shown. */
+  onDownload: () => Promise<void>;
   onDelete: () => void;
   onDuplicate: () => void;
   onMakeRecurring: () => void;
   onVoid: () => void;
   onArchive: () => void;
 }) {
+  // The server renders the PDF in a browser of its own, which takes a
+  // moment, so the row's menu button spins until the file is handed over.
+  const [downloading, setDownloading] = React.useState(false);
   const isDraft = invoice.status === "draft";
   const isVoid = invoice.status === "void";
   // Issued (sent / paid) invoices can only be voided, not deleted.
@@ -627,60 +640,75 @@ function RowMenu({
         <button
           ref={ref}
           onClick={onClick}
-          className="touch-target relative rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          disabled={downloading}
+          aria-busy={downloading || undefined}
+          className="touch-target relative rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-wait dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Row menu"
         >
-          <MoreHorizontal size={16} />
+          {downloading ? <ButtonSpinner size={16} /> : <MoreHorizontal size={16} />}
         </button>
       )}
     >
       {(close) => (
         <>
           <MenuItem
-            icon={<Copy size={14} />}
-            label="Duplicate"
+            icon={<Download size={14} />}
+            label="Download PDF"
             onSelect={() => {
               close();
-              onDuplicate();
+              setDownloading(true);
+              void onDownload().finally(() => setDownloading(false));
             }}
           />
-          <MenuItem
-            icon={<Repeat size={14} />}
-            label="Make recurring"
-            onSelect={() => {
-              close();
-              onMakeRecurring();
-            }}
-          />
-          {canArchive && (
-            <MenuItem
-              icon={archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
-              label={archived ? "Restore" : "Archive"}
-              onSelect={() => {
-                close();
-                onArchive();
-              }}
-            />
-          )}
-          {canVoid && (
-            <MenuItem
-              icon={<Ban size={14} />}
-              label="Void"
-              onSelect={() => {
-                close();
-                onVoid();
-              }}
-            />
-          )}
-          {isDraft && (
-            <MenuItem
-              icon={<Trash2 size={14} className="text-red-500" />}
-              label={<span className="text-red-600 dark:text-red-400">Delete</span>}
-              onSelect={() => {
-                close();
-                onDelete();
-              }}
-            />
+          {canWrite && (
+            <>
+              <MenuItem
+                icon={<Copy size={14} />}
+                label="Duplicate"
+                onSelect={() => {
+                  close();
+                  onDuplicate();
+                }}
+              />
+              <MenuItem
+                icon={<Repeat size={14} />}
+                label="Make recurring"
+                onSelect={() => {
+                  close();
+                  onMakeRecurring();
+                }}
+              />
+              {canArchive && (
+                <MenuItem
+                  icon={archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                  label={archived ? "Restore" : "Archive"}
+                  onSelect={() => {
+                    close();
+                    onArchive();
+                  }}
+                />
+              )}
+              {canVoid && (
+                <MenuItem
+                  icon={<Ban size={14} />}
+                  label="Void"
+                  onSelect={() => {
+                    close();
+                    onVoid();
+                  }}
+                />
+              )}
+              {isDraft && (
+                <MenuItem
+                  icon={<Trash2 size={14} className="text-red-500" />}
+                  label={<span className="text-red-600 dark:text-red-400">Delete</span>}
+                  onSelect={() => {
+                    close();
+                    onDelete();
+                  }}
+                />
+              )}
+            </>
           )}
         </>
       )}

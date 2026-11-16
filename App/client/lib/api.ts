@@ -63,6 +63,29 @@ async function requestText(
   return { text, headers: res.headers };
 }
 
+/**
+ * A GET whose answer is a file to save — an invoice's PDF — with the headers
+ * that name it. A refusal throws the same {@link ApiError} as every other
+ * request. One in plain text is the App's own sentence, such as a PDF route's
+ * "PDF rendering unavailable: …" when the server has no browser to render
+ * with, so its first line is the message rather than a guess from the status.
+ */
+async function requestFile(url: string): Promise<{ blob: Blob; headers: Headers }> {
+  const res = await fetch(url, { method: "GET", credentials: "same-origin" });
+  if (!res.ok) {
+    const text = await res.text();
+    const plain = res.headers.get("content-type")?.startsWith("text/plain")
+      ? text.trim().split("\n")[0].trim()
+      : "";
+    throw new ApiError(
+      plain || errorMessageFrom(text, res.status, res.statusText),
+      res.status,
+      jsonOrNull(text),
+    );
+  }
+  return { blob: await res.blob(), headers: res.headers };
+}
+
 function jsonOrNull(text: string): unknown {
   try {
     return text ? JSON.parse(text) : null;
@@ -207,6 +230,7 @@ export const api = {
   patch: <T>(url: string, body?: unknown) => request<T>("PATCH", url, body),
   del: <T>(url: string) => request<T>("DELETE", url),
   getText: requestText,
+  getFile: requestFile,
   stream: streamPost,
   streamGet,
   /** Multipart upload of a single file under field name `file`, with

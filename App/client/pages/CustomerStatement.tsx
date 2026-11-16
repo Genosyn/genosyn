@@ -12,6 +12,7 @@ import {
 import { effectiveFinanceAccess } from "../lib/subpages";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { usePdfDownload } from "../components/finance/usePdfDownload";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { CustomersClosed } from "./CustomersLayout";
@@ -110,6 +111,10 @@ function StatementOfAccount({
   const [data, setData] = React.useState<CustomerStatementResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const downloadPdfFile = usePdfDownload();
+  // Set while the server renders the PDF, which takes a moment, so Download
+  // PDF spins until the file is handed over.
+  const [downloadingPdf, setDownloadingPdf] = React.useState(false);
 
   const queryString = React.useMemo(() => {
     const q = new URLSearchParams();
@@ -146,6 +151,20 @@ function StatementOfAccount({
   const statement = data?.statement ?? null;
   const customerName = data?.customer.name ?? customerSlug ?? "";
   const baseUrl = `/api/companies/${company.id}/customers/${customerSlug}/statement`;
+
+  async function downloadPdf() {
+    setDownloadingPdf(true);
+    try {
+      await downloadPdfFile(
+        `${baseUrl}/pdf${queryString}`,
+        // The server's own name: the customer and the statement's last day.
+        `statement-${customerSlug}${to ? `-${to}` : ""}.pdf`,
+      );
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
+
   const breadcrumbs =
     surface === "finance"
       ? [
@@ -194,12 +213,7 @@ function StatementOfAccount({
           >
             <Printer size={14} /> Print view
           </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              window.location.href = `${baseUrl}/pdf${queryString}`;
-            }}
-          >
+          <Button variant="primary" onClick={() => void downloadPdf()} loading={downloadingPdf}>
             <Download size={14} /> Download PDF
           </Button>
         </div>

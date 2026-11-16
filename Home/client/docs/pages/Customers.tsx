@@ -337,9 +337,11 @@ export function Customers() {
         </LI>
         <LI>
           <Strong>Download PDF</Strong> or <Strong>Print view</Strong> — hand the customer a
-          portable document, or open the print-friendly HTML to save from your browser. Invoice
-          numbers on the in-app view link straight to the underlying document in{" "}
-          <DocLink to="/docs/finance">Finance</DocLink>.
+          portable document, or open the print-friendly HTML to save from your browser. Genosyn
+          renders the PDF on the server, so <Strong>Download PDF</Strong> spins for a moment
+          before the file arrives; if the server can&apos;t render it, a message says why and the
+          statement stays on screen. Invoice numbers on the in-app view link straight to the
+          underlying document in <DocLink to="/docs/finance">Finance</DocLink>.
         </LI>
       </UL>
 

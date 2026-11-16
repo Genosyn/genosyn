@@ -261,13 +261,18 @@ export function Finance() {
 
       <H3 id="estimates-printing">Sending and printing</H3>
       <P>
-        Every issued estimate has a Print / PDF view at{" "}
-        <Code>/api/companies/:cid/estimates/:slug/html</Code>. Use it from the detail page&apos;s{" "}
-        <Code>Print / PDF</Code> button —<em>File → Save as PDF</em> in your browser produces a
-        clean A4 PDF with no app chrome. The same HTML is what the customer sees when you click{" "}
-        <Code>Issue &amp; send</Code> or <Code>Resend email</Code>, and that email now carries a PDF
-        copy of the estimate as an attachment — delivered through whichever{" "}
-        <DocLink to="/docs/integrations">EmailProvider</DocLink> the company has configured.
+        To save an estimate as a PDF, click <Code>Download PDF</Code> in its row menu on{" "}
+        <Code>Finance → Estimates</Code>, or in the <Code>More actions</Code> menu on its page.
+        Genosyn renders the PDF on the server, so the button you used — the row&apos;s menu button
+        or <Code>More actions</Code> — spins for a moment before the file arrives. If the server
+        can&apos;t render it, a message says why and you stay where you were. The printable HTML
+        behind the PDF is at{" "}
+        <Code>/api/companies/:cid/estimates/:slug/html</Code> —<em>File → Save as PDF</em> in your
+        browser produces the same clean A4 page with no app chrome. That HTML is what the customer
+        sees when you click <Code>Issue &amp; send</Code> or <Code>Resend email</Code>, and that
+        email now carries a PDF copy of the estimate as an attachment — delivered through
+        whichever <DocLink to="/docs/integrations">EmailProvider</DocLink> the company has
+        configured.
       </P>
       <P>
         <Code>Issue &amp; send</Code> emails a draft to the customer&apos;s billing email.{" "}
@@ -354,6 +359,13 @@ export function Finance() {
         until you issue it. To bill the same invoice on a schedule instead, use{" "}
         <Code>Make recurring</Code> — see{" "}
         <DocLink to="/docs/finance#recurring-from-document">From an invoice or estimate</DocLink>.
+      </P>
+      <P>
+        To save an invoice as a PDF without opening it, click <Code>Download PDF</Code> at the top
+        of its row menu on <Code>Finance → Invoices</Code>; the same entry is in the{" "}
+        <Code>More actions</Code> menu on its page. It works for every invoice, drafts and void ones
+        included, and it downloads exactly as{" "}
+        <DocLink to="/docs/finance#estimates-printing">an estimate&apos;s PDF</DocLink> does.
       </P>
       <P>
         <Code>Finance → Invoices</Code> opens on <Strong>Active</Strong>: every invoice that
@@ -1143,7 +1155,9 @@ export function Finance() {
           the controls that would change something, such as <Strong>New invoice</Strong>,{" "}
           <Strong>Issue &amp; send</Strong>, <Strong>Record payment</Strong>, <Strong>Void</Strong>,
           and a proposal&apos;s <Strong>Apply</Strong>, and show settings, templates, and a
-          vendor&apos;s details for reading only. Following a saved link to a create or edit form
+          vendor&apos;s details for reading only. <Strong>Download PDF</Strong> stays on every
+          invoice and estimate: it is all their row menus offer a read-only member, and it is on
+          each document&apos;s page. Following a saved link to a create or edit form
           shows a note in its place, with a way back. The same holds in{" "}
           <DocLink to="/docs/customers#access">Customers</DocLink>: they can open every customer but
           not create, edit, archive, or delete one. Revenue holds an account&apos;s{" "}
