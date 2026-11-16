@@ -516,13 +516,13 @@ await app.check(
   },
 );
 
-/** The Drafts queue holding one draft that Sam's follow-up routine wrote. */
+/** The Drafts queue holding drafts that Sam's follow-up routine wrote. */
 const ROUTINE_PATH = "/c/acme/routines/sam/weekday-follow-up";
-function routineDraftRoutes(): ApiRoute[] {
-  const draft: MailDraft = {
-    id: "draft-routine",
+function routineDraftRoutes(count = 1): ApiRoute[] {
+  const drafts: MailDraft[] = Array.from({ length: count }, (_, i) => ({
+    id: `draft-routine-${i}`,
     threadId: "t-renewal",
-    subject: "Re: Acme renewal",
+    subject: i === 0 ? "Re: Acme renewal" : `Re: Acme renewal (${i + 1})`,
     toEmails: "priya@customer.example",
     ccEmails: "",
     snippet: "Hi Priya, following up on the renewal terms.",
@@ -537,16 +537,16 @@ function routineDraftRoutes(): ApiRoute[] {
       routine: { id: "follow-up", name: "Weekday follow-up", slug: "weekday-follow-up" },
       runId: null,
     },
-  };
+  }));
   return [
     [
       "GET",
       `${API}/mail/accounts/mailbox/drafts`,
       () => ({
-        drafts: [draft],
+        drafts,
         nextOffset: null,
         facets: { employees: [], routines: [] },
-        totals: { total: 1, sendable: 1, missingRecipient: 0, queued: 0 },
+        totals: { total: count, sendable: count, missingRecipient: 0, queued: 0 },
       }),
     ],
     ["GET", `${API}/mail/accounts/mailbox/drafts/send-queue`, () => ({ batch: null })],
@@ -580,6 +580,60 @@ await app.check("Enter on a focused routine chip opens the routine, not a draft 
   await page.getByRole("link", { name: "Weekday follow-up", exact: true }).focus();
   await page.keyboard.press("Enter");
   await view.landedOn(ROUTINE_PATH);
+  await page.close();
+});
+
+await app.check("Drafts group headers stay pinned over the rows as the queue scrolls", async () => {
+  const view = await app.open({ path: "/c/acme/mail?view=drafts", routes: routineDraftRoutes(30) });
+  const { page } = view;
+  await page.getByRole("button", { name: "Re: Acme renewal (30)", exact: true }).waitFor();
+  // Reading a box after an instant scroll lays the page out again, so each
+  // measurement below sees the scroll that came before it.
+  const layout = await page.evaluate(() => {
+    const header = document.querySelector("li > div.sticky") as HTMLElement;
+    let scroller = header.parentElement;
+    while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
+      scroller = scroller.parentElement;
+    }
+    const scrolling = scroller ?? (document.scrollingElement as HTMLElement);
+    const viewTop = scroller ? scroller.getBoundingClientRect().top : 0;
+    // Scroll well past where the header sits in the page…
+    scrolling.scrollBy({ top: 600, behavior: "instant" });
+    const pinned = header.getBoundingClientRect();
+    // …then bring the next routine chip up under it.
+    const chip = Array.from(document.querySelectorAll("li[data-draft-idx] a[href]"))
+      .map((link) => link.getBoundingClientRect())
+      .find((rect) => rect.top > pinned.bottom);
+    if (!chip) return { error: "no routine chip below the header" };
+    scrolling.scrollBy({
+      top: chip.top + chip.height / 2 - (pinned.top + pinned.height / 2),
+      behavior: "instant",
+    });
+    const after = header.getBoundingClientRect();
+    const hit = document.elementFromPoint(chip.left + chip.width / 2, after.top + after.height / 2);
+    return {
+      pinnedAt: Math.round(pinned.top - viewTop),
+      stillPinnedAt: Math.round(after.top - viewTop),
+      headerOverChip: hit !== null && header.contains(hit),
+    };
+  });
+  assert.deepEqual(
+    layout,
+    { pinnedAt: 0, stillPinnedAt: 0, headerOverChip: true },
+    "the group header stays at the top of the scrolling page, drawn over the rows under it",
+  );
+  // j moves the cursor to the second row, now scrolled far above: it comes
+  // back into view below the pinned header, not hidden behind it.
+  await page.keyboard.press("j");
+  await page.waitForFunction(
+    () => document.querySelector('li[data-draft-idx="1"]')!.getBoundingClientRect().top >= 0,
+  );
+  const gap = await page.evaluate(
+    () =>
+      document.querySelector('li[data-draft-idx="1"]')!.getBoundingClientRect().top -
+      document.querySelector("li > div.sticky")!.getBoundingClientRect().bottom,
+  );
+  assert.ok(gap >= 0, `the cursor's row starts ${gap}px below the pinned header`);
   await page.close();
 });
 

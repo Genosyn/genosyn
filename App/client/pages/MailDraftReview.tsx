@@ -549,7 +549,10 @@ export function MailDraftReview({
           <DraftSendProgress batch={sendBatch} />
         </div>
       )}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      {/* `overflow-clip`, not `overflow-hidden`: both clip to the rounded
+          corners, but `hidden` makes the card a scroll container that never
+          scrolls, and the sticky group headers would stick to it, not the page. */}
+      <div className="overflow-clip rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {/* Header — what is here, and the one button that sends all of it. */}
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/50">
           <div className="min-w-0 flex-1">
@@ -1043,7 +1046,8 @@ function DraftRow({
       data-draft-idx={index}
       onMouseEnter={onFocus}
       className={clsx(
-        "group relative border-b border-slate-100 last:border-b-0 dark:border-slate-800/70",
+        // scroll-mt-9: a row the cursor scrolls to stops below its pinned group header.
+        "group relative scroll-mt-9 border-b border-slate-100 last:border-b-0 dark:border-slate-800/70",
         selected
           ? "bg-indigo-50/70 dark:bg-indigo-500/10"
           : "hover:bg-slate-50 dark:hover:bg-slate-800/60",
