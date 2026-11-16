@@ -470,6 +470,8 @@ export function MailDraftReview({
       const row = flatRows[cursor];
       // Shift uppercases `event.key`; fold so Shift-modified keys still match.
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      // Enter on a focused link (a draft's routine chip) follows the link.
+      const onLink = event.target instanceof Element && event.target.closest("a[href]") !== null;
       // Deliberately j/k rather than the arrow keys — stealing arrows would
       // break ordinary scrolling for anyone not using the shortcuts.
       if (key === "j") {
@@ -483,7 +485,7 @@ export function MailDraftReview({
         if (!row.missingRecipient && !row.queuedForSend) {
           setSelected([row.id], !isSelected(row));
         }
-      } else if (key === "Enter" && row) {
+      } else if (key === "Enter" && row && !onLink) {
         event.preventDefault();
         setExpandedId((id) => (id === row.id ? null : row.id));
       } else if (key === "o" && row) {
@@ -713,6 +715,7 @@ export function MailDraftReview({
                           draft={draft}
                           index={index}
                           companyId={companyId}
+                          companySlug={companySlug}
                           focused={index === cursor}
                           selected={isSelected(draft)}
                           expanded={expandedId === draft.id}
@@ -1008,6 +1011,7 @@ function DraftRow({
   draft,
   index,
   companyId,
+  companySlug,
   focused,
   selected,
   expanded,
@@ -1022,6 +1026,7 @@ function DraftRow({
   draft: MailDraft;
   index: number;
   companyId: string;
+  companySlug: string;
   focused: boolean;
   selected: boolean;
   expanded: boolean;
@@ -1067,47 +1072,60 @@ function DraftRow({
           <DraftAuthorAvatar author={draft.author} companyId={companyId} size="sm" />
         </span>
 
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          onDoubleClick={onOpen}
-          className="min-w-0 flex-1 text-left"
-        >
-          <span className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-              {draft.subject || "(no subject)"}
+        {/* The row's button lies under its text rather than around it, so the
+            routine chip can sit on top as a real link: a link inside a button
+            is invalid HTML, and its click would toggle the row as well.
+            `isolate` keeps the chip under the sticky group headers. */}
+        <div className="relative isolate min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            onDoubleClick={onOpen}
+            aria-label={draft.subject || "(no subject)"}
+            aria-expanded={expanded}
+            className="absolute inset-0"
+          />
+          <div className="pointer-events-none">
+            <span className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                {draft.subject || "(no subject)"}
+              </span>
+              {draft.hasAttachments && <Paperclip size={12} className="shrink-0 text-slate-400" />}
+              <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
+                {shortMailDate(draft.createdAt)}
+              </span>
             </span>
-            {draft.hasAttachments && <Paperclip size={12} className="shrink-0 text-slate-400" />}
-            <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
-              {shortMailDate(draft.createdAt)}
+            <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span
+                className={clsx(
+                  "truncate text-xs",
+                  draft.missingRecipient
+                    ? "font-medium text-amber-700 dark:text-amber-400"
+                    : "text-slate-500 dark:text-slate-400",
+                )}
+              >
+                {draft.missingRecipient
+                  ? "No recipient"
+                  : draft.queuedForSend
+                    ? `Queued · ${draft.toEmails}`
+                    : draft.toEmails}
+              </span>
+              <RoutineChip
+                author={draft.author}
+                companySlug={companySlug}
+                className="pointer-events-auto z-10"
+              />
             </span>
-          </span>
-          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span
-              className={clsx(
-                "truncate text-xs",
-                draft.missingRecipient
-                  ? "font-medium text-amber-700 dark:text-amber-400"
-                  : "text-slate-500 dark:text-slate-400",
-              )}
-            >
-              {draft.missingRecipient
-                ? "No recipient"
-                : draft.queuedForSend
-                  ? `Queued · ${draft.toEmails}`
-                  : draft.toEmails}
+            <span className="mt-1 block truncate text-xs text-slate-400 dark:text-slate-500">
+              {draft.snippet || draft.bodyPreview || "Empty draft"}
             </span>
-            <RoutineChip author={draft.author} />
-          </span>
-          <span className="mt-1 block truncate text-xs text-slate-400 dark:text-slate-500">
-            {draft.snippet || draft.bodyPreview || "Empty draft"}
-          </span>
-          {failure && (
-            <span className="mt-1 block truncate text-xs text-red-600 dark:text-red-400">
-              Last attempt failed: {failure}
-            </span>
-          )}
-        </button>
+            {failure && (
+              <span className="mt-1 block truncate text-xs text-red-600 dark:text-red-400">
+                Last attempt failed: {failure}
+              </span>
+            )}
+          </div>
+        </div>
 
         {/* Row actions, revealed on hover or keyboard focus — mirrors the thread list. */}
         <div className="hidden shrink-0 items-center gap-0.5 group-focus-within:flex group-hover:flex">

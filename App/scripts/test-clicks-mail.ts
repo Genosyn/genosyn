@@ -516,6 +516,73 @@ await app.check(
   },
 );
 
+/** The Drafts queue holding one draft that Sam's follow-up routine wrote. */
+const ROUTINE_PATH = "/c/acme/routines/sam/weekday-follow-up";
+function routineDraftRoutes(): ApiRoute[] {
+  const draft: MailDraft = {
+    id: "draft-routine",
+    threadId: "t-renewal",
+    subject: "Re: Acme renewal",
+    toEmails: "priya@customer.example",
+    ccEmails: "",
+    snippet: "Hi Priya, following up on the renewal terms.",
+    bodyPreview: "Hi Priya, following up on the renewal terms.",
+    hasAttachments: false,
+    missingRecipient: false,
+    queuedForSend: false,
+    createdAt: hoursAgo(1),
+    author: {
+      kind: "employee",
+      employee: { id: "sam", name: "Sam Okafor", slug: "sam", role: "Sales", avatarKey: null },
+      routine: { id: "follow-up", name: "Weekday follow-up", slug: "weekday-follow-up" },
+      runId: null,
+    },
+  };
+  return [
+    [
+      "GET",
+      `${API}/mail/accounts/mailbox/drafts`,
+      () => ({
+        drafts: [draft],
+        nextOffset: null,
+        facets: { employees: [], routines: [] },
+        totals: { total: 1, sendable: 1, missingRecipient: 0, queued: 0 },
+      }),
+    ],
+    ["GET", `${API}/mail/accounts/mailbox/drafts/send-queue`, () => ({ batch: null })],
+    ...mailRoutes(store()),
+  ];
+}
+
+await app.check("A draft's routine chip is a link: one click opens the routine", async () => {
+  const view = await app.open({ path: "/c/acme/mail?view=drafts", routes: routineDraftRoutes() });
+  const { page } = view;
+  const chip = page.getByRole("link", { name: "Weekday follow-up", exact: true });
+  // A real href is what lets the browser open it in a new tab.
+  assert.equal(await chip.getAttribute("href"), ROUTINE_PATH);
+  assert.equal(
+    await chip.evaluate((link) => link.closest("button") === null),
+    true,
+    "the chip sits outside the row's button, so its click never toggles the row",
+  );
+  // Around the chip, the row still peeks at the draft.
+  await page.getByRole("button", { name: "Re: Acme renewal", exact: true }).click();
+  await page.getByRole("button", { name: "Open full draft", exact: true }).waitFor();
+  await view.click(chip);
+  await view.landedOn(ROUTINE_PATH);
+  assert.equal(view.clicks(), 1, "the chip, and nothing else");
+  await page.close();
+});
+
+await app.check("Enter on a focused routine chip opens the routine, not a draft peek", async () => {
+  const view = await app.open({ path: "/c/acme/mail?view=drafts", routes: routineDraftRoutes() });
+  const { page } = view;
+  await page.getByRole("link", { name: "Weekday follow-up", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await view.landedOn(ROUTINE_PATH);
+  await page.close();
+});
+
 await app.check("Create task starts from the subject and links the email", async () => {
   const s = store();
   const view = await app.open({

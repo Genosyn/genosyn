@@ -64,17 +64,37 @@ export function DraftAuthorAvatar({
   );
 }
 
-/** The routine a draft came out of — the queue's most useful grouping key. */
-export function RoutineChip({ author }: { author: MailDraftAuthor }) {
+function routinePath(companySlug: string, employeeSlug: string, routineSlug: string): string {
+  return `/c/${companySlug}/routines/${employeeSlug}/${routineSlug}`;
+}
+
+/**
+ * The routine a draft came out of — the queue's most useful grouping key. It is
+ * a real link, so it opens the routine in place, or in a new tab from a middle
+ * click or the browser's own link menu.
+ */
+export function RoutineChip({
+  author,
+  companySlug,
+  className,
+}: {
+  author: MailDraftAuthor;
+  companySlug: string;
+  className?: string;
+}) {
   if (author.kind !== "employee" || !author.routine) return null;
   return (
-    <span
+    <Link
+      to={routinePath(companySlug, author.employee.slug, author.routine.slug)}
       title={`Routine: ${author.routine.name}`}
-      className="inline-flex max-w-[10rem] items-center gap-1 rounded-full border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500 dark:border-slate-700 dark:text-slate-400"
+      className={clsx(
+        "touch-target relative inline-flex max-w-[10rem] items-center gap-1 rounded-full border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500 hover:border-indigo-200 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-400 dark:hover:border-indigo-500/40 dark:hover:text-indigo-300",
+        className,
+      )}
     >
       <CalendarClock size={10} className="shrink-0" />
       <span className="truncate">{author.routine.name}</span>
-    </span>
+    </Link>
   );
 }
 
@@ -111,7 +131,7 @@ export function DraftAuthorLine({
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
           {author.kind === "employee" && author.routine ? (
             <Link
-              to={`/c/${companySlug}/routines/${author.employee.slug}/${author.routine.slug}`}
+              to={routinePath(companySlug, author.employee.slug, author.routine.slug)}
               className="inline-flex items-center gap-1 text-indigo-600 hover:underline dark:text-indigo-400"
             >
               <CalendarClock size={11} /> {author.routine.name}

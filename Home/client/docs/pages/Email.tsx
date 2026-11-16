@@ -302,7 +302,8 @@ export function Email() {
       <P>
         Every row shows who wrote it: the <Strong>AI Employee</Strong> and the{" "}
         <Strong>Routine</Strong> that produced it, next to the recipient, subject, and a preview.
-        Filter the queue <Strong>by AI Employee</Strong> or <Strong>by routine</Strong> from the
+        Select the routine to open it, or open it in a new tab as you would any link. Filter the
+        queue <Strong>by AI Employee</Strong> or <Strong>by routine</Strong> from the
         toolbar — each option carries its own count — and group the list the same way to review one
         routine&apos;s output as a batch. Drafts you wrote yourself show you instead; anything
         written before this shipped, or synced in from the mail server, reads as{" "}
