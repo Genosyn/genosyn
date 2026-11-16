@@ -93,7 +93,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     defaults:
       run:
         working-directory: App
@@ -176,6 +176,9 @@ jobs:
       - name: Test the Chat widget on another site, in a real frame
         if: matrix.part == 1
         run: npm run test:support-chat-widget
+      - name: Test proactive setup and delivery choices
+        if: matrix.part == 1
+        run: npm run test:proactive
 
       # Part 2
       - name: Test Routine outcomes, employee day, and run-log navigation
@@ -210,9 +213,6 @@ jobs:
       - name: Test SSH repository publishing setup
         if: matrix.part == 3
         run: npm run test:repository-settings
-      - name: Test proactive setup and delivery choices
-        if: matrix.part == 3
-        run: npm run test:proactive
       - name: Test what a person sees when an AI Employee needs them, and reading an authenticator QR
         if: matrix.part == 3
         run: npm run test:input-request-card
