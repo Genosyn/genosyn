@@ -3,7 +3,6 @@ import multer from "multer";
 import { z } from "zod";
 
 import { AppDataSource } from "../db/datasource.js";
-import { CalendarEvent } from "../db/entities/CalendarEvent.js";
 import { CALENDAR_ACCESS_LEVELS } from "../db/entities/EmployeeCalendarGrant.js";
 import { CALENDAR_AUTO_RECORD_MODES } from "../db/entities/CalendarAccount.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
@@ -25,6 +24,7 @@ import {
   listConnectableCalendars,
   updateCalendarAccount,
 } from "../services/meetings/accounts.js";
+import { listAgendaEvents } from "../services/meetings/agenda.js";
 import { syncCalendarAccount } from "../services/meetings/calendarSync.js";
 import {
   meetingCustomerSummaries,
@@ -49,7 +49,6 @@ import {
 } from "../services/meetings/revenueLink.js";
 import {
   serializeCalendarAccount,
-  serializeCalendarEvent,
   serializeMeeting,
   serializeParticipant,
   serializeSegment,
@@ -398,18 +397,12 @@ meetingsRouter.get(
       ? new Date(parsed.data.to)
       : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    const qb = AppDataSource.getRepository(CalendarEvent)
-      .createQueryBuilder("event")
-      .where("event.companyId = :cid", { cid: cid(req) })
-      .andWhere("event.status != :cancelled", { cancelled: "cancelled" })
-      .andWhere("event.startAt < :to AND event.endAt > :from", { from, to })
-      .orderBy("event.startAt", "ASC")
-      .take(500);
-    if (parsed.data.accountId) {
-      qb.andWhere("event.accountId = :accountId", { accountId: parsed.data.accountId });
-    }
-    const events = await qb.getMany();
-    res.json({ events: events.map(serializeCalendarEvent) });
+    const events = await listAgendaEvents(cid(req), {
+      from,
+      to,
+      accountId: parsed.data.accountId,
+    });
+    res.json({ events });
   }),
 );
 
@@ -478,13 +471,11 @@ meetingsRouter.get(
       typeof meetingListQuerySchema
     >;
     try {
-      const { rows, hidden: _hidden, ...info } = await pageMeetings(
-        cid(req),
-        filter,
-        "all",
-        { limit, cursor },
-        serializeMeeting,
-      );
+      const {
+        rows,
+        hidden: _hidden,
+        ...info
+      } = await pageMeetings(cid(req), filter, "all", { limit, cursor }, serializeMeeting);
       const customers =
         effectiveFinanceAccess(req) === "none"
           ? new Map<string, MeetingCustomerSummary>()
