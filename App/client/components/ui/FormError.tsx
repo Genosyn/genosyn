@@ -71,12 +71,17 @@ export function FormError({
  * action succeeded and nothing on the screen shows it: a test email sent, a
  * key copied, an export queued. If the list re-renders, the row updates, or
  * the modal closes, that *is* the confirmation — say nothing.
+ *
+ * `action` is where to go next — "Open in Email" after a send — drawn at the
+ * banner's end.
  */
 export function FormSuccess({
   message,
+  action,
   className,
 }: {
   message?: string | null;
+  action?: React.ReactNode;
   className?: string;
 }) {
   if (!message) return null;
@@ -90,6 +95,7 @@ export function FormSuccess({
     >
       <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
       <span className="min-w-0 flex-1">{message}</span>
+      {action && <span className="flex shrink-0 items-center gap-3">{action}</span>}
     </div>
   );
 }

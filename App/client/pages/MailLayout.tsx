@@ -26,31 +26,16 @@ import {
   SectionRailLinks,
   railHeadingClassName,
 } from "../components/SectionRail";
-import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
 import { ConnectMailboxForm } from "../components/mail/ConnectMailbox";
-import {
-  MailRecipientFields,
-  type MailRecipientFieldsHandle,
-  useMailRecipientCheck,
-} from "../components/mail/MailRecipientFields";
-import {
-  emptyMailRecipients,
-  mailHeaders,
-  mailRecipientProblem,
-  mailRecipientsFrom,
-  type MailRecipients,
-} from "../lib/mailRecipients";
-import { useComposerFileDrop } from "../lib/fileDrop";
+import { MailComposeModal } from "../components/mail/MailComposeModal";
+import { activeMailAccountKey } from "../lib/mailAccountChoice";
 import { useCompanySocketSubscription } from "../components/CompanySocket";
 import { CountBadge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
-import { Input } from "../components/ui/Input";
 import { Menu, MenuItem } from "../components/ui/Menu";
-import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
-import { Textarea } from "../components/ui/Textarea";
 import { useAskAiMailComposer } from "../components/askAi/AskAiProvider";
 
 /**
@@ -80,8 +65,6 @@ export type MailOutletCtx = {
   openCompose: (init?: Partial<ComposeInput>) => void;
 };
 
-const activeAccountKey = (companyId: string) => `genosyn.mail.account.${companyId}`;
-
 /** Folders offered as ⌘K commands, in the order the sidebar lists them. */
 const MAIL_COMMAND_VIEWS: Array<{ view: string; label: string; icon: LucideIcon }> = [
   { view: "inbox", label: "Inbox", icon: Inbox },
@@ -101,13 +84,13 @@ export default function MailLayout({ company }: { company: Company }) {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [accounts, setAccounts] = React.useState<MailAccount[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(() =>
-    localStorage.getItem(activeAccountKey(company.id)),
+    localStorage.getItem(activeMailAccountKey(company.id)),
   );
   React.useEffect(() => {
     if (!requestedAccountId || !accounts.some((account) => account.id === requestedAccountId))
       return;
     setActiveId(requestedAccountId);
-    localStorage.setItem(activeAccountKey(company.id), requestedAccountId);
+    localStorage.setItem(activeMailAccountKey(company.id), requestedAccountId);
   }, [accounts, company.id, requestedAccountId]);
   const [labels, setLabels] = React.useState<MailLabelInfo[]>([]);
   const [labelError, setLabelError] = React.useState<string | null>(null);
@@ -322,7 +305,7 @@ export default function MailLayout({ company }: { company: Company }) {
       { replace: true },
     );
     setActiveId(id);
-    localStorage.setItem(activeAccountKey(company.id), id);
+    localStorage.setItem(activeMailAccountKey(company.id), id);
     setLabels([]);
     setLabelError(null);
     setCounts({ inboxUnread: 0, drafts: 0, starred: 0 });
@@ -662,186 +645,5 @@ function MailOnboarding({
         .
       </p>
     </div>
-  );
-}
-
-// ───────────────────────────── compose modal ─────────────────────────────
-
-function MailComposeModal({
-  open,
-  onClose,
-  onReopen,
-  company,
-  account,
-  init,
-  session,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onReopen: () => void;
-  company: Company;
-  account: MailAccount;
-  init: Partial<ComposeInput>;
-  session: number;
-}) {
-  const dialog = useDialog();
-  const navigate = useNavigate();
-  const [fields, setFields] = React.useState<MailRecipients>(emptyMailRecipients);
-  const [subject, setSubject] = React.useState("");
-  const [body, setBody] = React.useState("");
-  const [error, setError] = React.useState<string | null>(null);
-  const fieldsRef = React.useRef<MailRecipientFieldsHandle>(null);
-  const blocked = useMailRecipientCheck(company.id, account.id, fields);
-  const recovering = React.useRef(false);
-  const activeSession = React.useRef(session);
-  const initializedSession = React.useRef(-1);
-  activeSession.current = session;
-  const attach = useMailAttachments(company.id, account.id);
-  const clearAttach = attach.clear;
-  // Paste a screenshot or drop a file straight into the compose box.
-  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) => attach.addFiles(files));
-
-  React.useEffect(() => {
-    if (!open) return;
-    const sessionChanged = initializedSession.current !== session;
-    initializedSession.current = session;
-    if (recovering.current && !sessionChanged) {
-      recovering.current = false;
-      return;
-    }
-    recovering.current = false;
-    setFields(
-      mailRecipientsFrom({ to: init.to ?? "", cc: init.cc ?? "", bcc: init.bcc ?? "" }, [
-        account.address,
-      ]),
-    );
-    setSubject(init.subject ?? "");
-    setBody(init.bodyText ?? "");
-    setError(null);
-    clearAttach();
-  }, [open, init, clearAttach, session, account.address]);
-
-  const submit = (kind: "send" | "draft") => {
-    setError(null);
-    const recipients = fieldsRef.current?.commit() ?? fields;
-    const problem = mailRecipientProblem(recipients);
-    if (problem) {
-      setError(problem);
-      fieldsRef.current?.focus("to");
-      return;
-    }
-    if (kind === "send" && blocked.length > 0) {
-      setError("Remove the recipients who can’t be emailed first.");
-      return;
-    }
-    const headers = mailHeaders(recipients);
-    const input: ComposeInput = {
-      to: headers.to,
-      cc: headers.cc || undefined,
-      bcc: headers.bcc || undefined,
-      subject: subject.trim(),
-      bodyText: body,
-      threadId: init.threadId,
-      attachmentIds: attach.ids.length ? attach.ids : undefined,
-    };
-    const submittedSession = session;
-    const title = kind === "send" ? "Couldn’t send the message" : "Couldn’t save the draft";
-    recovering.current = true;
-    onClose();
-    const submitted =
-      kind === "send"
-        ? mailApi.send(company.id, account.id, input)
-        : mailApi.createDraft(company.id, account.id, input);
-    void submitted
-      .then((result) => {
-        if (activeSession.current !== submittedSession) return;
-        recovering.current = false;
-        clearAttach();
-        if (kind === "draft") {
-          navigate(`/c/${company.slug}/mail/t/${result.message.threadId}`);
-        }
-      })
-      .catch((submitError: unknown) => {
-        // Still the same composer: reopen it with everything intact and put
-        // the reason above the Send button, not in a modal over the fields.
-        if (activeSession.current === submittedSession) {
-          setError(`${title}: ${errorMessage(submitError, "Request failed")}`);
-          onReopen();
-          return;
-        }
-        // The person has moved on to a newer draft, so there is no form left
-        // to hold this and reopening would clobber what they are writing.
-        void dialog.error(submitError, {
-          title,
-          message: `${errorMessage(submitError)} Your newer draft is untouched.`,
-        });
-      });
-  };
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      onEscape={() => fieldsRef.current?.closeMenus() ?? false}
-      title={`New message — ${account.address}`}
-      size="lg"
-    >
-      <div
-        className="space-y-3"
-        onKeyDown={(event) => {
-          if (
-            event.key === "Enter" &&
-            (event.metaKey || event.ctrlKey) &&
-            !event.nativeEvent.isComposing
-          ) {
-            event.preventDefault();
-            if (!attach.uploading) submit("send");
-          }
-        }}
-      >
-        <div className="rounded-lg border border-slate-300 px-3 shadow-sm focus-within:border-indigo-500 dark:border-slate-700">
-          <MailRecipientFields
-            ref={fieldsRef}
-            companyId={company.id}
-            companySlug={company.slug}
-            accountId={account.id}
-            value={fields}
-            onChange={setFields}
-            selfAddress={account.address}
-            blocked={blocked}
-            autoFocus={init.to ? undefined : "to"}
-            className="pb-1"
-          />
-        </div>
-        <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
-        <Textarea
-          label="Message"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onPaste={onPaste}
-          {...dragProps}
-          rows={10}
-          autoFocus={Boolean(init.to)}
-          className={
-            dragActive ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900" : undefined
-          }
-        />
-        <AttachmentBar
-          items={attach.items}
-          uploading={attach.uploading}
-          onAdd={attach.addFiles}
-          onRemove={attach.remove}
-        />
-        <FormError message={error} />
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" disabled={attach.uploading} onClick={() => submit("draft")}>
-            Save draft
-          </Button>
-          <Button disabled={attach.uploading} onClick={() => submit("send")} title="Send (⌘↵)">
-            Send
-          </Button>
-        </div>
-      </div>
-    </Modal>
   );
 }
