@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useOutletContext, useParams } from "react-router-dom";
 import {
   Building2,
+  CalendarDays,
   Check,
   CheckCircle2,
   ExternalLink,
@@ -28,10 +29,19 @@ import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { RecordHistory } from "../components/RecordHistory";
 import { Panel, ProviderChip, StatusChip } from "../components/meetings/MeetingChips";
+import {
+  AttendeeList,
+  CopyAddressesButton,
+  EmailAttendeesButton,
+  type AttendeePerson,
+} from "../components/meetings/Attendees";
+import { useComposeEmail } from "../components/mail/ComposeEmailModal";
 import { api, type Company, type Customer } from "../lib/api";
 import { ACCOUNT_STATUS_LABEL } from "../lib/customerLabel";
 import { errorMessage } from "../lib/errors";
 import {
+  agendaEventPath,
+  attendeeEmailDraft,
   formatDuration,
   formatOffset,
   meetingsApi,
@@ -69,6 +79,7 @@ export default function MeetingDetail() {
   const [pasting, setPasting] = React.useState(false);
   const [addingAttendees, setAddingAttendees] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const email = useComposeEmail(company);
 
   const reload = React.useCallback(() => {
     if (!meetingId) return;
@@ -217,6 +228,43 @@ export default function MeetingDetail() {
   const { meeting, customer, customerWithheld, participants, transcript } = data;
   const when = meeting.scheduledStartAt ?? meeting.startedAt ?? meeting.createdAt;
   const knownContacts = participants.filter((row) => row.contactId);
+  const people: AttendeePerson[] = participants.map((row) => ({
+    email: row.email,
+    name: row.displayName || row.email,
+    responseStatus: row.responseStatus,
+    organizer: row.isOrganizer,
+    contactId: row.contactId,
+    note: !row.contactId && !row.isInternal ? "Not a Contact" : undefined,
+  }));
+  const agendaPath =
+    meeting.calendarEventId && meeting.scheduledStartAt
+      ? agendaEventPath(company.slug, meeting.calendarEventId, meeting.scheduledStartAt)
+      : null;
+
+  /** Write to some of the attendees, with the meeting's details under the message. */
+  const composeToAttendees = (recipients: string[], name?: string) => {
+    const draft = attendeeEmailDraft({
+      title: meeting.title,
+      startAt: meeting.scheduledStartAt ?? meeting.startedAt,
+      endAt: meeting.scheduledEndAt ?? meeting.endedAt,
+      // A link to a call already over is no use to anyone reading this.
+      conferenceUrl: meeting.status === "scheduled" ? meeting.conferenceUrl : "",
+    });
+    const first = name && !name.includes("@") ? name.split(/\s+/)[0] : "";
+    email.compose(
+      {
+        to: recipients.join(", "),
+        subject: draft.subject,
+        bodyText:
+          recipients.length === 1
+            ? draft.bodyText.replace(/^Hi all,/, first ? `Hi ${first},` : "Hi,")
+            : draft.bodyText,
+      },
+      `${meeting.title || "Untitled meeting"} · ${
+        recipients.length === 1 ? (name ?? recipients[0]) : `${recipients.length} attendees`
+      }`,
+    );
+  };
   // `skipped` belongs here with `scheduled` and `failed`: the automatic pass
   // declining a call at T-30s says nothing about whether a person, having read
   // the reason and fixed it, may record the same call at T+5 while it is still
@@ -269,6 +317,14 @@ export default function MeetingDetail() {
                 <span className="tabular-nums">{formatDuration(meeting.durationMs)}</span>
               )}
               <ProviderChip provider={meeting.conferenceProvider} />
+              {agendaPath && (
+                <Link
+                  to={agendaPath}
+                  className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  <CalendarDays size={14} className="shrink-0" /> On the agenda
+                </Link>
+              )}
               {customer && (
                 <Link
                   to={`/c/${company.slug}/customers/${customer.slug}`}
@@ -371,12 +427,13 @@ export default function MeetingDetail() {
           Record access to this calendar" is the difference between a fixable
           setup mistake and a product that mysteriously never turns up. The
           same goes for a deferral parked back on `scheduled`. */}
-      {meeting.statusMessage && (meeting.status === "skipped" || meeting.status === "scheduled") && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-          {meeting.status === "skipped" ? "The notetaker did not join. " : ""}
-          {meeting.statusMessage}
-        </div>
-      )}
+      {meeting.statusMessage &&
+        (meeting.status === "skipped" || meeting.status === "scheduled") && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+            {meeting.status === "skipped" ? "The notetaker did not join. " : ""}
+            {meeting.statusMessage}
+          </div>
+        )}
       {meeting.status === "joining" && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300">
           <Spinner size={14} /> The notetaker is joining Google Meet as a guest. The host may need
@@ -510,41 +567,28 @@ export default function MeetingDetail() {
                 <UserPlus size={14} /> Add
               </Button>
             </header>
-            {participants.length === 0 ? (
-              <p className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
-                Nobody recorded on this meeting. Add who was on the call and Genosyn links it to
-                their Customer, and puts it on their timeline if they are already a Contact.
-              </p>
-            ) : (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {participants.map((row) => (
-                  <li key={row.id} className="px-4 py-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 truncate text-sm text-slate-800 dark:text-slate-200">
-                        {row.displayName || row.email}
-                      </span>
-                      {row.isOrganizer && (
-                        <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
-                          organizer
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                      <span className="truncate">{row.email}</span>
-                      {row.contactId ? (
-                        <Link
-                          to={`/c/${company.slug}/revenue/contacts/${row.contactId}`}
-                          className="shrink-0 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-                        >
-                          Contact
-                        </Link>
-                      ) : (
-                        !row.isInternal && <span className="shrink-0 italic">not a Contact</span>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+            {people.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5 dark:border-slate-800">
+                <EmailAttendeesButton
+                  people={people}
+                  exclude={[]}
+                  variant="secondary"
+                  label="Email"
+                  onCompose={(recipients) => composeToAttendees(recipients)}
+                />
+                <CopyAddressesButton emails={people.map((person) => person.email)} />
+              </div>
+            )}
+            <AttendeeList
+              people={people}
+              companySlug={company.slug}
+              onEmail={(person) => composeToAttendees([person.email], person.name)}
+              emptyText="Nobody recorded on this meeting. Add who was on the call and Genosyn links it to their Customer, and puts it on their timeline if they are already a Contact."
+            />
+            {email.notice && (
+              <div className="border-t border-slate-100 p-3 dark:border-slate-800">
+                {email.notice}
+              </div>
             )}
             {knownContacts.length > 0 && (
               <div className="border-t border-slate-100 px-4 py-2.5 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
@@ -564,6 +608,8 @@ export default function MeetingDetail() {
           />
         </div>
       </div>
+
+      {email.element}
 
       <AddAttendeesModal
         open={addingAttendees}

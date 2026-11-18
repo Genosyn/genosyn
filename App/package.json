@@ -66,6 +66,7 @@
     "test:clicks-chat": "tsx scripts/test-clicks-chat.ts",
     "test:clicks-mail": "tsx scripts/test-clicks-mail.ts",
     "test:mail-compose": "tsx scripts/test-mail-compose.ts",
+    "test:meetings-agenda": "tsx scripts/test-meetings-agenda.ts",
     "test:clicks-tasks": "tsx scripts/test-clicks-tasks.ts",
     "test:clicks-routines": "tsx scripts/test-clicks-routines.ts",
     "test:new-routine": "tsx scripts/test-new-routine.ts",

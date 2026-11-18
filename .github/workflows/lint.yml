@@ -219,6 +219,9 @@ jobs:
       - name: Test asking a person end to end, with nothing faked but the AI Model
         if: matrix.part == 3
         run: npm run test:input-requests
+      - name: Test the agenda's attendees, replies, and emailing them
+        if: matrix.part == 3
+        run: npm run test:meetings-agenda
 
       - name: Save browser screenshots
         if: always()

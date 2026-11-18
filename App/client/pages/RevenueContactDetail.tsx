@@ -20,11 +20,9 @@ import { customerOptionLabel } from "../lib/customerLabel";
 import type { RevenueAccount } from "../lib/revenue";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
+import { useComposeEmail } from "../components/mail/ComposeEmailModal";
 import { useLiveRefetch } from "../components/CompanySocket";
-import {
-  ActivityTimeline,
-  type RevenueActivity,
-} from "../components/revenue/ActivityTimeline";
+import { ActivityTimeline, type RevenueActivity } from "../components/revenue/ActivityTimeline";
 import { RecordHistory } from "../components/RecordHistory";
 import { LinkedTodosCard } from "../components/todos/TodoLinks";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
@@ -135,6 +133,7 @@ export default function RevenueContactDetail() {
   const navigate = useNavigate();
   const dialog = useDialog();
   const background = useBackgroundAction();
+  const email = useComposeEmail(company);
 
   const base = `/c/${company.slug}/revenue`;
   const contactsUrl = `${base}/contacts`;
@@ -224,10 +223,9 @@ export default function RevenueContactDetail() {
     patchContact({ doNotContact: next });
     background(
       () =>
-        api.patch<RevenueContact>(
-          `/api/companies/${company.id}/revenue/contacts/${contact.id}`,
-          { doNotContact: next },
-        ),
+        api.patch<RevenueContact>(`/api/companies/${company.id}/revenue/contacts/${contact.id}`, {
+          doNotContact: next,
+        }),
       {
         title: "Couldn’t update this contact",
         error: (err) => `${errorMessage(err)} The change was undone.`,
@@ -246,9 +244,7 @@ export default function RevenueContactDetail() {
     const archived = !contact.archivedAt;
     const before = contact.archivedAt;
     const name = contact.name || "this contact";
-    setAnnouncement(
-      archived ? `Archived ${name}. Restore puts them back.` : `Restored ${name}.`,
-    );
+    setAnnouncement(archived ? `Archived ${name}. Restore puts them back.` : `Restored ${name}.`);
     patchContact({ archivedAt: archived ? new Date().toISOString() : null });
     background(
       () =>
@@ -316,6 +312,14 @@ export default function RevenueContactDetail() {
 
   const owner = ownerLabel(contact, members, employees);
   const blocked = contact.doNotContact || !!contact.unsubscribedAt || !!contact.bouncedAt;
+  const composeToContact = () => {
+    if (!contact.email) return;
+    const first = contact.name.trim().split(/\s+/)[0] ?? "";
+    email.compose(
+      { to: contact.email, bodyText: first ? `Hi ${first},\n\n` : "" },
+      contact.name || contact.email,
+    );
+  };
 
   return (
     <div className="page-shell p-4 sm:p-8">
@@ -356,12 +360,14 @@ export default function RevenueContactDetail() {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
               {contact.email ? (
-                <a
-                  href={`mailto:${contact.email}`}
+                <button
+                  type="button"
+                  onClick={composeToContact}
+                  title={`Email ${contact.email}`}
                   className="inline-flex items-center gap-1 hover:text-indigo-600 hover:underline dark:hover:text-indigo-400"
                 >
                   <Mail size={13} /> {contact.email}
-                </a>
+                </button>
               ) : (
                 <span className="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500">
                   <Mail size={13} /> No email
@@ -417,6 +423,19 @@ export default function RevenueContactDetail() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={composeToContact}
+            disabled={!contact.email || blocked}
+            title={
+              !contact.email
+                ? "Add an email address to write to them"
+                : blocked
+                  ? "This contact can’t be emailed"
+                  : undefined
+            }
+          >
+            <Mail size={14} /> Email
+          </Button>
           <Button variant="secondary" onClick={() => setEditing(true)}>
             <Pencil size={14} /> Edit
           </Button>
@@ -440,6 +459,9 @@ export default function RevenueContactDetail() {
         </div>
       </div>
 
+      {email.notice && <div className="-mt-2 mb-6">{email.notice}</div>}
+      {email.element}
+
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {announcement}
       </p>
@@ -457,20 +479,20 @@ export default function RevenueContactDetail() {
               )}
               {contact.unsubscribedAt && (
                 <li>
-                  They <strong>unsubscribed</strong> on {fmtDate(contact.unsubscribedAt)}.
-                  Only they can undo that.
+                  They <strong>unsubscribed</strong> on {fmtDate(contact.unsubscribedAt)}. Only they
+                  can undo that.
                 </li>
               )}
               {contact.bouncedAt && (
                 <li>
-                  Mail to this address <strong>hard-bounced</strong> on{" "}
-                  {fmtDate(contact.bouncedAt)}. Sending again costs sender reputation.
+                  Mail to this address <strong>hard-bounced</strong> on {fmtDate(contact.bouncedAt)}
+                  . Sending again costs sender reputation.
                 </li>
               )}
             </ul>
             <p className="mt-1.5 text-xs text-red-700/90 dark:text-red-300/90">
-              The block is enforced everywhere mail leaves the system — a human
-              pressing Send, a bulk send, and every sequence step.
+              The block is enforced everywhere mail leaves the system — a human pressing Send, a
+              bulk send, and every sequence step.
             </p>
           </div>
         </div>
@@ -563,9 +585,7 @@ export default function RevenueContactDetail() {
       {/* Details */}
       <section className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Details
-          </h3>
+          <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">Details</h3>
           <dl className="space-y-2 text-sm">
             <DetailRow label="Lifecycle stage" value={contact.lifecycleStage} />
             <DetailRow
@@ -585,17 +605,13 @@ export default function RevenueContactDetail() {
           </dl>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Notes
-          </h3>
+          <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">Notes</h3>
           {contact.notes ? (
             <p className="whitespace-pre-line text-sm text-slate-700 dark:text-slate-200">
               {contact.notes}
             </p>
           ) : (
-            <p className="text-sm text-slate-400 dark:text-slate-500">
-              Nothing written down yet.
-            </p>
+            <p className="text-sm text-slate-400 dark:text-slate-500">Nothing written down yet.</p>
           )}
         </div>
       </section>
@@ -966,8 +982,8 @@ function EnrollModal({
         <FormError message={error} />
         {blocked && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-            This contact is currently blocked from outbound mail, so the enrolment
-            will almost certainly be skipped.
+            This contact is currently blocked from outbound mail, so the enrolment will almost
+            certainly be skipped.
           </div>
         )}
         {sequences === null ? (
@@ -976,16 +992,11 @@ function EnrollModal({
           </div>
         ) : sequences.length === 0 ? (
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            There are no sequences yet. Build one first, then come back and enrol
-            people into it.
+            There are no sequences yet. Build one first, then come back and enrol people into it.
           </p>
         ) : (
           <>
-            <Select
-              label="Sequence"
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-            >
+            <Select label="Sequence" value={selected} onChange={(e) => setSelected(e.target.value)}>
               {sequences.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} — {s.status}
@@ -994,9 +1005,9 @@ function EnrollModal({
               ))}
             </Select>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Each touch is drafted individually by the sequence&apos;s AI employee
-              from this contact&apos;s own history. Nothing is sent without the
-              suppression list, the send window and the daily cap all agreeing.
+              Each touch is drafted individually by the sequence&apos;s AI employee from this
+              contact&apos;s own history. Nothing is sent without the suppression list, the send
+              window and the daily cap all agreeing.
             </p>
           </>
         )}

@@ -1,4 +1,5 @@
 import { api } from "./api";
+import type { BadgeTone } from "../components/ui/Badge";
 
 /**
  * Client-side types + fetchers for the Meetings section (M44).
@@ -38,9 +39,14 @@ export type CalendarAccount = {
 export type CalendarAttendee = {
   email: string;
   displayName: string;
+  /** Google's reply: `accepted`, `declined`, `tentative`, `needsAction`, or "" when unknown. */
   responseStatus: string;
   organizer: boolean;
   optional: boolean;
+  /** The Contact with this address, when there is one. */
+  contactId: string | null;
+  /** That Contact's name — Google often leaves names out of an invite. */
+  contactName: string;
 };
 
 export type CalendarEvent = {
@@ -60,6 +66,8 @@ export type CalendarEvent = {
   conferenceUrl: string;
   htmlLink: string;
   recurring: boolean;
+  /** The Meeting Genosyn keeps for this event — its notes, recording and transcript. */
+  meeting: { id: string; status: MeetingStatus } | null;
 };
 
 export type MeetingStatus =
@@ -383,4 +391,159 @@ export function formatDuration(ms: number): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+}
+
+// ───────────────────────────── invitations ─────────────────────────────
+
+/** How someone answered an invite, in the words the agenda uses. */
+export type Rsvp = "accepted" | "tentative" | "awaiting" | "declined" | "unknown";
+
+/** Google's `responseStatus` as an {@link Rsvp}. */
+export function rsvpOf(responseStatus: string): Rsvp {
+  switch (responseStatus) {
+    case "accepted":
+      return "accepted";
+    case "declined":
+      return "declined";
+    case "tentative":
+      return "tentative";
+    case "needsAction":
+      return "awaiting";
+    default:
+      return "unknown";
+  }
+}
+
+export const RSVP_LABELS: Record<Rsvp, string> = {
+  accepted: "Accepted",
+  tentative: "Maybe",
+  awaiting: "Awaiting reply",
+  declined: "Declined",
+  unknown: "No reply on file",
+};
+
+export const RSVP_TONES: Record<Rsvp, BadgeTone> = {
+  accepted: "success",
+  tentative: "warning",
+  awaiting: "neutral",
+  declined: "danger",
+  unknown: "neutral",
+};
+
+/** The order replies are counted and listed in: who is coming first. */
+export const RSVP_ORDER: Rsvp[] = ["accepted", "tentative", "awaiting", "declined", "unknown"];
+
+export function rsvpCounts(people: Array<{ responseStatus: string }>): Record<Rsvp, number> {
+  const counts: Record<Rsvp, number> = {
+    accepted: 0,
+    tentative: 0,
+    awaiting: 0,
+    declined: 0,
+    unknown: 0,
+  };
+  for (const person of people) counts[rsvpOf(person.responseStatus)] += 1;
+  return counts;
+}
+
+/** The name to show for an attendee: the invite's, the Contact's, then the address. */
+export function attendeeName(attendee: {
+  email: string;
+  displayName: string;
+  contactName?: string;
+}): string {
+  return attendee.displayName || attendee.contactName || attendee.email;
+}
+
+/** Who "Email attendees" writes to — everyone, or only those who answered one way. */
+export type AttendeeAudience = "everyone" | "coming" | "awaiting";
+
+export const AUDIENCE_LABELS: Record<AttendeeAudience, string> = {
+  everyone: "Everyone invited",
+  coming: "Who accepted or said maybe",
+  awaiting: "Who hasn’t replied",
+};
+
+/**
+ * The addresses an email to an event's attendees goes to.
+ *
+ * Leaves out the addresses in `exclude` — the calendar's own, since writing
+ * to yourself about your own meeting is never what was meant — and anyone
+ * listed twice. "Who hasn't replied" counts an attendee with no reply on file
+ * too: nothing says they are coming.
+ */
+export function attendeeRecipients(
+  attendees: Array<{ email: string; responseStatus: string }>,
+  audience: AttendeeAudience,
+  exclude: string[] = [],
+): string[] {
+  const skip = new Set(exclude.map((email) => email.trim().toLowerCase()).filter(Boolean));
+  const out: string[] = [];
+  for (const attendee of attendees) {
+    const email = attendee.email.trim().toLowerCase();
+    if (!email || skip.has(email)) continue;
+    const rsvp = rsvpOf(attendee.responseStatus);
+    if (audience === "coming" && rsvp !== "accepted" && rsvp !== "tentative") continue;
+    if (audience === "awaiting" && rsvp !== "awaiting" && rsvp !== "unknown") continue;
+    skip.add(email);
+    out.push(email);
+  }
+  return out;
+}
+
+/** A local `YYYY-MM-DD`: the agenda's `?date=`, the first day it shows. */
+export function agendaDateParam(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** The agenda, on the week an event falls in, with that event open. */
+export function agendaEventPath(companySlug: string, eventId: string, startAt: string): string {
+  const query = new URLSearchParams({ date: agendaDateParam(new Date(startAt)), event: eventId });
+  return `/c/${companySlug}/meetings?${query.toString()}`;
+}
+
+/** `10:00 – 11:00`, or `All day`. */
+export function formatTimeRange(event: {
+  startAt: string;
+  endAt: string;
+  allDay: boolean;
+}): string {
+  if (event.allDay) return "All day";
+  return `${formatClock(event.startAt)} – ${formatClock(event.endAt)}`;
+}
+
+/**
+ * The subject and body an email to a meeting's attendees starts from.
+ *
+ * The body leaves room to write at the top and keeps the meeting's details
+ * underneath, so whoever reads it knows which call it is about and has the
+ * link to join it — the two things a note to attendees most often lacks.
+ */
+export function attendeeEmailDraft(meeting: {
+  title: string;
+  startAt: string | null;
+  endAt: string | null;
+  allDay?: boolean;
+  conferenceUrl: string;
+  location?: string;
+}): { subject: string; bodyText: string } {
+  const title = meeting.title.trim() || "Our meeting";
+  const details = [title];
+  if (meeting.startAt) {
+    const day = new Date(meeting.startAt).toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+    const time = meeting.allDay
+      ? "All day"
+      : meeting.endAt
+        ? formatTimeRange({ startAt: meeting.startAt, endAt: meeting.endAt, allDay: false })
+        : formatClock(meeting.startAt);
+    details.push(`${day} · ${time}`);
+  }
+  const location = meeting.location?.trim() ?? "";
+  if (meeting.conferenceUrl) details.push(`Join: ${meeting.conferenceUrl}`);
+  else if (location) details.push(`Where: ${location}`);
+  return { subject: title, bodyText: `Hi all,\n\n\n\n—\n${details.join("\n")}\n` };
 }

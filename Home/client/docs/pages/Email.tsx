@@ -27,7 +27,8 @@ export function Email() {
         anything you do here — read, star, archive, label, draft, send, forward — is written
         straight back. The goal is that you never need to open your other mail client; read it there
         or here, act on it here, and neither drifts. To turn mail to an address such as{" "}
-        <Code>support@</Code> into Tickets instead, see <DocLink to="/docs/support">Support</DocLink>.
+        <Code>support@</Code> into Tickets instead, see{" "}
+        <DocLink to="/docs/support">Support</DocLink>.
       </P>
 
       <Callout kind="info" title="Different from the email that Genosyn sends.">
@@ -39,10 +40,9 @@ export function Email() {
       <P>
         Open <Strong>Email</Strong> and type the address. That is the whole first step — Genosyn
         works out the sign-in method from the domain. Gmail and Google Workspace use Google sign-in.
-        Other supported mailboxes use a password, with server settings filled in for you.
-        Only an owner or admin can connect or disconnect a mailbox, because its credential and its
-        AI access serve the whole company. Once it is connected, any member can read and answer its
-        mail.
+        Other supported mailboxes use a password, with server settings filled in for you. Only an
+        owner or admin can connect or disconnect a mailbox, because its credential and its AI access
+        serve the whole company. Once it is connected, any member can read and answer its mail.
       </P>
       <OL>
         <LI>
@@ -167,8 +167,8 @@ export function Email() {
       <Callout kind="info" title="No push endpoint to expose.">
         Sync is poll-based on a short interval, so there is no Google Cloud Pub/Sub topic and no
         inbound webhook. Gmail uses Genosyn Connect or a locally registered Google OAuth app; other
-        supported mailboxes use their password and server settings. (On a very large account a master admin can cap the
-        first import to recent mail with <Strong>Backfill days</Strong> at{" "}
+        supported mailboxes use their password and server settings. (On a very large account a
+        master admin can cap the first import to recent mail with <Strong>Backfill days</Strong> at{" "}
         <Code>Admin → Runtime</Code>; the default imports everything.)
       </Callout>
 
@@ -189,8 +189,8 @@ export function Email() {
       <H3 id="writing">Writing a reply, a forward, or a new email</H3>
       <P>
         <Strong>Reply</Strong>, <Strong>Reply all</Strong> and <Strong>Forward</Strong> open an
-        editor right under the conversation — from the buttons below it, from the same three
-        buttons under any one message to answer <em>that</em> message, or with <Code>r</Code>,{" "}
+        editor right under the conversation — from the buttons below it, from the same three buttons
+        under any one message to answer <em>that</em> message, or with <Code>r</Code>,{" "}
         <Code>a</Code> and <Code>f</Code>. Switch between them from the menu at the top of the
         editor without losing what you wrote.
       </P>
@@ -203,6 +203,14 @@ export function Email() {
         off the others, so moving a person to Bcc is just adding them there. The same lines are in{" "}
         <Strong>Compose</Strong>, in a saved draft&apos;s editor, and in an AI Employee&apos;s email
         under review in the Decision stack.
+      </P>
+      <P>
+        You can start a new message from other parts of Genosyn too, without leaving them:{" "}
+        <DocLink to="/docs/meetings#email-attendees">Email attendees</DocLink> on a calendar event
+        or a meeting, and <Strong>Email</Strong> on a <DocLink to="/docs/revenue">Contact</DocLink>.
+        It is the same window, attachments included. It sends from the mailbox you last used here,
+        with a <Strong>From</Strong> picker when there is more than one, and once it has gone offers{" "}
+        <Strong>Open in Email</Strong> to go to the conversation.
       </P>
       <P>
         A reply carries the message it answers as a quote, folded behind <Strong>•••</Strong>, so
@@ -222,9 +230,9 @@ export function Email() {
         it, and in a long one the closed messages in the middle fold into{" "}
         <Strong>N earlier messages</Strong> between the first and the two newest, so the latest
         reply is never a long scroll away. In a message you read, the quoted history at the bottom —
-        the earlier emails other clients paste under a reply — is folded behind{" "}
-        <Strong>•••</Strong> too, so the conversation reads as the new words in each message.
-        Forwarded messages are never folded.
+        the earlier emails other clients paste under a reply — is folded behind <Strong>•••</Strong>{" "}
+        too, so the conversation reads as the new words in each message. Forwarded messages are
+        never folded.
       </P>
       <P>
         Click an attachment on a saved draft to download it, including while editing the draft.
@@ -252,19 +260,19 @@ export function Email() {
       <P>
         Search (press <Code>/</Code> to jump to the box) covers <Strong>all mail</Strong> — every
         folder except Spam and Trash — and matches subjects, participants, and the{" "}
-        <Strong>full text of every message</Strong> in the index. A term matches whole words and
-        the start of words, ignoring case and accents: <Code>invo</Code> finds &ldquo;invoice&rdquo;
-        and <Code>cafe</Code> finds &ldquo;Café&rdquo;, but <Code>voice</Code> does not find
+        <Strong>full text of every message</Strong> in the index. A term matches whole words and the
+        start of words, ignoring case and accents: <Code>invo</Code> finds &ldquo;invoice&rdquo; and{" "}
+        <Code>cafe</Code> finds &ldquo;Café&rdquo;, but <Code>voice</Code> does not find
         &ldquo;invoice&rdquo;. (On an install that uses Postgres, and for the minute or so after a
-        restart while the search index rebuilds, a term matches anywhere in the text instead.)
-        Terms combine, quotes match words in that order, and the familiar
-        operators narrow things down: <Code>from:</Code>, <Code>to:</Code>
-        , <Code>subject:</Code>, <Code>label:</Code>, <Code>has:attachment</Code>,{" "}
-        <Code>is:unread</Code>, <Code>is:starred</Code>, <Code>before:</Code>/<Code>after:</Code>{" "}
-        with a date, and <Code>in:</Code> to pick a folder (<Code>in:archive</Code>,{" "}
-        <Code>in:trash</Code>, …). So <Code>from:acme has:attachment after:2026-01-01 invoice</Code>{" "}
-        finds the attachment-carrying Acme invoice threads from this year, wherever they were filed.
-        AI Employees get the exact same grammar through their mail search tool.
+        restart while the search index rebuilds, a term matches anywhere in the text instead.) Terms
+        combine, quotes match words in that order, and the familiar operators narrow things down:{" "}
+        <Code>from:</Code>, <Code>to:</Code>, <Code>subject:</Code>, <Code>label:</Code>,{" "}
+        <Code>has:attachment</Code>, <Code>is:unread</Code>, <Code>is:starred</Code>,{" "}
+        <Code>before:</Code>/<Code>after:</Code> with a date, and <Code>in:</Code> to pick a folder
+        (<Code>in:archive</Code>, <Code>in:trash</Code>, …). So{" "}
+        <Code>from:acme has:attachment after:2026-01-01 invoice</Code> finds the attachment-carrying
+        Acme invoice threads from this year, wherever they were filed. AI Employees get the exact
+        same grammar through their mail search tool.
       </P>
       <P>
         Message bodies are rendered safely — scripts are stripped and remote images stay blocked
@@ -303,11 +311,11 @@ export function Email() {
         Every row shows who wrote it: the <Strong>AI Employee</Strong> and the{" "}
         <Strong>Routine</Strong> that produced it, next to the recipient, subject, and a preview.
         Select the routine to open it, or open it in a new tab as you would any link. Filter the
-        queue <Strong>by AI Employee</Strong> or <Strong>by routine</Strong> from the
-        toolbar — each option carries its own count — and group the list the same way to review one
-        routine&apos;s output as a batch. Drafts you wrote yourself show you instead; anything
-        written before this shipped, or synced in from the mail server, reads as{" "}
-        <Strong>Unattributed</Strong> rather than guessing at an author.
+        queue <Strong>by AI Employee</Strong> or <Strong>by routine</Strong> from the toolbar — each
+        option carries its own count — and group the list the same way to review one routine&apos;s
+        output as a batch. Drafts you wrote yourself show you instead; anything written before this
+        shipped, or synced in from the mail server, reads as <Strong>Unattributed</Strong> rather
+        than guessing at an author.
       </P>
       <P>
         Press <Code>Enter</Code> to peek at a draft inline, or open it for full review: the whole
@@ -355,9 +363,9 @@ export function Email() {
       <H2 id="schedule-meeting">Scheduling a meeting from an email</H2>
       <P>
         When a conversation ends in &ldquo;let&apos;s get on a call&rdquo;, press{" "}
-        <Strong>Schedule</Strong> at the top of it, or <Strong>Schedule meeting</Strong> in the reply.
-        The form opens filled in: the people a Reply all would reach as guests, a title from the
-        subject, and a free slot. Meanwhile the mailbox&apos;s AI Employee — the one that{" "}
+        <Strong>Schedule</Strong> at the top of it, or <Strong>Schedule meeting</Strong> in the
+        reply. The form opens filled in: the people a Reply all would reach as guests, a title from
+        the subject, and a free slot. Meanwhile the mailbox&apos;s AI Employee — the one that{" "}
         <DocLink to="/docs/email#analysis">reads new mail</DocLink> — reads the conversation for the
         time people actually agreed and the time zone they agreed it in. It fills in only what you
         have not changed yet; a time it finds after you picked one is offered with{" "}
@@ -377,10 +385,10 @@ export function Email() {
         <Strong>Google Meet</Strong> link, and Google emails the invitation to every guest. Untick{" "}
         <Strong>Add a Google Meet link</Strong> or <Strong>Email the invitation to guests</Strong>{" "}
         to skip either. Guests on the{" "}
-        <DocLink to="/docs/email#suppressed">do-not-email list</DocLink> are flagged before
-        anything is sent, and refused if sent anyway. Afterwards, <Strong>Add details to reply</Strong>{" "}
-        puts the time and the Meet link into a Reply all, so your email and the invitation say the
-        same thing.
+        <DocLink to="/docs/email#suppressed">do-not-email list</DocLink> are flagged before anything
+        is sent, and refused if sent anyway. Afterwards, <Strong>Add details to reply</Strong> puts
+        the time and the Meet link into a Reply all, so your email and the invitation say the same
+        thing.
       </P>
       <P>
         When the AI review of a new email finds a request for a call, it offers a{" "}
@@ -390,11 +398,11 @@ export function Email() {
       <Callout kind="info" title="Which calendar it goes on.">
         The event is created on a Google calendar connected under{" "}
         <DocLink to="/docs/meetings">Meetings → Calendars</DocLink>, or on this mailbox&apos;s own
-        Google calendar when its Google sign-in includes Calendar access. With more than one, pick it
-        in the form; the mailbox&apos;s own calendar is chosen first. With none, the form says where
-        to connect one. Scheduling is open to every Member who can use the mailbox, like sending
-        mail, and each meeting is recorded in the audit log. An AI Employee books one the same way
-        with <Code>schedule_meeting</Code>, after checking free time with{" "}
+        Google calendar when its Google sign-in includes Calendar access. With more than one, pick
+        it in the form; the mailbox&apos;s own calendar is chosen first. With none, the form says
+        where to connect one. Scheduling is open to every Member who can use the mailbox, like
+        sending mail, and each meeting is recorded in the audit log. An AI Employee books one the
+        same way with <Code>schedule_meeting</Code>, after checking free time with{" "}
         <Code>check_calendar_availability</Code>. The invitation is an email, so it needs the
         mailbox&apos;s <Strong>Send</Strong> Grant, and a company calendar also needs its calendar
         Grant.
@@ -415,9 +423,9 @@ export function Email() {
         the reason underneath and a <Strong>Remove</Strong> button — in replies, new emails, drafts,
         and the guests of a meeting. A single message is still refused{" "}
         <Strong>all or nothing</Strong>: if any recipient in To, Cc or Bcc is on the list, the send
-        fails and names the addresses, rather than quietly delivering to the rest. A bulk send skips the blocked drafts and tells you which ones. Manage the list,
-        and read the unsubscribe and bounce rules, under{" "}
-        <DocLink to="/docs/deliverability">Deliverability</DocLink>.
+        fails and names the addresses, rather than quietly delivering to the rest. A bulk send skips
+        the blocked drafts and tells you which ones. Manage the list, and read the unsubscribe and
+        bounce rules, under <DocLink to="/docs/deliverability">Deliverability</DocLink>.
       </P>
 
       <H2 id="power-user">Keyboard, bulk actions, and ⌘K</H2>
@@ -428,11 +436,11 @@ export function Email() {
         review, <Code>c</Code> composes from anywhere in mail, and <Code>Esc</Code> clears the
         selection. Inside an open thread, <Code>e</Code>, <Code>#</Code>, <Code>s</Code> and{" "}
         <Code>u</Code> do the same to that thread (archive, trash and mark unread return you to the
-        list, with the cursor on the next thread), while <Code>r</Code>, <Code>a</Code> and <Code>f</Code> open{" "}
-        <Strong>Reply</Strong>, <Strong>Reply all</Strong> and <Strong>Forward</Strong> with the
-        cursor where you start typing. Press{" "}
-        <Code>?</Code> for the full list. Shortcuts pause automatically while you are typing in a
-        field or a dialog is open.
+        list, with the cursor on the next thread), while <Code>r</Code>, <Code>a</Code> and{" "}
+        <Code>f</Code> open <Strong>Reply</Strong>, <Strong>Reply all</Strong> and{" "}
+        <Strong>Forward</Strong> with the cursor where you start typing. Press <Code>?</Code> for
+        the full list. Shortcuts pause automatically while you are typing in a field or a dialog is
+        open.
       </P>
       <P>
         The inbox has the same multi-select: tick rows — <Strong>shift-click</Strong> takes a range
@@ -465,9 +473,10 @@ export function Email() {
       <P>
         A small AI review indicator beside each conversation tells you whether its latest incoming
         email is <Strong>Not reviewed</Strong>, <Strong>AI queued</Strong>,{" "}
-        <Strong>AI reviewing</Strong>, <Strong>AI reviewed</Strong>, or <Strong>Needs attention</Strong>. A new reply gets
-        its own status: an older review never makes a new customer message look handled. Reading
-        the email yourself does not mark it as reviewed by an AI Employee.
+        <Strong>AI reviewing</Strong>, <Strong>AI reviewed</Strong>, or{" "}
+        <Strong>Needs attention</Strong>. A new reply gets its own status: an older review never
+        makes a new customer message look handled. Reading the email yourself does not mark it as
+        reviewed by an AI Employee.
       </P>
       <P>
         Open a conversation to see its <Strong>AI work timeline</Strong>: when mail arrived, who
@@ -503,11 +512,11 @@ export function Email() {
         <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> as{" "}
         <Strong>Email analysis</Strong>. Each card explains the review and identifies its email,
         with the recorded summary, category, suggested next steps or failure reason when available.
-        Analysis uses the message text and attachment names; it does not inspect attachment
-        contents or carry out the suggested actions. Open the linked email to review and use them.
-        Older entries without a retained result say so instead of showing a later review&apos;s
-        findings. A step your <DocLink to="/docs/email#analysis-instructions">instructions</DocLink>{" "}
-        took shows separately, as <Strong>Followed an email instruction</Strong>.
+        Analysis uses the message text and attachment names; it does not inspect attachment contents
+        or carry out the suggested actions. Open the linked email to review and use them. Older
+        entries without a retained result say so instead of showing a later review&apos;s findings.
+        A step your <DocLink to="/docs/email#analysis-instructions">instructions</DocLink> took
+        shows separately, as <Strong>Followed an email instruction</Strong>.
       </P>
       <P>What a button does when you press it:</P>
       <UL>
@@ -539,20 +548,20 @@ export function Email() {
         </LI>
         <LI>
           <Strong>Schedule</Strong> — opens the{" "}
-          <DocLink to="/docs/email#schedule-meeting">meeting scheduler</DocLink> with the time,
-          zone and guests the email proposed. Nothing is sent until you press{" "}
+          <DocLink to="/docs/email#schedule-meeting">meeting scheduler</DocLink> with the time, zone
+          and guests the email proposed. Nothing is sent until you press{" "}
           <Strong>Send invite</Strong>.
         </LI>
       </UL>
       <Callout kind="tip" title="Buttons wait for you.">
         A button only ever <em>proposes</em>; the only thing that runs by itself is your own{" "}
         <DocLink to="/docs/email#analysis-instructions">instructions</DocLink>. Each button is
-        checked against the pressing Member&apos;s access and the employee&apos;s Grant. An employee on <Strong>Draft</Strong>{" "}
-        can prepare a reply, but only an owner or admin can send its Decision-stack review. What you
-        see under each label is the fact the server checked, not the employee&apos;s claim about it:
-        the total an invoice adds up to or the host an unsubscribe would talk to. Buttons that
-        consume something are marked done once they run, so a reload cannot fire them twice. Acting
-        with <em>your</em> access cuts both ways: if your{" "}
+        checked against the pressing Member&apos;s access and the employee&apos;s Grant. An employee
+        on <Strong>Draft</Strong> can prepare a reply, but only an owner or admin can send its
+        Decision-stack review. What you see under each label is the fact the server checked, not the
+        employee&apos;s claim about it: the total an invoice adds up to or the host an unsubscribe
+        would talk to. Buttons that consume something are marked done once they run, so a reload
+        cannot fire them twice. Acting with <em>your</em> access cuts both ways: if your{" "}
         <DocLink to="/docs/finance">finance</DocLink> access is read-only, the invoice and estimate
         buttons appear greyed out with the reason, because they would be refused anyway — you still
         see what the email was read as.
@@ -566,9 +575,9 @@ export function Email() {
       </P>
       <H3 id="analysis-instructions">Instructions — what happens on its own</H3>
       <P>
-        Under <Strong>Email → Settings → AI analysis</Strong>, the <Strong>Instructions</Strong>{" "}
-        box says, in your own words, what should happen to your mail. Every new email is checked
-        against it by the same AI Employee that reads it. A mailbox starts with these two, marked{" "}
+        Under <Strong>Email → Settings → AI analysis</Strong>, the <Strong>Instructions</Strong> box
+        says, in your own words, what should happen to your mail. Every new email is checked against
+        it by the same AI Employee that reads it. A mailbox starts with these two, marked{" "}
         <Strong>Default</Strong>:
       </P>
       <UL>
@@ -578,9 +587,9 @@ export function Email() {
       <P>
         Change them, add your own — one instruction per line, up to 30 — and press{" "}
         <Strong>Save instructions</Strong> (or <Code>⌘ Enter</Code> / <Code>Ctrl Enter</Code>).{" "}
-        <Strong>Cancel</Strong> throws away unsaved edits, and <Strong>Restore default</Strong>{" "}
-        puts the default back; a mailbox on the default picks up any improvements to its wording.
-        Leave the box empty and new mail gets only its summary and suggested buttons.
+        <Strong>Cancel</Strong> throws away unsaved edits, and <Strong>Restore default</Strong> puts
+        the default back; a mailbox on the default picks up any improvements to its wording. Leave
+        the box empty and new mail gets only its summary and suggested buttons.
       </P>
       <P>
         On its own, the AI Employee can only do five things, and only to the email it is reading:
@@ -608,28 +617,27 @@ export function Email() {
         it as a button instead, for you to press.
       </P>
       <P>
-        Everything it did shows on the email, under <Strong>Your instructions</Strong>: what it
-        did, why, and which of your instructions it followed. <Strong>Undo</Strong> takes back a
-        star, a read mark, an archive or a label, with your own access; an unsubscribe cannot be
-        undone. A step that did not happen says why — for example, the email had no verified
-        unsubscribe link. Each step also appears in the{" "}
-        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> and the audit log,
-        under the employee that read the email.
+        Everything it did shows on the email, under <Strong>Your instructions</Strong>: what it did,
+        why, and which of your instructions it followed. <Strong>Undo</Strong> takes back a star, a
+        read mark, an archive or a label, with your own access; an unsubscribe cannot be undone. A
+        step that did not happen says why — for example, the email had no verified unsubscribe link.
+        Each step also appears in the{" "}
+        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> and the audit log, under
+        the employee that read the email.
       </P>
       <Callout kind="info" title="When the instructions run.">
         Once, as a new email arrives — or, if its AI Model was{" "}
         <a href="#analysis-unavailable">unavailable</a> then, once it is read — never on the mail
-        imported when you connected the mailbox,
-        on drafts, or on mail you sent, and not when you ask for an email to be read again (the
-        refresh button on its AI summary, or <Strong>Try again</Strong>), which only refreshes the
-        summary and suggestions. They run under the reading employee&apos;s own{" "}
-        <DocLink to="/docs/email#access">AI access</DocLink>, which must be <Strong>Draft</Strong>{" "}
-        or higher: on <Strong>Read</Strong>, the instructions only shape the suggestions. Nothing
-        runs while a <DocLink to="/docs/standdowns">Standdown</DocLink> covers the company or that
-        employee, while the mailbox is paused, or once you turn analysis off; a step whose
-        instruction you changed before it ran is skipped. If a{" "}
-        <DocLink to="/docs/email#rules">rule</DocLink> would unsubscribe from the same email, the
-        request is sent only once.
+        imported when you connected the mailbox, on drafts, or on mail you sent, and not when you
+        ask for an email to be read again (the refresh button on its AI summary, or{" "}
+        <Strong>Try again</Strong>), which only refreshes the summary and suggestions. They run
+        under the reading employee&apos;s own <DocLink to="/docs/email#access">AI access</DocLink>,
+        which must be <Strong>Draft</Strong> or higher: on <Strong>Read</Strong>, the instructions
+        only shape the suggestions. Nothing runs while a{" "}
+        <DocLink to="/docs/standdowns">Standdown</DocLink> covers the company or that employee,
+        while the mailbox is paused, or once you turn analysis off; a step whose instruction you
+        changed before it ran is skipped. If a <DocLink to="/docs/email#rules">rule</DocLink> would
+        unsubscribe from the same email, the request is sent only once.
       </Callout>
       <P>
         Mailboxes connected before instructions existed start on the default too, from the next
@@ -638,14 +646,15 @@ export function Email() {
       </P>
       <H3 id="analysis-unavailable">When the AI Model is unavailable</H3>
       <P>
-        If the reading employee&apos;s <DocLink to="/docs/models#unavailable">AI Model is
-        unavailable</DocLink> when an email arrives — or becomes unavailable while reading it —
-        the email is not marked as failed. Its AI summary says{" "}
-        <Strong>Waiting for the AI Model to come back</Strong>, and your rules and Pipelines run as
-        usual meanwhile. Once the model answers again the email is read by itself, once, as the
-        arrival it is: your instructions act on it then, under the reading employee&apos;s access
-        and any Standdown as they stand at that moment, and a rule that names the summary&apos;s
-        category gets its first look. An unsubscribe a rule already sent is never sent again.
+        If the reading employee&apos;s{" "}
+        <DocLink to="/docs/models#unavailable">AI Model is unavailable</DocLink> when an email
+        arrives — or becomes unavailable while reading it — the email is not marked as failed. Its
+        AI summary says <Strong>Waiting for the AI Model to come back</Strong>, and your rules and
+        Pipelines run as usual meanwhile. Once the model answers again the email is read by itself,
+        once, as the arrival it is: your instructions act on it then, under the reading
+        employee&apos;s access and any Standdown as they stand at that moment, and a rule that names
+        the summary&apos;s category gets its first look. An unsubscribe a rule already sent is never
+        sent again.
       </P>
       <UL>
         <LI>
@@ -675,9 +684,9 @@ export function Email() {
         <DocLink to="/docs/email#access">AI access</DocLink>, so it cannot widen what they can do.
       </P>
       <P>
-        Mail a <DocLink to="/docs/support">Support inbox</DocLink> takes is read once, by Support, so
-        this review skips it. Your <DocLink to="/docs/email#rules">rules</DocLink> and Pipelines still
-        run for it.
+        Mail a <DocLink to="/docs/support">Support inbox</DocLink> takes is read once, by Support,
+        so this review skips it. Your <DocLink to="/docs/email#rules">rules</DocLink> and Pipelines
+        still run for it.
       </P>
       <Callout kind="info" title="Read access summarises; Draft access can act.">
         An employee on <Strong>Read</Strong> can summarise and suggest next steps, but will not
@@ -700,8 +709,8 @@ export function Email() {
       <P>
         What an employee can see follows its mailbox Grant. With <Strong>Read</Strong> access or
         above it gets the thread transcript, the files on it, and the unsent drafts; with{" "}
-        <Strong>Draft</Strong> access it can rewrite the actual draft in place. An employee without a
-        Grant on that mailbox is told only that an email is open — not its subject, not its
+        <Strong>Draft</Strong> access it can rewrite the actual draft in place. An employee without
+        a Grant on that mailbox is told only that an email is open — not its subject, not its
         contents — and the composer warns you before you send that it won&apos;t be shown. Earlier
         answers that quoted the email are withheld from it too.
       </P>
@@ -733,17 +742,18 @@ export function Email() {
         <DocLink to="/docs/tasks">Project</DocLink>, adjust the title (it starts as the subject) and
         choose who it goes to. The thread then lists the todo under <Strong>Tasks</Strong>, and the
         todo says <Strong>From email</Strong> with a link back. Assigning an AI Employee starts it
-        straight away within your access and its Grants; it needs Mail access to this mailbox to read
-        the email itself. A todo an AI Employee files while working a thread is linked the same way,
-        without anyone having to ask.
+        straight away within your access and its Grants; it needs Mail access to this mailbox to
+        read the email itself. A todo an AI Employee files while working a thread is linked the same
+        way, without anyone having to ask.
       </P>
       <P>
         A Project can also take email by itself. Under <Strong>Email → Settings</Strong>, a
         mailbox&apos;s AI analysis card lists the Projects filing its mail as tasks, and the
-        analysis on each email says what it was filed as, or why it wasn&apos;t. Mailbox instructions
-        can&apos;t do this, because any Member can write those and this starts work. An owner or
-        admin sets it on the Project: see <DocLink to="/docs/tasks#email-intake">Email that becomes
-        work</DocLink> and <DocLink to="/docs/tasks#email-to-done">From email to done</DocLink>.
+        analysis on each email says what it was filed as, or why it wasn&apos;t. Mailbox
+        instructions can&apos;t do this, because any Member can write those and this starts work. An
+        owner or admin sets it on the Project: see{" "}
+        <DocLink to="/docs/tasks#email-intake">Email that becomes work</DocLink> and{" "}
+        <DocLink to="/docs/tasks#email-to-done">From email to done</DocLink>.
       </P>
 
       <H2 id="hand-to-ai">Handing a thread to an AI Employee</H2>
@@ -794,8 +804,8 @@ export function Email() {
         work review for that preparation. Consequential work, such as a Repository fix, first needs
         a work review explaining the evidence, plan and need for human authority.{" "}
         <Strong>Approve &amp; start</Strong> authorizes that work; after it finishes, the proposed
-        customer reply returns as a separate email review. Only{" "}
-        <Strong>Send now</Strong> sends it, with no Gmail or IMAP draft created first.
+        customer reply returns as a separate email review. Only <Strong>Send now</Strong> sends it,
+        with no Gmail or IMAP draft created first.
       </P>
       <P>
         Ready email responsibilities are assigned automatically by default as AI Employees gain a
@@ -815,8 +825,8 @@ export function Email() {
       <P>
         Under <Strong>Email → Settings → AI access</Strong> — or on one employee&apos;s{" "}
         <DocLink to="/docs/employees#access">Settings → Access</DocLink>, beside everything else it
-        can reach — an owner or admin grants the employees who should be able to act on the
-        mailbox, at one of three levels:
+        can reach — an owner or admin grants the employees who should be able to act on the mailbox,
+        at one of three levels:
       </P>
       <UL>
         <LI>
@@ -914,17 +924,17 @@ export function Email() {
       </Callout>
       <Callout kind="info" title="Rules and instructions never fire on your backfill.">
         Connecting a mailbox imports history quietly; rules and{" "}
-        <DocLink to="/docs/email#analysis-instructions">instructions</DocLink> only run on
-        genuinely new mail after that, and never on drafts or your own sent messages — so
-        connecting an account can&apos;t stampede an employee with hundreds of historical
-        handovers or unsubscribe you from years of old newsletters.
+        <DocLink to="/docs/email#analysis-instructions">instructions</DocLink> only run on genuinely
+        new mail after that, and never on drafts or your own sent messages — so connecting an
+        account can&apos;t stampede an employee with hundreds of historical handovers or unsubscribe
+        you from years of old newsletters.
       </Callout>
       <P>
-        Rules or instructions? A rule is exact: these conditions, these actions, every time. The
-        AI analysis instructions are the plain-language version — one line each, read by the
-        employee as each email arrives, and limited to starring, marking read, archiving,
-        labelling and safe unsubscribe. They work together: when both would unsubscribe from the
-        same email, the request is sent only once.
+        Rules or instructions? A rule is exact: these conditions, these actions, every time. The AI
+        analysis instructions are the plain-language version — one line each, read by the employee
+        as each email arrives, and limited to starring, marking read, archiving, labelling and safe
+        unsubscribe. They work together: when both would unsubscribe from the same email, the
+        request is sent only once.
       </P>
 
       <H3 id="routines">Rules vs. Routines</H3>
@@ -939,9 +949,9 @@ export function Email() {
 
       <H2 id="ai-tools">What employees can do with mail</H2>
       <P>
-        Granted employees get mail tools on the built-in <Code>genosyn</Code> MCP
-        surface to list accounts, search and read threads, write drafts, triage
-        (label / archive / mark read), edit existing drafts, propose Ask AI&apos;s{" "}
+        Granted employees get mail tools on the built-in <Code>genosyn</Code> MCP surface to list
+        accounts, search and read threads, write drafts, triage (label / archive / mark read), edit
+        existing drafts, propose Ask AI&apos;s{" "}
         <DocLink to="/docs/email#assistant">action buttons</DocLink>, and — with{" "}
         <Strong>send</Strong> access — send. Search runs over the same full-text index humans use
         and takes structured filters (sender, recipient, date range, label, has-attachment), so an
@@ -951,28 +961,27 @@ export function Email() {
         see what it did after the fact.
       </P>
       <P>
-        Email reads start small: <Code>get_mail_thread</Code> returns the newest five messages,
-        with up to 4,000 characters per body, and identifies older pages and shortened bodies.
-        Quoted history is omitted heuristically and marked as omitted. The employee can page
-        through older messages, use <Code>get_mail_message</Code> to continue a body, or explicitly
-        include quoted history. Each read reports its coverage, including when only a snippet is
-        available; the original stored email stays unchanged. If a synced body was shortened during
-        import, <Code>get_mail_message</Code> can read directly from the mailbox with{" "}
-        <Code>source: mailbox</Code>, returning bounded chunks and a body version so the employee can
-        detect changes between pages. This requires the original message to remain available and
+        Email reads start small: <Code>get_mail_thread</Code> returns the newest five messages, with
+        up to 4,000 characters per body, and identifies older pages and shortened bodies. Quoted
+        history is omitted heuristically and marked as omitted. The employee can page through older
+        messages, use <Code>get_mail_message</Code> to continue a body, or explicitly include quoted
+        history. Each read reports its coverage, including when only a snippet is available; the
+        original stored email stays unchanged. If a synced body was shortened during import,{" "}
+        <Code>get_mail_message</Code> can read directly from the mailbox with{" "}
+        <Code>source: mailbox</Code>, returning bounded chunks and a body version so the employee
+        can detect changes between pages. This requires the original message to remain available and
         does not mark it read or change its labels. Google Connection reads through{" "}
         <Code>gmail_get_message</Code> use the same compact body view by default, with explicit
         native Gmail formats still available.
       </P>
       <P>
         Employees can open a received file with <Code>read_mail_attachment</Code> using its message
-        and attachment index. Long extracted text is returned in bounded pages: the employee
-        follows the next text offset with the first page&apos;s attachment ID and text version until
-        the complete text has been read. Pages reuse the opened file, and mailbox Read access is
-        checked again on every page. Opening a file
-        does not decrypt protected email, and unavailable text must not be treated as an empty
-        document or a completed review. The returned attachment also works with the dedicated PDF,
-        Word and Excel readers.
+        and attachment index. Long extracted text is returned in bounded pages: the employee follows
+        the next text offset with the first page&apos;s attachment ID and text version until the
+        complete text has been read. Pages reuse the opened file, and mailbox Read access is checked
+        again on every page. Opening a file does not decrypt protected email, and unavailable text
+        must not be treated as an empty document or a completed review. The returned attachment also
+        works with the dedicated PDF, Word and Excel readers.
       </P>
       <P>
         An employee with Revenue Read access can use <Code>lookup_suppression</Code> to check an
@@ -980,8 +989,8 @@ export function Email() {
         suppressed, clear or unknown, with a matching Suppression (including unsubscribes and
         bounces) and any Contact do-not-contact flag. An unavailable source means unknown unless
         another source already proves the address is suppressed. Unknown never counts as clearance.
-        A clear result does not authorize a send:
-        mailbox Grants, company Policies and delivery reviews still apply.
+        A clear result does not authorize a send: mailbox Grants, company Policies and delivery
+        reviews still apply.
       </P>
       <P>
         Proactive email work has a stricter, server-owned boundary regardless of those general
@@ -995,9 +1004,9 @@ export function Email() {
       <Callout kind="warn" title="Disconnecting is safe.">
         Removing a mailbox from Genosyn deletes the local mirror, rules, AI handovers, and grants
         here. The mail itself and the underlying Connection are never touched — nothing is deleted
-        from your provider, and other surfaces on the same Connection keep working. Only an owner
-        or admin can disconnect: without the mailbox, the Google connector&apos;s{" "}
-        <Code>gmail_*</Code> tools stop following the levels above.
+        from your provider, and other surfaces on the same Connection keep working. Only an owner or
+        admin can disconnect: without the mailbox, the Google connector&apos;s <Code>gmail_*</Code>{" "}
+        tools stop following the levels above.
       </Callout>
     </>
   );

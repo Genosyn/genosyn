@@ -1,4 +1,17 @@
-import { Callout, Code, DocLink, ExtLink, H2, H3, LI, OL, P, PageHeader, Strong, UL } from "@/docs/Prose";
+import {
+  Callout,
+  Code,
+  DocLink,
+  ExtLink,
+  H2,
+  H3,
+  LI,
+  OL,
+  P,
+  PageHeader,
+  Strong,
+  UL,
+} from "@/docs/Prose";
 
 export function Meetings() {
   return (
@@ -12,10 +25,10 @@ export function Meetings() {
             up and your <DocLink to="/docs/employees">AI Employees</DocLink> can too. For Google
             Meet, a disclosed notetaker can join and record the call; for any meeting, you can
             upload audio or paste a transcript. Every meeting links to its{" "}
-            <DocLink to="/docs/customers">Customer</DocLink>, created if you don&apos;t have one yet.
-            Attendees who are already <DocLink to="/docs/revenue">Contacts</DocLink> get the call on
-            their timeline, and the assigned employee writes up what was decided and files the
-            follow-ups it promised.
+            <DocLink to="/docs/customers">Customer</DocLink>, created if you don&apos;t have one
+            yet. Attendees who are already <DocLink to="/docs/revenue">Contacts</DocLink> get the
+            call on their timeline, and the assigned employee writes up what was decided and files
+            the follow-ups it promised.
           </>
         }
       />
@@ -79,6 +92,65 @@ export function Meetings() {
         invitations — the event then shows up in this agenda like any other.
       </P>
 
+      <H2 id="agenda">The agenda</H2>
+      <P>
+        <Strong>Meetings → Agenda</Strong> lists the next seven days across every connected
+        calendar, grouped by day. Each row shows the start time and length, the call (Google Meet,
+        Zoom, Teams), how many people are invited and how they answered — accepted, maybe, awaiting
+        reply, declined — and whether a notetaker is set to join. A call in progress is marked{" "}
+        <Strong>Now</Strong>, and one starting within the hour says how soon. Use the arrows to move
+        a week at a time and <Strong>Today</Strong> to come back, and the search box to find an
+        event by its title, its place, or anyone on the invite.
+      </P>
+      <P>Press a row to open it in place. You see:</P>
+      <UL>
+        <LI>
+          <Strong>Everyone on the invite</Strong> — name, email address, and their reply. The
+          organizer and optional guests are labelled. An attendee who is already a{" "}
+          <DocLink to="/docs/revenue">Contact</DocLink> has their name linked to their Contact page.
+          On a larger meeting, the replies above the list filter it, so &quot;who declined&quot; is
+          one press.
+        </LI>
+        <LI>
+          <Strong>The details</Strong> — when, who organized it, where, the call, and the
+          invite&apos;s own notes.
+        </LI>
+        <LI>
+          <Strong>Where to go next</Strong> — <Strong>Open meeting</Strong> (its notes, recording
+          and transcript, once Genosyn keeps a meeting for the event), <Strong>Join call</Strong>,
+          and <Strong>Open in Google Calendar</Strong>.
+        </LI>
+      </UL>
+      <P>
+        The open event is part of the page address, so you can share a link straight to it, and a
+        meeting&apos;s own page links back to its event with <Strong>On the agenda</Strong>.
+      </P>
+
+      <H3 id="email-attendees">Emailing attendees</H3>
+      <P>
+        <Strong>Email attendees</Strong> opens a new message to everyone on the invite without
+        leaving the agenda. The arrow beside it writes only to{" "}
+        <Strong>who accepted or said maybe</Strong>, or only to{" "}
+        <Strong>who hasn&apos;t replied</Strong>. The envelope on each attendee writes to just them,
+        and the envelope on a row writes to everyone without opening it. The copy button puts every
+        address on your clipboard instead.
+      </P>
+      <P>
+        The message starts with the meeting&apos;s title as its subject, and its date, time and join
+        link under the space where you write. Your own calendar address is left out. It is the same{" "}
+        <DocLink to="/docs/email">New message</DocLink> window as in Email: add or remove
+        recipients, Cc and Bcc, and attach files with <Strong>Attach</Strong>, by dropping them in,
+        or by pasting. It sends from the mailbox you last used in Email; with more than one
+        connected, a <Strong>From</Strong> picker lets you choose. Once it has gone, the agenda says
+        so with a link to the conversation in Email, where replies arrive.
+      </P>
+      <P>
+        With no mailbox connected, the window offers <Strong>Connect a mailbox</Strong>, or{" "}
+        <Strong>Use my mail app</Strong> to hand the same recipients, subject and message to your
+        computer&apos;s mail app. A meeting&apos;s page has the same <Strong>Email</Strong> button
+        above its attendees.
+      </P>
+
       <H2 id="recording">Capturing a meeting</H2>
       <P>
         Open any meeting from <Strong>Meetings → Recorded</Strong>, or press{" "}
@@ -111,14 +183,14 @@ export function Meetings() {
         A Google Meet the notetaker joined is transcribed by Meet itself. The notetaker turns on
         Meet&apos;s live captions, which only it sees, and keeps every line under the name of the
         person who said it. That transcript needs no speech-to-text model, so a call reaches the
-        customer&apos;s timeline even when none of your AI Models can transcribe. Meet captions
-        in its caption language, English by default; for a call held in another language, set
+        customer&apos;s timeline even when none of your AI Models can transcribe. Meet captions in
+        its caption language, English by default; for a call held in another language, set
         Meet&apos;s caption language to match during the call.
       </P>
       <P>
         Uploaded recordings, and joined calls where no captions appeared, are transcribed instead.
-        That transcription has <Strong>no credential of its own</Strong>. It borrows the assigned
-        AI Employee&apos;s own <DocLink to="/docs/models">AI Model</DocLink>:
+        That transcription has <Strong>no credential of its own</Strong>. It borrows the assigned AI
+        Employee&apos;s own <DocLink to="/docs/models">AI Model</DocLink>:
       </P>
       <UL>
         <LI>
@@ -174,13 +246,12 @@ export function Meetings() {
         Shortly before a qualifying meeting starts, Genosyn opens its Google Meet link under the
         selected employee&apos;s name followed by <Code>(AI notetaker — recording)</Code>. It
         dismisses Google&apos;s pre-join prompts, keeps its microphone and camera off, types its
-        name and asks to join the way a person would (Google checks that a guest is not a bot
-        before it passes the request to the host), and waits to
-        be admitted for as long as the call is scheduled to run (up to 30 minutes), asking again if
-        Google times its first request out — so a host who joins late still gets a notetaker. Then
-        it captures the call audio inside the App container, turns on Meet&apos;s live captions in
-        its own view of the call, and stores the recording with those captions as the
-        meeting&apos;s transcript when the call ends (see{" "}
+        name and asks to join the way a person would (Google checks that a guest is not a bot before
+        it passes the request to the host), and waits to be admitted for as long as the call is
+        scheduled to run (up to 30 minutes), asking again if Google times its first request out — so
+        a host who joins late still gets a notetaker. Then it captures the call audio inside the App
+        container, turns on Meet&apos;s live captions in its own view of the call, and stores the
+        recording with those captions as the meeting&apos;s transcript when the call ends (see{" "}
         <DocLink to="/docs/meetings#transcription">Where transcription runs</DocLink>). The
         notetaker does not turn on a camera or present itself as a human attendee.
       </P>
@@ -213,8 +284,8 @@ export function Meetings() {
         actually accepted the join request.
       </P>
       <P>
-        If joining fails, the meeting page says which step it stopped at: Meet never offered an
-        Ask to join button, the request was sent but Meet did not confirm it reached the host, or a
+        If joining fails, the meeting page says which step it stopped at: Meet never offered an Ask
+        to join button, the request was sent but Meet did not confirm it reached the host, or a
         confirmed lobby wait expired without admission. The failed attempt closes its browser, so
         there is no notetaker left to admit. Correct the reported problem, then press
         <Strong> Start notetaker</Strong> again while the host is in the call.
@@ -249,11 +320,13 @@ export function Meetings() {
       <P>
         As soon as a meeting has someone from outside the company on it, Genosyn links it to one{" "}
         <DocLink to="/docs/customers">Customer</DocLink>, whether you created the meeting, added
-        attendees later, or the notetaker armed it from a calendar. The meeting&apos;s page names the
-        customer in its header and on a <Strong>Customer</Strong> card, and the customer&apos;s{" "}
+        attendees later, or the notetaker armed it from a calendar. The meeting&apos;s page names
+        the customer in its header and on a <Strong>Customer</Strong> card, and the customer&apos;s{" "}
         <Strong>Meetings</Strong> tab lists the meeting, so you can go either way.
       </P>
-      <P>It picks the account most of the outside attendees belong to, by looking for each of them:</P>
+      <P>
+        It picks the account most of the outside attendees belong to, by looking for each of them:
+      </P>
       <UL>
         <LI>a Contact linked to an account;</LI>
         <LI>an account, or one of its billing contacts, with that exact address;</LI>
@@ -279,9 +352,9 @@ export function Meetings() {
       </Callout>
       <P>
         To set it yourself, press <Strong>Change</Strong> or <Strong>Link</Strong> on the card, and
-        choose a customer or <Strong>Remove link</Strong>. Your choice is final: Genosyn stops working
-        that meeting&apos;s customer out from its attendees, so a removed link stays removed. Merging
-        two customers takes their meetings along.
+        choose a customer or <Strong>Remove link</Strong>. Your choice is final: Genosyn stops
+        working that meeting&apos;s customer out from its attendees, so a removed link stays
+        removed. Merging two customers takes their meetings along.
       </P>
       <P>
         Meetings made before this existed keep what they had until someone adds an attendee, presses{" "}
@@ -294,8 +367,9 @@ export function Meetings() {
       <P>
         When a transcript lands, Genosyn matches attendee addresses against your existing Contacts
         and writes the call onto the matching Contact, Deal, and account timelines as a{" "}
-        <Strong>meeting</Strong> activity, with an <Strong>Open meeting</Strong> link back to it. When
-        no Contact&apos;s row reaches the meeting&apos;s customer, the customer gets a row of its own.
+        <Strong>meeting</Strong> activity, with an <Strong>Open meeting</Strong> link back to it.
+        When no Contact&apos;s row reaches the meeting&apos;s customer, the customer gets a row of
+        its own.
       </P>
       <P>
         It <Strong>links to Contacts that already exist and never creates one</Strong>. This is the
@@ -352,10 +426,10 @@ export function Meetings() {
       <P>The tools an employee gets, once granted:</P>
       <UL>
         <LI>
-          <Code>list_meetings</Code> — recorded and upcoming calls, filterable by account,
-          Contact or date, which is how it answers &quot;when did we last speak to them&quot;. It
-          pages through every meeting on the calendars the employee holds a Grant to, and says how
-          many more match on calendars it does not.
+          <Code>list_meetings</Code> — recorded and upcoming calls, filterable by account, Contact
+          or date, which is how it answers &quot;when did we last speak to them&quot;. It pages
+          through every meeting on the calendars the employee holds a Grant to, and says how many
+          more match on calendars it does not.
         </LI>
         <LI>
           <Code>get_meeting</Code> — attendees, the summary, and the action items already filed.
